@@ -11,6 +11,7 @@ import { TemplateBrowser } from './components/TemplateBrowser';
 import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/client';
 import { RunDialog } from './components/RunDialog';
 import { GenerateDialog } from './components/GenerateDialog';
+import { PluginPanel } from './components/PluginPanel';
 import { tokens } from './components/ui/styles';
 
 function App() {
@@ -31,6 +32,7 @@ function App() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [showRunDialog, setShowRunDialog] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
+  const [showPlugins, setShowPlugins] = useState(false);
 
   const stepStatuses = useMemo(() => {
     if (!execution) return {};
@@ -188,6 +190,17 @@ function App() {
             </span>
             <div style={{ flex: 1 }} />
             <button
+              onClick={() => setShowPlugins(true)}
+              style={{
+                padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`,
+                backgroundColor: 'transparent', color: tokens.text.muted,
+                cursor: 'pointer', fontFamily: tokens.font.sans,
+              }}
+            >
+              Plugins
+            </button>
+            <button
               onClick={handleSave}
               disabled={!dirty}
               style={{
@@ -259,6 +272,11 @@ function App() {
             onGenerated={(wf) => { loadWorkflow(wf); setShowGenerate(false); }}
             onClose={() => setShowGenerate(false)}
           />
+        )}
+
+        {/* Plugin panel */}
+        {showPlugins && (
+          <PluginPanel onClose={() => setShowPlugins(false)} />
         )}
       </div>
     </ReactFlowProvider>

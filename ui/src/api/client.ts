@@ -91,6 +91,26 @@ export const resumeExecution = (id: string) =>
 export const pauseExecution = (id: string) =>
   request<{ ok: boolean }>(`/executions/${id}/pause`, { method: 'POST' });
 
+// Plugins
+export interface PluginInfo {
+  name: string;
+  version: string;
+  source: string;
+  nodeTypes: string[];
+  tools: string[];
+}
+
+export interface NodeTypeInfo {
+  type: string;
+  isBuiltIn: boolean;
+  source: string;
+}
+
+export const listPlugins = () => request<PluginInfo[]>('/plugins');
+export const loadPlugin = (specifier: string) =>
+  request<PluginInfo>('/plugins/load', { method: 'POST', body: JSON.stringify({ specifier }) });
+export const listNodeTypes = () => request<NodeTypeInfo[]>('/node-types');
+
 // AI Generation
 export const generateWorkflow = (prompt: string) =>
   request<WorkflowDefinition>('/generate/workflow', { method: 'POST', body: JSON.stringify({ prompt }) });
