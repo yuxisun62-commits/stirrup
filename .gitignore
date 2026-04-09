@@ -10,3 +10,4 @@ src/ui/dist/
 .claude/
 .stirrup.json
 workflows/
+plugins/premium/
