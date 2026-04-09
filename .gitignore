@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.env
+executions/
+src/ui/dist/
+stirrup.db
+workflow-harness.db
+.claude/
+.stirrup.json
+workflows/

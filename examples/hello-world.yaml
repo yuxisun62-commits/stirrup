@@ -1,0 +1,64 @@
+id: hello-world
+name: Hello World Pipeline
+version: "1.0"
+description: A simple linear workflow demonstrating transforms and conditions
+
+context:
+  greeting: "Hello"
+  name: "World"
+
+nodes:
+  - id: combine
+    type: transform
+    name: Combine greeting
+    inputs:
+      - from: context.greeting
+        to: greeting
+      - from: context.name
+        to: name
+    outputs: [message]
+    config:
+      expression: "({ message: inputs.greeting + ', ' + inputs.name + '!' })"
+
+  - id: check-length
+    type: condition
+    name: Check message length
+    inputs:
+      - from: nodes.combine.outputs.message
+        to: message
+    outputs: [selectedBranch]
+    config:
+      expression: "inputs.message.length > 20 ? 'long' : 'short'"
+    branches:
+      long: [format-long]
+      short: [format-short]
+
+  - id: format-long
+    type: transform
+    name: Format long message
+    inputs:
+      - from: nodes.combine.outputs.message
+        to: message
+    outputs: [result]
+    config:
+      expression: "({ result: inputs.message.toUpperCase() })"
+
+  - id: format-short
+    type: transform
+    name: Format short message
+    inputs:
+      - from: nodes.combine.outputs.message
+        to: message
+    outputs: [result]
+    config:
+      expression: "({ result: '>>> ' + inputs.message + ' <<<' })"
+
+edges:
+  - from: combine
+    to: check-length
+  - from: check-length
+    to: format-long
+    condition: long
+  - from: check-length
+    to: format-short
+    condition: short

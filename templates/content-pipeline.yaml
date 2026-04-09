@@ -1,0 +1,177 @@
+id: content-pipeline
+name: AI Content Generation Pipeline
+version: "1.0"
+description: Research a topic, generate a draft, review quality, and produce a final polished article
+
+params:
+  - name: topic
+    type: string
+    description: "The topic to write about"
+    required: true
+  - name: audience
+    type: string
+    description: "Target audience"
+    required: true
+    default: "software engineers"
+  - name: tone
+    type: string
+    description: "Writing tone/style"
+    default: "technical but approachable"
+
+context:
+  topic: "AI workflow automation"
+  audience: "software engineers"
+  tone: "technical but approachable"
+
+nodes:
+  - id: research
+    type: llm-prompt
+    name: Research Topic
+    inputs:
+      - from: context.topic
+        to: topic
+      - from: context.audience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Research the topic "{{topic}}" for an audience of {{audience}}.
+
+        Provide:
+        1. Key concepts and definitions
+        2. Current state of the art
+        3. Common challenges and solutions
+        4. 3-5 specific examples or case studies
+        5. Relevant statistics or data points
+
+        Format as structured notes that can inform article writing.
+      systemPrompt: "You are a technical researcher. Provide accurate, detailed, and well-organized research notes."
+      responseFormat: text
+      maxTokens: 3000
+
+  - id: generate-outline
+    type: llm-prompt
+    name: Generate Article Outline
+    inputs:
+      - from: nodes.research.outputs.response
+        to: research
+      - from: context.topic
+        to: topic
+      - from: context.audience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Based on this research, create a detailed article outline about "{{topic}}" for {{audience}}:
+
+        Research:
+        {{research}}
+
+        Create an outline with:
+        - A compelling title
+        - Introduction hook
+        - 4-6 main sections with subsections
+        - Key points for each section
+        - Conclusion with takeaways
+      systemPrompt: "You are a technical content strategist. Create outlines that flow logically and engage the reader."
+      responseFormat: text
+
+  - id: write-draft
+    type: llm-prompt
+    name: Write First Draft
+    inputs:
+      - from: nodes.generate-outline.outputs.response
+        to: outline
+      - from: nodes.research.outputs.response
+        to: research
+      - from: context.tone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a complete article following this outline. Tone: {{tone}}.
+
+        Outline:
+        {{outline}}
+
+        Research notes:
+        {{research}}
+
+        Write the full article with proper markdown formatting. Include code examples where relevant.
+      systemPrompt: "You are a skilled technical writer. Write clear, engaging content with practical examples."
+      maxTokens: 4096
+
+  - id: quality-review
+    type: decision-routing
+    name: Quality Review
+    inputs:
+      - from: nodes.write-draft.outputs.response
+        to: draft
+    outputs: [selectedBranch]
+    config:
+      promptTemplate: |
+        Review this article draft for quality:
+        {{draft}}
+
+        Evaluate: clarity, accuracy, completeness, engagement, and technical depth.
+        Is this ready for publication or does it need revision?
+      branches:
+        publish: "The article is well-written, accurate, complete, and ready for publication"
+        revise: "The article has significant gaps, unclear sections, or quality issues requiring revision"
+    branches:
+      publish: [format-final]
+      revise: [revise-draft]
+
+  - id: revise-draft
+    type: llm-prompt
+    name: Revise Draft
+    inputs:
+      - from: nodes.write-draft.outputs.response
+        to: draft
+      - from: nodes.research.outputs.response
+        to: research
+    outputs: [response]
+    config:
+      promptTemplate: |
+        This article draft needs improvement. Revise it to be more polished:
+
+        {{draft}}
+
+        Reference research:
+        {{research}}
+
+        Improve clarity, add missing details, strengthen examples, and ensure a smooth reading experience.
+      maxTokens: 4096
+
+  - id: format-final
+    type: transform
+    name: Format Final Output
+    inputs:
+      - from: nodes.write-draft.outputs.response
+        to: article
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: inputs.article,
+          wordCount: inputs.article.split(/\s+/).length,
+          readingTime: Math.ceil(inputs.article.split(/\s+/).length / 200) + ' min'
+        })
+
+edges:
+  - from: research
+    to: generate-outline
+  - from: generate-outline
+    to: write-draft
+  - from: research
+    to: write-draft
+  - from: write-draft
+    to: quality-review
+  - from: quality-review
+    to: format-final
+    condition: publish
+  - from: quality-review
+    to: revise-draft
+    condition: revise
+  - from: revise-draft
+    to: format-final

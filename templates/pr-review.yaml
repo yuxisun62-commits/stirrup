@@ -1,0 +1,165 @@
+id: pr-review
+name: Pull Request Review Pipeline
+version: "1.0"
+description: Fetches a PR diff, runs AI code review, checks for issues, and posts a summary
+
+params:
+  - name: repo
+    type: string
+    description: "GitHub repository (owner/repo)"
+    required: true
+  - name: prNumber
+    type: number
+    description: "Pull request number"
+    required: true
+  - name: token
+    type: string
+    description: "GitHub personal access token"
+    required: true
+
+triggers:
+  http:
+    path: /pr-review
+    method: POST
+  webhook:
+    source: github
+    events:
+      - pull_request.opened
+      - pull_request.synchronize
+
+context:
+  repo: ""
+  prNumber: 0
+
+nodes:
+  - id: fetch-pr
+    type: http
+    name: Fetch PR Details
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.prNumber
+        to: pr
+    outputs: [title, body, diff, files]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/pulls/{{pr}}"
+      method: GET
+      headers:
+        Accept: "application/vnd.github.v3.diff"
+        Authorization: "Bearer {{token}}"
+
+  - id: analyze-diff
+    type: llm-prompt
+    name: Analyze Code Changes
+    inputs:
+      - from: nodes.fetch-pr.outputs.diff
+        to: diff
+      - from: nodes.fetch-pr.outputs.title
+        to: title
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Review this pull request titled "{{title}}".
+
+        Analyze the diff below for:
+        1. Potential bugs or logic errors
+        2. Security vulnerabilities
+        3. Performance concerns
+        4. Code style issues
+        5. Missing error handling
+
+        Diff:
+        {{diff}}
+
+        Provide a structured review with severity levels (critical, warning, info) for each finding.
+      systemPrompt: "You are an expert code reviewer. Be thorough but constructive. Focus on issues that matter."
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: check-severity
+    type: decision-routing
+    name: Check Review Severity
+    inputs:
+      - from: nodes.analyze-diff.outputs.response
+        to: review
+    outputs: [selectedBranch]
+    config:
+      promptTemplate: |
+        Based on this code review, determine the overall severity:
+        {{review}}
+
+        Are there any critical issues that must be fixed before merge?
+      branches:
+        critical: "There are critical bugs, security issues, or breaking changes that block merging"
+        clean: "No critical issues found - minor suggestions only"
+    branches:
+      critical: [format-blocking]
+      clean: [format-approval]
+
+  - id: format-blocking
+    type: transform
+    name: Format Blocking Review
+    inputs:
+      - from: nodes.analyze-diff.outputs.response
+        to: review
+    outputs: [comment]
+    config:
+      expression: |
+        ({
+          comment: '## :x: Changes Requested\n\n' +
+            'Critical issues found that must be addressed before merging.\n\n' +
+            JSON.stringify(inputs.review, null, 2),
+          action: 'REQUEST_CHANGES'
+        })
+
+  - id: format-approval
+    type: transform
+    name: Format Approval
+    inputs:
+      - from: nodes.analyze-diff.outputs.response
+        to: review
+    outputs: [comment]
+    config:
+      expression: |
+        ({
+          comment: '## :white_check_mark: Looks Good\n\n' +
+            'No critical issues found.\n\n' +
+            JSON.stringify(inputs.review, null, 2),
+          action: 'APPROVE'
+        })
+
+  - id: post-review
+    type: http
+    name: Post Review Comment
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.prNumber
+        to: pr
+      - from: nodes.format-blocking.outputs.comment
+        to: blockingComment
+      - from: nodes.format-approval.outputs.comment
+        to: approvalComment
+    outputs: [status]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/pulls/{{pr}}/reviews"
+      method: POST
+      headers:
+        Authorization: "Bearer {{token}}"
+        Accept: "application/vnd.github.v3+json"
+
+edges:
+  - from: fetch-pr
+    to: analyze-diff
+  - from: analyze-diff
+    to: check-severity
+  - from: check-severity
+    to: format-blocking
+    condition: critical
+  - from: check-severity
+    to: format-approval
+    condition: clean
+  - from: format-blocking
+    to: post-review
+  - from: format-approval
+    to: post-review

@@ -1,0 +1,191 @@
+id: incident-triage
+name: Incident Triage & Response
+version: "1.0"
+description: Analyze an incident alert, classify severity, run diagnostics, and create a response plan
+
+params:
+  - name: alertMessage
+    type: string
+    description: "The alert message or description"
+    required: true
+  - name: service
+    type: string
+    description: "Affected service name"
+    required: true
+  - name: environment
+    type: string
+    description: "Environment (production, staging, etc.)"
+    default: "production"
+
+context:
+  alertMessage: "High latency detected on /api/users endpoint"
+  service: "user-service"
+  environment: "production"
+
+nodes:
+  - id: parse-alert
+    type: transform
+    name: Parse Alert
+    inputs:
+      - from: context.alertMessage
+        to: message
+      - from: context.service
+        to: service
+      - from: context.environment
+        to: env
+    outputs: [alert]
+    config:
+      expression: |
+        ({
+          alert: {
+            message: inputs.message,
+            service: inputs.service,
+            environment: inputs.env,
+            receivedAt: new Date().toISOString()
+          }
+        })
+
+  - id: classify-severity
+    type: decision-routing
+    name: Classify Severity
+    inputs:
+      - from: nodes.parse-alert.outputs.alert
+        to: alert
+    outputs: [selectedBranch]
+    config:
+      promptTemplate: |
+        Classify the severity of this production incident:
+
+        Alert: {{alert}}
+
+        Consider:
+        - User impact (is the service completely down or degraded?)
+        - Data integrity risk
+        - Scope of affected systems
+        - Time sensitivity
+      branches:
+        p1: "Critical - service down, widespread user impact, data at risk"
+        p2: "High - degraded performance, partial impact, needs prompt attention"
+        p3: "Medium - minor degradation, limited impact, can be scheduled"
+    branches:
+      p1: [run-diagnostics, page-oncall]
+      p2: [run-diagnostics]
+      p3: [run-diagnostics]
+
+  - id: page-oncall
+    type: http
+    name: Page On-Call Engineer
+    inputs:
+      - from: nodes.parse-alert.outputs.alert
+        to: alert
+    outputs: [status]
+    config:
+      url: "https://api.pagerduty.com/incidents"
+      method: POST
+      headers:
+        Authorization: "Token token={{pdToken}}"
+        Content-Type: "application/json"
+
+  - id: run-diagnostics
+    type: agent-tool-use
+    name: Run Diagnostics
+    inputs:
+      - from: nodes.parse-alert.outputs.alert
+        to: alert
+    outputs: [response]
+    config:
+      systemPrompt: |
+        You are an SRE diagnostic agent. Use the available tools to investigate the incident.
+        Check logs, metrics, and recent deployments to identify the root cause.
+      taskTemplate: |
+        Investigate this incident:
+        {{alert}}
+
+        Steps:
+        1. Check recent error logs for the affected service
+        2. Look at latency and error rate metrics
+        3. Check for recent deployments or config changes
+        4. Identify the most likely root cause
+      tools:
+        - check-logs
+        - query-metrics
+        - list-deployments
+      maxIterations: 5
+      maxTokens: 4096
+
+  - id: create-response-plan
+    type: llm-prompt
+    name: Create Response Plan
+    inputs:
+      - from: nodes.run-diagnostics.outputs.response
+        to: diagnosis
+      - from: nodes.parse-alert.outputs.alert
+        to: alert
+      - from: nodes.classify-severity.outputs.selectedBranch
+        to: severity
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Based on the incident diagnosis, create an actionable response plan.
+
+        Severity: {{severity}}
+        Alert: {{alert}}
+        Diagnosis: {{diagnosis}}
+
+        Include:
+        1. Immediate mitigation steps
+        2. Root cause fix
+        3. Validation steps to confirm resolution
+        4. Follow-up actions (post-mortem, monitoring improvements)
+      systemPrompt: "You are an experienced SRE. Create clear, prioritized action plans."
+      responseFormat: text
+      maxTokens: 2000
+
+  - id: format-summary
+    type: transform
+    name: Format Incident Summary
+    inputs:
+      - from: nodes.create-response-plan.outputs.response
+        to: plan
+      - from: nodes.classify-severity.outputs.selectedBranch
+        to: severity
+      - from: nodes.run-diagnostics.outputs.response
+        to: diagnosis
+      - from: nodes.parse-alert.outputs.alert
+        to: alert
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: {
+            title: 'Incident: ' + inputs.alert.message,
+            severity: inputs.severity.toUpperCase(),
+            service: inputs.alert.service,
+            diagnosis: inputs.diagnosis,
+            responsePlan: inputs.plan,
+            createdAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  - from: parse-alert
+    to: classify-severity
+  - from: classify-severity
+    to: run-diagnostics
+  - from: classify-severity
+    to: page-oncall
+    condition: p1
+  - from: run-diagnostics
+    to: create-response-plan
+  - from: classify-severity
+    to: create-response-plan
+  - from: parse-alert
+    to: create-response-plan
+  - from: create-response-plan
+    to: format-summary
+  - from: classify-severity
+    to: format-summary
+  - from: run-diagnostics
+    to: format-summary
+  - from: parse-alert
+    to: format-summary

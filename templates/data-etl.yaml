@@ -1,0 +1,121 @@
+id: data-etl
+name: Data ETL Pipeline
+version: "1.0"
+description: Extract data from an API, transform it with AI-powered enrichment, and load to destination
+
+context:
+  sourceUrl: "https://api.example.com/data"
+  batchSize: 100
+
+nodes:
+  - id: extract
+    type: http
+    name: Extract Source Data
+    inputs:
+      - from: context.sourceUrl
+        to: url
+      - from: context.batchSize
+        to: limit
+    outputs: [status, body]
+    config:
+      url: "{{url}}?limit={{limit}}"
+      method: GET
+      headers:
+        Accept: "application/json"
+
+  - id: validate
+    type: script
+    name: Validate & Clean Data
+    inputs:
+      - from: nodes.extract.outputs.body
+        to: rawData
+    outputs: [result]
+    config:
+      code: |
+        const data = Array.isArray(inputs.rawData) ? inputs.rawData : [inputs.rawData];
+        const valid = [];
+        const invalid = [];
+        for (const item of data) {
+          if (item && item.id) {
+            valid.push({
+              ...item,
+              id: String(item.id).trim(),
+              name: (item.name || '').trim(),
+              timestamp: item.timestamp || new Date().toISOString()
+            });
+          } else {
+            invalid.push(item);
+          }
+        }
+        result = { records: valid, invalidCount: invalid.length, totalCount: data.length };
+      timeoutMs: 10000
+
+  - id: enrich
+    type: llm-prompt
+    name: AI Data Enrichment
+    inputs:
+      - from: nodes.validate.outputs.result
+        to: data
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Analyze and enrich this dataset. For each record, add:
+        - A category classification
+        - A sentiment score (1-5)
+        - Key entities mentioned
+
+        Data (first 10 records):
+        {{data}}
+
+        Return as JSON array with original fields plus the enrichment fields.
+      systemPrompt: "You are a data analyst. Classify and enrich data accurately. Return valid JSON."
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: aggregate
+    type: transform
+    name: Aggregate Results
+    inputs:
+      - from: nodes.enrich.outputs.response
+        to: enrichedData
+      - from: nodes.validate.outputs.result
+        to: validation
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: {
+            enrichedRecords: inputs.enrichedData,
+            stats: {
+              totalExtracted: inputs.validation.totalCount,
+              validRecords: inputs.validation.records.length,
+              invalidRecords: inputs.validation.invalidCount,
+              enrichedAt: new Date().toISOString()
+            }
+          }
+        })
+
+  - id: load
+    type: http
+    name: Load to Destination
+    inputs:
+      - from: nodes.aggregate.outputs.result
+        to: payload
+    outputs: [status, body]
+    config:
+      url: "https://api.example.com/warehouse/ingest"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+
+edges:
+  - from: extract
+    to: validate
+  - from: validate
+    to: enrich
+  - from: enrich
+    to: aggregate
+  - from: validate
+    to: aggregate
+  - from: aggregate
+    to: load

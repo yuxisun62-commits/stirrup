@@ -1,0 +1,43 @@
+# Source (dist/ is published, src/ is not)
+src/
+ui/src/
+ui/node_modules/
+ui/package.json
+ui/tsconfig.json
+ui/tsconfig.*.json
+ui/vite.config.ts
+ui/index.html
+ui/public/
+
+# Dev files
+test/
+.claude/
+*.tsbuildinfo
+vitest.config.ts
+tsconfig.json
+.env
+.env.*
+
+# State
+workflow-harness.db
+executions/
+
+# Git
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Keep these (NOT ignored)
+# dist/
+# bin/
+# schemas/
+# templates/
+# src/ui/dist/
+# LICENSE
+# README.md
+# AGENT-USAGE.md
+# CONTRIBUTING.md
+# package.json

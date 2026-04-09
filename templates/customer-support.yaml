@@ -1,0 +1,163 @@
+id: customer-support
+name: Customer Support Automation
+version: "1.0"
+description: Classify incoming support tickets, route to the right team, and generate initial responses
+
+params:
+  - name: ticketSubject
+    type: string
+    description: "Support ticket subject line"
+    required: true
+  - name: ticketBody
+    type: string
+    description: "Support ticket body/message"
+    required: true
+  - name: customerTier
+    type: string
+    description: "Customer tier (free, premium, enterprise)"
+    default: "free"
+
+context:
+  ticketSubject: "Unable to login after password reset"
+  ticketBody: "I reset my password yesterday but now I keep getting 'invalid credentials' when trying to log in. I've tried clearing cookies and using a different browser."
+  customerTier: "premium"
+
+nodes:
+  - id: classify-ticket
+    type: decision-routing
+    name: Classify Ticket Category
+    inputs:
+      - from: context.ticketSubject
+        to: subject
+      - from: context.ticketBody
+        to: body
+    outputs: [selectedBranch]
+    config:
+      promptTemplate: |
+        Classify this support ticket into the appropriate category:
+
+        Subject: {{subject}}
+        Body: {{body}}
+      branches:
+        auth: "Authentication, login, password, SSO, MFA, or account access issues"
+        billing: "Payment, subscription, invoice, pricing, or refund issues"
+        technical: "Bugs, errors, performance, API, or integration issues"
+        feature: "Feature requests, how-to questions, or product feedback"
+    branches:
+      auth: [analyze-auth]
+      billing: [generate-response]
+      technical: [generate-response]
+      feature: [generate-response]
+
+  - id: analyze-auth
+    type: agent-tool-use
+    name: Investigate Auth Issue
+    inputs:
+      - from: context.ticketBody
+        to: description
+    outputs: [response]
+    config:
+      systemPrompt: |
+        You are a support engineer investigating authentication issues.
+        Use the available tools to check the user's account status and recent auth events.
+      taskTemplate: |
+        A user reported this authentication issue:
+        {{description}}
+
+        Investigate:
+        1. Check if the password was successfully reset
+        2. Look for failed login attempts
+        3. Check if the account is locked
+        4. Verify MFA settings
+      tools:
+        - check-account-status
+        - query-auth-logs
+        - check-mfa-settings
+      maxIterations: 5
+
+  - id: assess-priority
+    type: transform
+    name: Assess Priority
+    inputs:
+      - from: context.customerTier
+        to: tier
+      - from: nodes.classify-ticket.outputs.selectedBranch
+        to: category
+    outputs: [priority]
+    config:
+      expression: |
+        ({
+          priority: inputs.tier === 'premium' || inputs.tier === 'enterprise'
+            ? (inputs.category === 'auth' ? 'urgent' : 'high')
+            : (inputs.category === 'auth' ? 'high' : 'normal')
+        })
+
+  - id: generate-response
+    type: llm-prompt
+    name: Draft Response
+    inputs:
+      - from: context.ticketSubject
+        to: subject
+      - from: context.ticketBody
+        to: body
+      - from: nodes.classify-ticket.outputs.selectedBranch
+        to: category
+      - from: nodes.assess-priority.outputs.priority
+        to: priority
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Draft a helpful customer support response for this ticket:
+
+        Category: {{category}}
+        Priority: {{priority}}
+        Subject: {{subject}}
+        Message: {{body}}
+
+        Be empathetic, provide clear next steps, and include relevant troubleshooting instructions.
+        If this is a premium customer, acknowledge their tier and prioritize their issue.
+      systemPrompt: "You are a friendly, knowledgeable support agent. Write clear, helpful responses."
+      maxTokens: 1000
+
+  - id: package-response
+    type: transform
+    name: Package Ticket Response
+    inputs:
+      - from: nodes.generate-response.outputs.response
+        to: draftResponse
+      - from: nodes.classify-ticket.outputs.selectedBranch
+        to: category
+      - from: nodes.assess-priority.outputs.priority
+        to: priority
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: {
+            category: inputs.category,
+            priority: inputs.priority,
+            response: inputs.draftResponse,
+            routeTo: inputs.category === 'auth' ? 'security-team' : inputs.category + '-team',
+            autoReply: inputs.priority !== 'urgent',
+            createdAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  - from: classify-ticket
+    to: analyze-auth
+    condition: auth
+  - from: classify-ticket
+    to: assess-priority
+  - from: classify-ticket
+    to: generate-response
+  - from: assess-priority
+    to: generate-response
+  - from: analyze-auth
+    to: generate-response
+  - from: generate-response
+    to: package-response
+  - from: classify-ticket
+    to: package-response
+  - from: assess-priority
+    to: package-response

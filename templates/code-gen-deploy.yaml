@@ -1,0 +1,183 @@
+id: code-gen-deploy
+name: AI Code Generation & Validation
+version: "1.0"
+description: Generate code from a spec, run tests, review quality, and produce deployment-ready output
+
+context:
+  spec: "Create a REST API endpoint that validates email addresses and returns deliverability scores"
+  language: "typescript"
+  framework: "express"
+
+nodes:
+  - id: analyze-spec
+    type: llm-prompt
+    name: Analyze Requirements
+    inputs:
+      - from: context.spec
+        to: spec
+      - from: context.language
+        to: language
+      - from: context.framework
+        to: framework
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Analyze this software specification and produce detailed technical requirements:
+
+        Spec: {{spec}}
+        Language: {{language}}
+        Framework: {{framework}}
+
+        Provide:
+        1. API endpoint design (method, path, request/response schemas)
+        2. Input validation rules
+        3. Error handling requirements
+        4. Edge cases to handle
+        5. Dependencies needed
+      systemPrompt: "You are a senior software architect. Be precise and thorough in requirement analysis."
+      responseFormat: json
+      maxTokens: 2000
+
+  - id: generate-code
+    type: code-generation
+    name: Generate Implementation
+    inputs:
+      - from: nodes.analyze-spec.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs: [code, executed, executionResult]
+    config:
+      promptTemplate: |
+        Based on these requirements, generate a complete implementation:
+
+        {{requirements}}
+
+        Include:
+        - Full implementation with proper error handling
+        - Input validation
+        - Type definitions
+        - JSDoc comments
+      language: typescript
+      execute: false
+      maxTokens: 4096
+
+  - id: generate-tests
+    type: code-generation
+    name: Generate Test Suite
+    inputs:
+      - from: nodes.analyze-spec.outputs.response
+        to: requirements
+      - from: nodes.generate-code.outputs.code
+        to: implementation
+    outputs: [code, executed, executionResult]
+    config:
+      promptTemplate: |
+        Generate a comprehensive test suite for this implementation:
+
+        Requirements:
+        {{requirements}}
+
+        Implementation:
+        {{implementation}}
+
+        Include:
+        - Unit tests for all functions
+        - Edge case tests
+        - Error handling tests
+        - Integration test examples
+      language: typescript
+      execute: false
+      maxTokens: 4096
+
+  - id: code-review
+    type: decision-routing
+    name: AI Code Review
+    inputs:
+      - from: nodes.generate-code.outputs.code
+        to: code
+      - from: nodes.generate-tests.outputs.code
+        to: tests
+    outputs: [selectedBranch]
+    config:
+      promptTemplate: |
+        Review this generated code and tests for quality:
+
+        Implementation:
+        {{code}}
+
+        Tests:
+        {{tests}}
+
+        Check for: bugs, security issues, missing error handling, type safety, test coverage gaps.
+      branches:
+        pass: "Code is production-quality with good test coverage and no significant issues"
+        fail: "Code has bugs, security issues, or insufficient test coverage requiring regeneration"
+    branches:
+      pass: [package-output]
+      fail: [fix-issues]
+
+  - id: fix-issues
+    type: llm-prompt
+    name: Fix Identified Issues
+    inputs:
+      - from: nodes.generate-code.outputs.code
+        to: code
+      - from: nodes.generate-tests.outputs.code
+        to: tests
+    outputs: [response]
+    config:
+      promptTemplate: |
+        The code review identified issues. Fix the following code:
+
+        Implementation:
+        {{code}}
+
+        Tests:
+        {{tests}}
+
+        Fix all bugs, security issues, and add missing test coverage. Return the corrected code.
+      maxTokens: 4096
+
+  - id: package-output
+    type: transform
+    name: Package Deliverables
+    inputs:
+      - from: nodes.generate-code.outputs.code
+        to: implementation
+      - from: nodes.generate-tests.outputs.code
+        to: tests
+      - from: nodes.analyze-spec.outputs.response
+        to: requirements
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: {
+            implementation: inputs.implementation,
+            tests: inputs.tests,
+            requirements: inputs.requirements,
+            generatedAt: new Date().toISOString(),
+            status: 'ready-for-review'
+          }
+        })
+
+edges:
+  - from: analyze-spec
+    to: generate-code
+  - from: analyze-spec
+    to: generate-tests
+  - from: generate-code
+    to: generate-tests
+  - from: generate-code
+    to: code-review
+  - from: generate-tests
+    to: code-review
+  - from: code-review
+    to: package-output
+    condition: pass
+  - from: code-review
+    to: fix-issues
+    condition: fail
+  - from: fix-issues
+    to: package-output
