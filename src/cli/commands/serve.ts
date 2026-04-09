@@ -33,7 +33,7 @@ export const serveCommand: CommandModule<{}, ServeArgs> = {
       dbPath: argv.db,
     });
 
-    const engine = createEngine(config);
+    const { engine } = await createEngine(config);
 
     heading("Workflow Service");
     info(`Loading workflows from: ${config.workflowsDir}`);

@@ -4,7 +4,6 @@ import { execFile } from "node:child_process";
 import { loadConfig } from "../config.js";
 import { createEngine } from "../createEngine.js";
 import { PluginLoader } from "../../plugins/PluginLoader.js";
-import { ToolManager } from "../../ai/ToolManager.js";
 import { startServer } from "../../server/index.js";
 
 interface UiArgs {
@@ -42,8 +41,7 @@ export const uiCommand: CommandModule<{}, UiArgs> = {
       dbPath: argv.db,
     });
 
-    const engine = createEngine(config);
-    const toolManager = new ToolManager();
+    const { engine, toolManager } = await createEngine(config);
     const pluginLoader = new PluginLoader(engine.getRegistry(), toolManager);
 
     if (config.plugins.length > 0) {
@@ -54,6 +52,7 @@ export const uiCommand: CommandModule<{}, UiArgs> = {
     await startServer({
       engine,
       pluginLoader,
+      toolManager,
       workflowsDir: resolve(config.workflowsDir),
       port,
     });

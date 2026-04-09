@@ -1,8 +1,10 @@
 import { Router } from "express";
 import type { PluginLoader } from "../../plugins/PluginLoader.js";
 import type { NodeRegistry } from "../../nodes/NodeRegistry.js";
+import { BUILTIN_PLUGINS, loadBuiltinPlugin } from "../../plugins/builtins.js";
+import type { ToolManager } from "../../ai/ToolManager.js";
 
-export function pluginRoutes(pluginLoader: PluginLoader, registry: NodeRegistry): Router {
+export function pluginRoutes(pluginLoader: PluginLoader, registry: NodeRegistry, toolManager?: ToolManager): Router {
   const router = Router();
 
   // List loaded plugins
@@ -10,13 +12,66 @@ export function pluginRoutes(pluginLoader: PluginLoader, registry: NodeRegistry)
     res.json(pluginLoader.getLoadedPlugins());
   });
 
+  // List all available built-in plugins (loaded + available for install)
+  router.get("/plugins/catalog", (_req, res) => {
+    const loaded = pluginLoader.getLoadedPlugins();
+    const loadedNames = new Set(loaded.map((p) => p.name));
+
+    const catalog = BUILTIN_PLUGINS.map((p) => ({
+      name: p.name,
+      description: p.description,
+      category: p.category,
+      isLoaded: loadedNames.has(p.name) || registry.has(p.name === 'github' ? 'github-get-pr' : `${p.name}-query`),
+      requiresInstall: !!p.peerDep,
+      peerDep: p.peerDep,
+      installHint: p.installHint,
+      nodeTypes: loaded.find((l) => l.name === p.name)?.nodeTypes ?? [],
+      tools: loaded.find((l) => l.name === p.name)?.tools ?? [],
+    }));
+
+    // Check which are actually loaded by looking at registered node types
+    for (const item of catalog) {
+      if (!item.isLoaded) {
+        // Check if any of the plugin's expected node types are registered
+        const prefixes = [`${item.name}-`, `${item.name.substring(0, 2)}-`];
+        item.isLoaded = [...(pluginLoader.getLoadedPlugins())]
+          .some((p) => p.name === item.name);
+      }
+    }
+
+    res.json(catalog);
+  });
+
   // Load a plugin at runtime
   router.post("/plugins/load", async (req, res, next) => {
     const { specifier } = req.body as { specifier?: string };
     if (!specifier) {
-      res.status(400).json({ error: { code: "BAD_REQUEST", message: "specifier is required (npm package name or path)" } });
+      res.status(400).json({ error: { code: "BAD_REQUEST", message: "specifier is required" } });
       return;
     }
+
+    // Check if it's a built-in plugin name
+    const builtin = BUILTIN_PLUGINS.find((p) => p.name === specifier);
+    if (builtin && toolManager) {
+      try {
+        const info = await loadBuiltinPlugin(specifier, registry, toolManager);
+        if (info) {
+          (pluginLoader as any).plugins?.push(info);
+          res.status(201).json(info);
+          return;
+        }
+      } catch (err) {
+        res.status(500).json({
+          error: {
+            code: "LOAD_FAILED",
+            message: (err as Error).message,
+            hint: builtin.installHint ? `Install dependency: ${builtin.installHint}` : undefined,
+          },
+        });
+        return;
+      }
+    }
+
     try {
       const info = await pluginLoader.load(specifier);
       res.status(201).json(info);

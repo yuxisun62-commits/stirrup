@@ -29,7 +29,7 @@ export const statusCommand: CommandModule<{}, StatusArgs> = {
       dbPath: argv.db,
     });
 
-    const engine = createEngine(config);
+    const { engine } = await createEngine(config);
 
     if (argv["execution-id"]) {
       const state = await engine.getState(argv["execution-id"]);

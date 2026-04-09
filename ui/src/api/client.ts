@@ -106,7 +106,20 @@ export interface NodeTypeInfo {
   source: string;
 }
 
+export interface CatalogEntry {
+  name: string;
+  description: string;
+  category: string;
+  isLoaded: boolean;
+  requiresInstall: boolean;
+  peerDep?: string;
+  installHint?: string;
+  nodeTypes: string[];
+  tools: string[];
+}
+
 export const listPlugins = () => request<PluginInfo[]>('/plugins');
+export const listPluginCatalog = () => request<CatalogEntry[]>('/plugins/catalog');
 export const loadPlugin = (specifier: string) =>
   request<PluginInfo>('/plugins/load', { method: 'POST', body: JSON.stringify({ specifier }) });
 export const listNodeTypes = () => request<NodeTypeInfo[]>('/node-types');

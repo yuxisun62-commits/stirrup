@@ -13,9 +13,15 @@ import { createLlmPromptHandler } from "../nodes/LlmPromptNode.js";
 import { createAgentToolUseHandler } from "../nodes/AgentToolUseNode.js";
 import { createDecisionRoutingHandler } from "../nodes/DecisionRoutingNode.js";
 import { createCodeGenerationHandler } from "../nodes/CodeGenerationNode.js";
+import { loadBuiltinPlugins } from "../plugins/builtins.js";
 import type { AppConfig } from "./config.js";
 
-export function createEngine(config: AppConfig): WorkflowEngine {
+export interface CreateEngineResult {
+  engine: WorkflowEngine;
+  toolManager: ToolManager;
+}
+
+export async function createEngine(config: AppConfig): Promise<CreateEngineResult> {
   const workflowsDir = resolve(config.workflowsDir);
   if (!existsSync(workflowsDir)) {
     mkdirSync(workflowsDir, { recursive: true });
@@ -32,8 +38,9 @@ export function createEngine(config: AppConfig): WorkflowEngine {
   });
 
   const registry = engine.getRegistry();
+  const toolManager = new ToolManager();
 
-  // Deterministic node handlers
+  // Core deterministic node handlers
   registry.register("transform", transformHandler);
   registry.register("condition", conditionHandler);
   registry.register("http", httpHandler);
@@ -42,12 +49,14 @@ export function createEngine(config: AppConfig): WorkflowEngine {
   // AI node handlers (only if ANTHROPIC_API_KEY is available)
   if (process.env.ANTHROPIC_API_KEY) {
     const provider = new AnthropicProvider();
-    const toolManager = new ToolManager();
     registry.register("llm-prompt", createLlmPromptHandler(provider));
     registry.register("agent-tool-use", createAgentToolUseHandler(provider, toolManager));
     registry.register("decision-routing", createDecisionRoutingHandler(provider));
     registry.register("code-generation", createCodeGenerationHandler(provider));
   }
 
-  return engine;
+  // Auto-load built-in plugins (zero-dep ones load immediately, peer-dep on demand)
+  await loadBuiltinPlugins(registry, toolManager, { verbose: config.verbose });
+
+  return { engine, toolManager };
 }

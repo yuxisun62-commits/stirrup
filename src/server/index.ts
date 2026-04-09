@@ -15,9 +15,12 @@ import { errorHandler } from "./middleware/errorHandler.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+import type { ToolManager } from "../ai/ToolManager.js";
+
 export interface ServerOptions {
   engine: WorkflowEngine;
   pluginLoader: PluginLoader;
+  toolManager?: ToolManager;
   workflowsDir: string;
   port?: number;
 }
@@ -32,7 +35,7 @@ export function createServer(options: ServerOptions) {
   // API routes
   app.use("/api/workflows", workflowRoutes(engine, workflowsDir));
   app.use("/api", executionRoutes(engine));
-  app.use("/api", pluginRoutes(pluginLoader, engine.getRegistry()));
+  app.use("/api", pluginRoutes(pluginLoader, engine.getRegistry(), options.toolManager));
   app.use("/api/templates", templateRoutes());
   app.use("/api/generate", generateRoutes());
 

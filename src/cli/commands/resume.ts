@@ -31,7 +31,7 @@ export const resumeCommand: CommandModule<{}, ResumeArgs> = {
       dbPath: argv.db,
     });
 
-    const engine = createEngine(config);
+    const { engine } = await createEngine(config);
 
     engine.on("node:start", (e) => {
       console.log(`  ${statusBadge("running")} ${e.nodeId}`);

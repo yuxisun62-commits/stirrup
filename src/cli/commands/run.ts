@@ -66,7 +66,7 @@ export const runCommand: CommandModule<{}, RunArgs> = {
       dbPath: argv.db,
     });
 
-    const engine = createEngine(config);
+    const { engine } = await createEngine(config);
     const workflow = argv.workflow;
 
     // Load workflow
