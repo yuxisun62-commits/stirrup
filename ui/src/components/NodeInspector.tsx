@@ -1,10 +1,12 @@
 import { useState } from 'react';
-import type { WorkflowNode } from '../api/client';
+import type { WorkflowNode, StepResult } from '../api/client';
 import { ConfigEditor } from './config/ConfigEditor';
+import { StatusBadge } from './StatusBadge';
 import { tokens, inputBase, btnSecondary, btnDanger } from './ui/styles';
 
 interface Props {
   node: WorkflowNode;
+  stepResult?: StepResult;
   onUpdate: (nodeId: string, updates: Partial<WorkflowNode>) => void;
   onDelete: (nodeId: string) => void;
 }
@@ -20,9 +22,12 @@ const TYPE_LABELS: Record<string, string> = {
   'code-generation': 'Code Generation',
 };
 
-export function NodeInspector({ node, onUpdate, onDelete }: Props) {
-  const [activeTab, setActiveTab] = useState<'config' | 'io' | 'advanced'>('config');
+export function NodeInspector({ node, stepResult, onUpdate, onDelete }: Props) {
+  const [activeTab, setActiveTab] = useState<'config' | 'io' | 'results' | 'advanced'>(
+    stepResult?.status === 'completed' || stepResult?.status === 'failed' ? 'results' : 'config'
+  );
   const nodeColor = tokens.nodeColors[node.type] ?? '#475569';
+  const hasResults = !!stepResult;
 
   return (
     <div style={{
@@ -57,23 +62,37 @@ export function NodeInspector({ node, onUpdate, onDelete }: Props) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${tokens.border.subtle}` }}>
-        {(['config', 'io', 'advanced'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              flex: 1, padding: '8px 0', fontSize: 11, fontWeight: 600,
-              border: 'none', cursor: 'pointer',
-              backgroundColor: activeTab === tab ? tokens.bg.raised : 'transparent',
-              color: activeTab === tab ? tokens.text.primary : tokens.text.muted,
-              borderBottom: activeTab === tab ? `2px solid ${nodeColor}` : '2px solid transparent',
-              textTransform: 'uppercase', letterSpacing: '0.5px',
-              fontFamily: tokens.font.sans,
-            }}
-          >
-            {tab === 'io' ? 'I/O' : tab}
-          </button>
-        ))}
+        {(['config', 'io', 'results', 'advanced'] as const).map((tab) => {
+          const isResults = tab === 'results';
+          const label = tab === 'io' ? 'I/O' : tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                flex: 1, padding: '8px 0', fontSize: 11, fontWeight: 600,
+                border: 'none', cursor: 'pointer',
+                backgroundColor: activeTab === tab ? tokens.bg.raised : 'transparent',
+                color: isResults && hasResults
+                  ? (stepResult?.status === 'failed' ? tokens.status.failed : tokens.status.completed)
+                  : activeTab === tab ? tokens.text.primary : tokens.text.muted,
+                borderBottom: activeTab === tab ? `2px solid ${nodeColor}` : '2px solid transparent',
+                textTransform: 'uppercase', letterSpacing: '0.5px',
+                fontFamily: tokens.font.sans,
+                position: 'relative',
+              }}
+            >
+              {label}
+              {isResults && hasResults && (
+                <span style={{
+                  position: 'absolute', top: 3, right: 6,
+                  width: 6, height: 6, borderRadius: '50%',
+                  backgroundColor: stepResult?.status === 'failed' ? tokens.status.failed : tokens.status.completed,
+                }} />
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab Content */}
@@ -88,6 +107,10 @@ export function NodeInspector({ node, onUpdate, onDelete }: Props) {
 
         {activeTab === 'io' && (
           <InputOutputEditor node={node} onUpdate={onUpdate} />
+        )}
+
+        {activeTab === 'results' && (
+          <ResultsViewer stepResult={stepResult} />
         )}
 
         {activeTab === 'advanced' && (
@@ -277,6 +300,153 @@ function AdvancedEditor({ node, onUpdate, onDelete }: {
           Delete This Node
         </button>
       </div>
+    </>
+  );
+}
+
+function ResultsViewer({ stepResult }: { stepResult?: StepResult }) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+
+  if (!stepResult) {
+    return (
+      <div style={{ textAlign: 'center', padding: 30 }}>
+        <div style={{ fontSize: 24, marginBottom: 8, opacity: 0.3 }}>--</div>
+        <div style={{ fontSize: 12, color: tokens.text.muted }}>No execution results yet</div>
+        <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 4 }}>Run the workflow to see outputs here</div>
+      </div>
+    );
+  }
+
+  const toggleKey = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const elapsed = stepResult.startedAt && stepResult.completedAt
+    ? new Date(stepResult.completedAt).getTime() - new Date(stepResult.startedAt).getTime()
+    : null;
+
+  return (
+    <>
+      {/* Status header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+        padding: '8px 10px', borderRadius: 6,
+        backgroundColor: stepResult.status === 'failed' ? `${tokens.status.failed}10` :
+          stepResult.status === 'completed' ? `${tokens.status.completed}10` : tokens.bg.raised,
+        border: `1px solid ${stepResult.status === 'failed' ? `${tokens.status.failed}30` :
+          stepResult.status === 'completed' ? `${tokens.status.completed}30` : tokens.border.subtle}`,
+      }}>
+        <StatusBadge status={stepResult.status} />
+        {elapsed !== null && (
+          <span style={{ fontSize: 11, color: tokens.text.muted, fontFamily: tokens.font.mono }}>
+            {elapsed < 1000 ? `${elapsed}ms` : `${(elapsed / 1000).toFixed(1)}s`}
+          </span>
+        )}
+        <span style={{ fontSize: 10, color: tokens.text.muted, marginLeft: 'auto' }}>
+          {stepResult.attempts > 1 ? `${stepResult.attempts} attempts` : ''}
+        </span>
+      </div>
+
+      {/* Timing */}
+      <div style={{ fontSize: 10, color: tokens.text.muted, marginBottom: 10 }}>
+        {stepResult.startedAt && (
+          <div>Started: <span style={{ fontFamily: tokens.font.mono }}>{new Date(stepResult.startedAt).toLocaleTimeString()}</span></div>
+        )}
+        {stepResult.completedAt && (
+          <div>Completed: <span style={{ fontFamily: tokens.font.mono }}>{new Date(stepResult.completedAt).toLocaleTimeString()}</span></div>
+        )}
+        {stepResult.selectedBranch && (
+          <div style={{ marginTop: 4 }}>
+            Branch: <span style={{ color: tokens.text.accent, fontFamily: tokens.font.mono, fontWeight: 600 }}>{stepResult.selectedBranch}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Error */}
+      {stepResult.error && (
+        <div style={{
+          marginBottom: 10, padding: 10, borderRadius: 6,
+          backgroundColor: `${tokens.status.failed}10`, border: `1px solid ${tokens.status.failed}30`,
+        }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: tokens.status.failed, textTransform: 'uppercase', marginBottom: 4 }}>
+            Error (attempt {stepResult.error.attempt})
+          </div>
+          <div style={{ fontSize: 11, color: '#fca5a5', fontFamily: tokens.font.mono, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {stepResult.error.message}
+          </div>
+        </div>
+      )}
+
+      {/* Outputs */}
+      {stepResult.status === 'completed' && Object.keys(stepResult.outputs).length > 0 && (
+        <>
+          <div style={{
+            fontSize: 10, fontWeight: 700, color: tokens.text.muted, textTransform: 'uppercase',
+            letterSpacing: '1px', marginBottom: 6,
+          }}>
+            Outputs
+          </div>
+          {Object.entries(stepResult.outputs).map(([key, value]) => {
+            const isObject = value !== null && typeof value === 'object';
+            const isLong = typeof value === 'string' && value.length > 100;
+            const isExpandable = isObject || isLong;
+            const isExpanded = expandedKeys.has(key);
+            const displayValue = isObject
+              ? JSON.stringify(value, null, 2)
+              : String(value ?? '');
+
+            return (
+              <div key={key} style={{
+                marginBottom: 6, borderRadius: 6, overflow: 'hidden',
+                border: `1px solid ${tokens.border.subtle}`, backgroundColor: tokens.bg.raised,
+              }}>
+                <div
+                  onClick={() => isExpandable && toggleKey(key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', cursor: isExpandable ? 'pointer' : 'default',
+                    borderBottom: isExpanded ? `1px solid ${tokens.border.subtle}` : 'none',
+                  }}
+                >
+                  <span style={{ fontSize: 11, fontWeight: 600, color: tokens.text.accent, fontFamily: tokens.font.mono }}>
+                    {key}
+                  </span>
+                  <span style={{ fontSize: 10, color: tokens.text.muted }}>
+                    {isObject ? (Array.isArray(value) ? `Array(${(value as any[]).length})` : 'Object') :
+                      typeof value === 'string' ? `"${displayValue.slice(0, 30)}${displayValue.length > 30 ? '...' : ''}"` :
+                      String(value)}
+                  </span>
+                  {isExpandable && (
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: tokens.text.muted }}>
+                      {isExpanded ? 'v' : '>'}
+                    </span>
+                  )}
+                </div>
+                {isExpanded && (
+                  <div style={{
+                    padding: '8px 10px', fontSize: 11, fontFamily: tokens.font.mono,
+                    color: tokens.text.primary, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                    maxHeight: 300, overflow: 'auto', lineHeight: 1.5,
+                    backgroundColor: tokens.bg.input,
+                  }}>
+                    {displayValue}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {stepResult.status === 'completed' && Object.keys(stepResult.outputs).length === 0 && (
+        <div style={{ fontSize: 11, color: tokens.text.muted, fontStyle: 'italic' }}>
+          No outputs produced
+        </div>
+      )}
     </>
   );
 }

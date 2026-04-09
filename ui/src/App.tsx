@@ -10,6 +10,7 @@ import { ExecutionPanel } from './components/ExecutionPanel';
 import { TemplateBrowser } from './components/TemplateBrowser';
 import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/client';
 import { RunDialog } from './components/RunDialog';
+import { GenerateDialog } from './components/GenerateDialog';
 import { tokens } from './components/ui/styles';
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
   const { execution, events, isRunning, run, clear } = useExecution();
   const [showTemplates, setShowTemplates] = useState(false);
   const [showRunDialog, setShowRunDialog] = useState(false);
+  const [showGenerate, setShowGenerate] = useState(false);
 
   const stepStatuses = useMemo(() => {
     if (!execution) return {};
@@ -116,22 +118,38 @@ function App() {
             </div>
           </div>
 
-          {/* Templates button */}
-          <div style={{ padding: '6px 12px', borderBottom: `1px solid ${tokens.border.subtle}` }}>
+          {/* Create buttons */}
+          <div style={{ padding: '6px 12px', borderBottom: `1px solid ${tokens.border.subtle}`, display: 'flex', gap: 6 }}>
+            <button
+              onClick={() => setShowGenerate(true)}
+              style={{
+                flex: 1, padding: '7px 8px', fontSize: 11, fontWeight: 600,
+                borderRadius: 6, border: `1px solid ${tokens.nodeColors['llm-prompt']}40`,
+                background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}15, ${tokens.nodeColors['decision-routing']}10)`,
+                color: tokens.nodeColors['llm-prompt'],
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                transition: 'opacity 0.15s',
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.8'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+            >
+              <span style={{ fontSize: 11, fontWeight: 800 }}>AI</span>
+              Generate
+            </button>
             <button
               onClick={() => setShowTemplates(true)}
               style={{
-                width: '100%', padding: '7px 10px', fontSize: 11, fontWeight: 600,
+                flex: 1, padding: '7px 8px', fontSize: 11, fontWeight: 600,
                 borderRadius: 6, border: `1px dashed ${tokens.border.default}`,
                 backgroundColor: 'transparent', color: tokens.text.secondary,
-                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
                 transition: 'border-color 0.15s, color 0.15s',
               }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = tokens.border.focus; (e.currentTarget as HTMLElement).style.color = tokens.text.accent; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = tokens.border.default; (e.currentTarget as HTMLElement).style.color = tokens.text.secondary; }}
             >
               <span style={{ fontSize: 14 }}>+</span>
-              Browse Templates
+              Templates
             </button>
           </div>
 
@@ -208,7 +226,12 @@ function App() {
         {/* Right inspector */}
         {selectedNode && (
           <div style={{ width: 300, overflow: 'hidden' }}>
-            <NodeInspector node={selectedNode} onUpdate={updateNode} onDelete={removeNode} />
+            <NodeInspector
+              node={selectedNode}
+              stepResult={execution?.steps[selectedNode.id]}
+              onUpdate={updateNode}
+              onDelete={removeNode}
+            />
           </div>
         )}
 
@@ -227,6 +250,14 @@ function App() {
           <TemplateBrowser
             onSelect={(wf) => { loadWorkflow(wf); setShowTemplates(false); }}
             onClose={() => setShowTemplates(false)}
+          />
+        )}
+
+        {/* AI Generate dialog */}
+        {showGenerate && (
+          <GenerateDialog
+            onGenerated={(wf) => { loadWorkflow(wf); setShowGenerate(false); }}
+            onClose={() => setShowGenerate(false)}
           />
         )}
       </div>

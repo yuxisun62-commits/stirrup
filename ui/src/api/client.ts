@@ -91,6 +91,10 @@ export const resumeExecution = (id: string) =>
 export const pauseExecution = (id: string) =>
   request<{ ok: boolean }>(`/executions/${id}/pause`, { method: 'POST' });
 
+// AI Generation
+export const generateWorkflow = (prompt: string) =>
+  request<WorkflowDefinition>('/generate/workflow', { method: 'POST', body: JSON.stringify({ prompt }) });
+
 // Templates
 export interface TemplateInfo {
   id: string;
