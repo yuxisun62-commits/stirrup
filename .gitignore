@@ -4,8 +4,9 @@ dist/
 .env
 executions/
 src/ui/dist/
-stirrup.db
-workflow-harness.db
+*.db
+*.db-shm
+*.db-wal
 .claude/
 .stirrup.json
 workflows/
