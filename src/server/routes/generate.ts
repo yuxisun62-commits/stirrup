@@ -1,5 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { validateWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
 
 const SYSTEM_PROMPT = `You are a workflow architect for Stirrup, a DAG workflow engine. When given a description of a desired workflow, you generate a complete workflow definition as JSON.
 
@@ -78,6 +79,65 @@ export function generateRoutes(): Router {
       } else {
         res.status(500).json({ error: { code: "GENERATION_FAILED", message } });
       }
+    }
+  });
+
+  // Validate a workflow definition
+  router.post("/validate", (req, res) => {
+    try {
+      validateWorkflow(req.body);
+      res.json({ valid: true, errors: [] });
+    } catch (err) {
+      if (err instanceof WorkflowValidationError) {
+        res.json({ valid: false, errors: err.details });
+      } else {
+        res.json({ valid: false, errors: [(err as Error).message] });
+      }
+    }
+  });
+
+  // Auto-fix a workflow based on validation errors
+  router.post("/fix", async (req, res) => {
+    const { workflow, errors } = req.body as { workflow?: unknown; errors?: string[] };
+    if (!workflow || !errors?.length) {
+      res.status(400).json({ error: { code: "BAD_REQUEST", message: "workflow and errors are required" } });
+      return;
+    }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      res.status(500).json({ error: { code: "CONFIG_ERROR", message: "ANTHROPIC_API_KEY not configured" } });
+      return;
+    }
+
+    try {
+      const client = new Anthropic();
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8192,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Fix the following Stirrup workflow definition. It has these validation errors:\n\n${errors.map((e, i) => `${i + 1}. ${e}`).join("\n")}\n\nCurrent workflow:\n${JSON.stringify(workflow, null, 2)}\n\nFix ALL the errors while preserving the workflow's intent. Return ONLY the corrected JSON, no explanation.`,
+          },
+        ],
+      });
+
+      const textBlock = response.content.find((b) => b.type === "text");
+      if (!textBlock || textBlock.type !== "text") {
+        res.status(500).json({ error: { code: "FIX_FAILED", message: "No response from AI" } });
+        return;
+      }
+
+      let jsonStr = textBlock.text.trim();
+      const fenceMatch = jsonStr.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+      if (fenceMatch) jsonStr = fenceMatch[1].trim();
+
+      const fixed = JSON.parse(jsonStr);
+      res.json(fixed);
+    } catch (err) {
+      res.status(500).json({ error: { code: "FIX_FAILED", message: (err as Error).message } });
     }
   });
 

@@ -12,6 +12,7 @@ import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/cli
 import { RunDialog } from './components/RunDialog';
 import { GenerateDialog } from './components/GenerateDialog';
 import { PluginPanel } from './components/PluginPanel';
+import { ValidationPanel } from './components/ValidationPanel';
 import { tokens } from './components/ui/styles';
 
 function App() {
@@ -225,6 +226,9 @@ function App() {
               onSelectNode={setSelectedNodeId}
             />
           </div>
+
+          {/* Validation */}
+          <ValidationPanel workflow={workflow} onFixed={(wf) => loadWorkflow(wf)} />
 
           {/* Execution panel */}
           <ExecutionPanel

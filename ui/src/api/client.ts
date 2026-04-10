@@ -124,9 +124,13 @@ export const loadPlugin = (specifier: string) =>
   request<PluginInfo>('/plugins/load', { method: 'POST', body: JSON.stringify({ specifier }) });
 export const listNodeTypes = () => request<NodeTypeInfo[]>('/node-types');
 
-// AI Generation
+// AI Generation & Validation
 export const generateWorkflow = (prompt: string) =>
   request<WorkflowDefinition>('/generate/workflow', { method: 'POST', body: JSON.stringify({ prompt }) });
+export const validateWorkflowApi = (workflow: WorkflowDefinition) =>
+  request<{ valid: boolean; errors: string[] }>('/generate/validate', { method: 'POST', body: JSON.stringify(workflow) });
+export const fixWorkflow = (workflow: WorkflowDefinition, errors: string[]) =>
+  request<WorkflowDefinition>('/generate/fix', { method: 'POST', body: JSON.stringify({ workflow, errors }) });
 
 // Templates
 export interface TemplateInfo {
