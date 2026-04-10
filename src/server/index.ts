@@ -11,6 +11,7 @@ import { executionRoutes } from "./routes/executions.js";
 import { pluginRoutes } from "./routes/plugins.js";
 import { templateRoutes } from "./routes/templates.js";
 import { generateRoutes } from "./routes/generate.js";
+import { exportRoutes } from "./routes/export.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authMiddleware } from "./middleware/auth.js";
 
@@ -42,6 +43,7 @@ export function createServer(options: ServerOptions) {
   app.use("/api", pluginRoutes(pluginLoader, engine.getRegistry(), options.toolManager));
   app.use("/api/templates", templateRoutes());
   app.use("/api/generate", generateRoutes());
+  app.use("/api/export", exportRoutes(engine));
 
   // Serve React UI static files if they exist
   const uiDistDir = resolve(__dirname, "../../src/ui/dist");

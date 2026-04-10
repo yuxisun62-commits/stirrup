@@ -3,7 +3,7 @@ import type { Request, Response, NextFunction } from "express";
 /**
  * Bearer token authentication middleware.
  * Reads token from STIRRUP_API_TOKEN env var or .stirrup.json config.
- * Skips auth for health check endpoint.
+ * Skips auth for health check endpoint and same-origin requests from localhost.
  */
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   // Health check is always public
@@ -14,13 +14,16 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
 
   const apiToken = process.env.STIRRUP_API_TOKEN;
 
-  // If no token configured, allow requests (local dev mode) but warn once
+  // If no token configured: allow requests silently for localhost, warn for external
   if (!apiToken) {
-    if (!(globalThis as any).__stirrupAuthWarned) {
+    const isLocalhost =
+      req.ip === "127.0.0.1" || req.ip === "::1" || req.ip === "::ffff:127.0.0.1" ||
+      req.hostname === "localhost" || req.hostname === "127.0.0.1";
+
+    if (!isLocalhost && !(globalThis as any).__stirrupAuthWarned) {
       console.warn(
-        "\n  WARNING: No STIRRUP_API_TOKEN set — API is unauthenticated.\n" +
-        "  Set via: export STIRRUP_API_TOKEN=<token>\n" +
-        "  Or: stirrup config set apiToken <token>\n"
+        "\n  WARNING: API is exposed without authentication on a non-localhost address.\n" +
+        "  For production use, set STIRRUP_API_TOKEN or run: stirrup config set apiToken <token>\n"
       );
       (globalThis as any).__stirrupAuthWarned = true;
     }

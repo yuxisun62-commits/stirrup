@@ -14,6 +14,7 @@ import { GenerateDialog } from './components/GenerateDialog';
 import { PluginPanel } from './components/PluginPanel';
 import { ValidationPanel } from './components/ValidationPanel';
 import { DeployPanel } from './components/DeployPanel';
+import { ExportDialog } from './components/ExportDialog';
 import { tokens } from './components/ui/styles';
 
 function useIsMobile() {
@@ -38,6 +39,7 @@ function App() {
   const [showGenerate, setShowGenerate] = useState(false);
   const [showPlugins, setShowPlugins] = useState(false);
   const [showDeploy, setShowDeploy] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -207,6 +209,16 @@ function App() {
                 color: tokens.text.muted, cursor: 'pointer',
               }}>Plugins</button>
             )}
+            <button
+              onClick={() => setShowExport(true)}
+              disabled={workflow.nodes.length === 0}
+              style={{
+                padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: workflow.nodes.length === 0 ? tokens.border.default : tokens.text.muted,
+                cursor: workflow.nodes.length === 0 ? 'default' : 'pointer',
+              }}
+            >Export</button>
             <button onClick={handleSave} disabled={!dirty} style={{
               padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: 'none',
               backgroundColor: dirty ? tokens.border.focus : tokens.border.default,
@@ -267,7 +279,13 @@ function App() {
 
         {/* ── Modals ── */}
         {showRunDialog && (
-          <RunDialog params={(workflow.params as any[]) ?? []} workflowName={workflow.name} onRun={handleRun} onClose={() => setShowRunDialog(false)} />
+          <RunDialog
+            params={(workflow.params as any[]) ?? []}
+            workflowId={workflow.id}
+            workflowName={workflow.name}
+            onRun={handleRun}
+            onClose={() => setShowRunDialog(false)}
+          />
         )}
         {showTemplates && (
           <TemplateBrowser onSelect={(wf) => { loadWorkflow(wf); setShowTemplates(false); }} onClose={() => setShowTemplates(false)} />
@@ -277,6 +295,13 @@ function App() {
         )}
         {showPlugins && <PluginPanel onClose={() => setShowPlugins(false)} />}
         {showDeploy && <DeployPanel workflow={workflow} onClose={() => setShowDeploy(false)} />}
+        {showExport && (
+          <ExportDialog
+            workflow={workflow}
+            onClose={() => setShowExport(false)}
+            onDeploy={() => setShowDeploy(true)}
+          />
+        )}
       </div>
     </ReactFlowProvider>
   );

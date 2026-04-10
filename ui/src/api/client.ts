@@ -124,11 +124,31 @@ export const loadPlugin = (specifier: string) =>
   request<PluginInfo>('/plugins/load', { method: 'POST', body: JSON.stringify({ specifier }) });
 export const listNodeTypes = () => request<NodeTypeInfo[]>('/node-types');
 
+// Export
+export async function exportWorkflow(workflowId: string, format: 'node' | 'docker'): Promise<Blob> {
+  const res = await fetch('/api/export/workflow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workflowId, format }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
 // AI Generation & Validation
 export const generateWorkflow = (prompt: string) =>
   request<WorkflowDefinition>('/generate/workflow', { method: 'POST', body: JSON.stringify({ prompt }) });
+export interface EnrichedError {
+  message: string;
+  suggestion?: string;
+  nodeId?: string;
+  severity: 'error' | 'warning';
+}
 export const validateWorkflowApi = (workflow: WorkflowDefinition) =>
-  request<{ valid: boolean; errors: string[] }>('/generate/validate', { method: 'POST', body: JSON.stringify(workflow) });
+  request<{ valid: boolean; errors: string[]; enriched?: EnrichedError[] }>('/generate/validate', { method: 'POST', body: JSON.stringify(workflow) });
 export const fixWorkflow = (workflow: WorkflowDefinition, errors: string[]) =>
   request<WorkflowDefinition>('/generate/fix', { method: 'POST', body: JSON.stringify({ workflow, errors }) });
 

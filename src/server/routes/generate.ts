@@ -1,6 +1,8 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import { validateWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
+import { enrichError } from "../../validation/suggestions.js";
+import type { WorkflowDefinition } from "../../types/workflow.js";
 
 const SYSTEM_PROMPT = `You are a workflow architect for Stirrup, a DAG workflow engine. When given a description of a desired workflow, you generate a complete workflow definition as JSON.
 
@@ -82,17 +84,26 @@ export function generateRoutes(): Router {
     }
   });
 
-  // Validate a workflow definition
+  // Validate a workflow definition with enriched errors
   router.post("/validate", (req, res) => {
+    const body = req.body as WorkflowDefinition;
+    const nodeIds = new Set<string>(
+      Array.isArray(body?.nodes) ? body.nodes.map((n) => n.id).filter(Boolean) : []
+    );
+
     try {
-      validateWorkflow(req.body);
+      validateWorkflow(body);
       res.json({ valid: true, errors: [] });
     } catch (err) {
-      if (err instanceof WorkflowValidationError) {
-        res.json({ valid: false, errors: err.details });
-      } else {
-        res.json({ valid: false, errors: [(err as Error).message] });
-      }
+      const rawErrors = err instanceof WorkflowValidationError
+        ? err.details
+        : [(err as Error).message];
+      const enriched = rawErrors.map((e) => enrichError(e, nodeIds));
+      res.json({
+        valid: false,
+        errors: rawErrors,  // raw for backwards-compat
+        enriched,            // new: with suggestions
+      });
     }
   });
 

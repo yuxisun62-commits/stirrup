@@ -1,0 +1,13 @@
+{
+  "name": "workflow-content-pipeline-mnrzyegw",
+  "version": "1.0.0",
+  "description": "Research a topic, generate a draft, review quality, and produce a final polished article",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "stirrup": "^0.1.0"
+  }
+}

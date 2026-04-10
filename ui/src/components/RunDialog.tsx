@@ -11,16 +11,41 @@ interface WorkflowParam {
 
 interface Props {
   params: WorkflowParam[];
+  workflowId: string;
   workflowName: string;
   onRun: (values: Record<string, unknown>) => void;
   onClose: () => void;
 }
 
-export function RunDialog({ params, workflowName, onRun, onClose }: Props) {
+const SECRET_KEYWORDS = ['token', 'secret', 'password', 'key', 'credential'];
+const isSecretParam = (name: string) => SECRET_KEYWORDS.some((k) => name.toLowerCase().includes(k));
+
+function loadSavedValues(workflowId: string): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(`stirrup:params:${workflowId}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveValues(workflowId: string, values: Record<string, string>) {
+  try {
+    // Don't persist secret values — security
+    const toSave: Record<string, string> = {};
+    for (const [k, v] of Object.entries(values)) {
+      if (!isSecretParam(k)) toSave[k] = v;
+    }
+    localStorage.setItem(`stirrup:params:${workflowId}`, JSON.stringify(toSave));
+  } catch { /* ignore */ }
+}
+
+export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: Props) {
   const [values, setValues] = useState<Record<string, string>>(() => {
+    const saved = loadSavedValues(workflowId);
     const initial: Record<string, string> = {};
     for (const p of params) {
-      if (p.default !== undefined) {
+      if (saved[p.name] !== undefined) {
+        initial[p.name] = saved[p.name];
+      } else if (p.default !== undefined) {
         initial[p.name] = typeof p.default === 'object' ? JSON.stringify(p.default) : String(p.default);
       } else {
         initial[p.name] = '';
@@ -30,6 +55,7 @@ export function RunDialog({ params, workflowName, onRun, onClose }: Props) {
   });
 
   const handleRun = () => {
+    saveValues(workflowId, values);
     const coerced: Record<string, unknown> = {};
     for (const p of params) {
       const raw = values[p.name] ?? '';

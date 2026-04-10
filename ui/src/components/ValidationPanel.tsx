@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { validateWorkflowApi, fixWorkflow, type WorkflowDefinition } from '../api/client';
+import { validateWorkflowApi, fixWorkflow, type WorkflowDefinition, type EnrichedError } from '../api/client';
 import { tokens } from './ui/styles';
 
 interface Props {
@@ -33,10 +33,12 @@ function extractNodeId(error: string, nodeIds: Set<string>): string | null {
 
 export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
   const [errors, setErrors] = useState<string[]>([]);
+  const [enrichedErrors, setEnrichedErrors] = useState<EnrichedError[]>([]);
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [expandedSuggestionIdx, setExpandedSuggestionIdx] = useState<number | null>(null);
 
   const nodeIds = new Set(workflow.nodes.map((n) => n.id));
 
@@ -44,12 +46,14 @@ export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
     if (workflow.nodes.length === 0) {
       setIsValid(null);
       setErrors([]);
+      setEnrichedErrors([]);
       return;
     }
     try {
       const result = await validateWorkflowApi(workflow);
       setIsValid(result.valid);
       setErrors(result.errors);
+      setEnrichedErrors(result.enriched ?? []);
       if (!result.valid && !expanded) setExpanded(true);
     } catch {
       // Silently fail
@@ -144,34 +148,73 @@ export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
       {expanded && (
         <div style={{ padding: '0 14px 8px' }}>
           {errors.map((err, i) => {
+            const enriched = enrichedErrors[i];
             const relatedNodeId = extractNodeId(err, nodeIds);
+            const isSuggestionOpen = expandedSuggestionIdx === i;
+            const color = enriched?.severity === 'warning' ? tokens.status.paused : tokens.status.failed;
+
             return (
-              <div
-                key={i}
-                onClick={() => relatedNodeId && onSelectNode(relatedNodeId)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '5px 8px', marginBottom: 2, borderRadius: 4,
-                  backgroundColor: `${tokens.status.failed}08`,
-                  fontSize: 11, color: '#fca5a5', lineHeight: 1.4,
-                  fontFamily: tokens.font.mono,
-                  cursor: relatedNodeId ? 'pointer' : 'default',
-                  transition: 'background-color 0.15s',
-                }}
-                onMouseEnter={(e) => { if (relatedNodeId) (e.currentTarget as HTMLElement).style.backgroundColor = `${tokens.status.failed}15`; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = `${tokens.status.failed}08`; }}
-              >
-                <span style={{ color: tokens.status.failed, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-                <span style={{ flex: 1 }}>{err}</span>
-                {relatedNodeId && (
-                  <span style={{
-                    fontSize: 9, padding: '1px 6px', borderRadius: 3,
-                    backgroundColor: tokens.bg.input, color: tokens.text.accent,
-                    border: `1px solid ${tokens.border.subtle}`,
-                    flexShrink: 0,
+              <div key={i} style={{
+                marginBottom: 4, borderRadius: 4,
+                backgroundColor: `${color}08`,
+                border: `1px solid ${color}20`,
+                overflow: 'hidden',
+              }}>
+                <div
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).tagName === 'BUTTON') return;
+                    if (relatedNodeId) onSelectNode(relatedNodeId);
+                  }}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: 6,
+                    padding: '6px 8px',
+                    fontSize: 11, color: enriched?.severity === 'warning' ? '#fde68a' : '#fca5a5',
+                    lineHeight: 1.4, fontFamily: tokens.font.mono,
+                    cursor: relatedNodeId ? 'pointer' : 'default',
+                  }}
+                >
+                  <span style={{ color, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                  <span style={{ flex: 1, wordBreak: 'break-word' }}>{err}</span>
+                  {enriched?.suggestion && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedSuggestionIdx(isSuggestionOpen ? null : i);
+                      }}
+                      style={{
+                        fontSize: 9, padding: '2px 6px', borderRadius: 3,
+                        backgroundColor: `${tokens.nodeColors['llm-prompt']}20`,
+                        color: tokens.nodeColors['llm-prompt'],
+                        border: `1px solid ${tokens.nodeColors['llm-prompt']}40`,
+                        cursor: 'pointer', fontWeight: 600, flexShrink: 0,
+                        fontFamily: tokens.font.sans,
+                      }}
+                    >
+                      {isSuggestionOpen ? 'hide tip' : '💡 tip'}
+                    </button>
+                  )}
+                  {relatedNodeId && (
+                    <span style={{
+                      fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                      backgroundColor: tokens.bg.input, color: tokens.text.accent,
+                      border: `1px solid ${tokens.border.subtle}`,
+                      flexShrink: 0,
+                    }}>
+                      {relatedNodeId} →
+                    </span>
+                  )}
+                </div>
+                {isSuggestionOpen && enriched?.suggestion && (
+                  <div style={{
+                    padding: '6px 10px 8px 28px',
+                    fontSize: 11, color: tokens.text.secondary,
+                    borderTop: `1px solid ${color}20`,
+                    backgroundColor: `${tokens.nodeColors['llm-prompt']}06`,
+                    lineHeight: 1.5,
                   }}>
-                    {relatedNodeId} →
-                  </span>
+                    <span style={{ fontWeight: 600, color: tokens.nodeColors['llm-prompt'] }}>Suggestion: </span>
+                    {enriched.suggestion}
+                  </div>
                 )}
               </div>
             );

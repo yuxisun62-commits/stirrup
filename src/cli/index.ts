@@ -11,6 +11,7 @@ import { pluginCommand } from "./commands/plugin.js";
 import { serveCommand } from "./commands/serve.js";
 import { exportCommand } from "./commands/export.js";
 import { configCommand } from "./commands/config.js";
+import { authCommand } from "./commands/auth.js";
 
 yargs(hideBin(process.argv))
   .scriptName("stirrup")
@@ -26,6 +27,7 @@ yargs(hideBin(process.argv))
   .command(serveCommand)
   .command(configCommand)
   .command(exportCommand)
+  .command(authCommand)
   .option("workflows-dir", {
     alias: "w",
     type: "string",
