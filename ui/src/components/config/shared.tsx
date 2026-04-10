@@ -46,7 +46,7 @@ export function TextArea({ value, onChange, placeholder, rows, mono }: {
   const style: CSSProperties = {
     ...(mono ? monoInput : inputBase),
     height: 'auto',
-    minHeight: (rows ?? 3) * 20,
+    minHeight: (rows ?? 6) * 20,
     resize: 'vertical',
   };
   return (

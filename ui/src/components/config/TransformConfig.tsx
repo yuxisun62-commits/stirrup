@@ -13,7 +13,7 @@ export function TransformConfigEditor({ config, onChange }: Props) {
           value={(config.expression as string) ?? ''}
           onChange={(v) => onChange({ ...config, expression: v })}
           placeholder="({ result: inputs.x + inputs.y })"
-          rows={4}
+          rows={10}
           mono
         />
       </Field>

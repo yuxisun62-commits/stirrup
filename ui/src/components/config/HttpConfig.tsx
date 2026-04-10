@@ -87,7 +87,7 @@ export function HttpConfigEditor({ config, onChange }: Props) {
             onChange={(v) => {
               try { onChange({ ...config, body: JSON.parse(v) }); } catch { onChange({ ...config, body: v }); }
             }}
-            rows={4}
+            rows={10}
             mono
           />
         </Field>

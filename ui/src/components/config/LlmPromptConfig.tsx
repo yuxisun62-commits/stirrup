@@ -13,7 +13,7 @@ export function LlmPromptConfigEditor({ config, onChange }: Props) {
           value={(config.promptTemplate as string) ?? ''}
           onChange={(v) => onChange({ ...config, promptTemplate: v })}
           placeholder="Summarize the following text:\n\n{{text}}"
-          rows={5}
+          rows={10}
         />
       </Field>
 
@@ -22,7 +22,7 @@ export function LlmPromptConfigEditor({ config, onChange }: Props) {
           value={(config.systemPrompt as string) ?? ''}
           onChange={(v) => onChange({ ...config, systemPrompt: v })}
           placeholder="You are a helpful assistant that..."
-          rows={3}
+          rows={6}
         />
       </Field>
 

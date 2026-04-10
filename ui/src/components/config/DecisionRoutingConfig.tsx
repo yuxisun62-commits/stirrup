@@ -34,7 +34,7 @@ export function DecisionRoutingConfigEditor({ config, onChange }: Props) {
           value={(config.promptTemplate as string) ?? ''}
           onChange={(v) => onChange({ ...config, promptTemplate: v })}
           placeholder="Based on this customer feedback, decide the routing:\n\n{{feedback}}"
-          rows={4}
+          rows={10}
         />
       </Field>
 

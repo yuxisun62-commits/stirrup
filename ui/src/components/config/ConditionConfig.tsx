@@ -13,7 +13,7 @@ export function ConditionConfigEditor({ config, onChange }: Props) {
           value={(config.expression as string) ?? ''}
           onChange={(v) => onChange({ ...config, expression: v })}
           placeholder="inputs.value > 50 ? 'high' : 'low'"
-          rows={3}
+          rows={6}
           mono
         />
       </Field>

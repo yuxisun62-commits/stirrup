@@ -13,7 +13,7 @@ export function CodeGenerationConfigEditor({ config, onChange }: Props) {
           value={(config.promptTemplate as string) ?? ''}
           onChange={(v) => onChange({ ...config, promptTemplate: v })}
           placeholder="Write a function that parses this CSV data:\n\n{{data}}"
-          rows={5}
+          rows={10}
         />
       </Field>
 

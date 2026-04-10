@@ -28,7 +28,7 @@ export function AgentToolUseConfigEditor({ config, onChange }: Props) {
           value={(config.systemPrompt as string) ?? ''}
           onChange={(v) => onChange({ ...config, systemPrompt: v })}
           placeholder="You are a data analysis assistant. Use the available tools to..."
-          rows={4}
+          rows={10}
         />
       </Field>
 
@@ -37,7 +37,7 @@ export function AgentToolUseConfigEditor({ config, onChange }: Props) {
           value={(config.taskTemplate as string) ?? ''}
           onChange={(v) => onChange({ ...config, taskTemplate: v })}
           placeholder="Analyze this dataset and provide insights: {{data}}"
-          rows={3}
+          rows={6}
         />
       </Field>
 

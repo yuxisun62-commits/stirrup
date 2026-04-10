@@ -13,7 +13,7 @@ export function ScriptConfigEditor({ config, onChange }: Props) {
           value={(config.code as string) ?? ''}
           onChange={(v) => onChange({ ...config, code: v })}
           placeholder={'result = {\n  processed: inputs.data.map(x => x * 2)\n}'}
-          rows={8}
+          rows={10}
           mono
         />
       </Field>
