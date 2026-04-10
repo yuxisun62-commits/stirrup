@@ -25,6 +25,51 @@
       }
     },
     "context": { "type": "object" },
+    "triggers": {
+      "type": "object",
+      "properties": {
+        "http": {
+          "type": "object",
+          "properties": {
+            "path": { "type": "string" },
+            "method": { "type": "string", "enum": ["POST", "GET"] }
+          },
+          "additionalProperties": false
+        },
+        "webhook": {
+          "type": "object",
+          "required": ["source"],
+          "properties": {
+            "source": { "type": "string" },
+            "events": { "type": "array", "items": { "type": "string" } },
+            "secret": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "cron": {
+          "type": "object",
+          "required": ["schedule"],
+          "properties": {
+            "schedule": { "type": "string" },
+            "timezone": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "watch": {
+          "type": "object",
+          "required": ["paths"],
+          "properties": {
+            "paths": { "type": "array", "items": { "type": "string" } },
+            "events": {
+              "type": "array",
+              "items": { "type": "string", "enum": ["create", "change", "delete"] }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "nodes": {
       "type": "array",
       "minItems": 1,
