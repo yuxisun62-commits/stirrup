@@ -1,0 +1,179 @@
+id: repo-analytics
+name: Weekly Repository Analytics Report
+version: "1.0"
+description: Analyze GitHub repo activity weekly — PRs merged, issues closed, top contributors — and post an AI-generated summary to Slack
+
+params:
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repository (owner/repo)"
+  - name: githubToken
+    type: string
+    required: true
+    description: "GitHub access token"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+  - name: slackChannel
+    type: string
+    required: true
+    default: "#engineering"
+    description: "Slack channel for the report"
+
+triggers:
+  cron:
+    schedule: "0 10 * * 1"
+    timezone: "America/New_York"
+
+nodes:
+  - id: date-range
+    type: transform
+    name: Calculate Date Range
+    inputs: []
+    outputs: [since, until, weekLabel]
+    config:
+      expression: |
+        ({
+          since: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+          until: new Date().toISOString(),
+          weekLabel: 'Week of ' + new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
+        })
+
+  - id: fetch-merged-prs
+    type: http
+    name: Fetch Merged PRs
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.githubToken
+        to: token
+      - from: nodes.date-range.outputs.since
+        to: since
+    outputs: [body]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/pulls?state=closed&sort=updated&direction=desc&per_page=50"
+      method: GET
+      headers:
+        Authorization: "Bearer {{token}}"
+
+  - id: fetch-issues
+    type: http
+    name: Fetch Closed Issues
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.githubToken
+        to: token
+      - from: nodes.date-range.outputs.since
+        to: since
+    outputs: [body]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/issues?state=closed&sort=updated&direction=desc&per_page=50&since={{since}}"
+      method: GET
+      headers:
+        Authorization: "Bearer {{token}}"
+
+  - id: crunch-stats
+    type: script
+    name: Calculate Statistics
+    inputs:
+      - from: nodes.fetch-merged-prs.outputs.body
+        to: prs
+      - from: nodes.fetch-issues.outputs.body
+        to: issues
+      - from: nodes.date-range.outputs.since
+        to: since
+    outputs: [result]
+    config:
+      code: |
+        const since = new Date(inputs.since);
+        const prs = Array.isArray(inputs.prs) ? inputs.prs.filter(p => p.merged_at && new Date(p.merged_at) > since) : [];
+        const issues = Array.isArray(inputs.issues) ? inputs.issues.filter(i => !i.pull_request && i.closed_at && new Date(i.closed_at) > since) : [];
+
+        const contributors = {};
+        for (const pr of prs) {
+          const author = pr.user?.login || 'unknown';
+          contributors[author] = (contributors[author] || 0) + 1;
+        }
+
+        const topContributors = Object.entries(contributors)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5)
+          .map(([name, count]) => ({ name, prsMerged: count }));
+
+        const totalAdditions = prs.reduce((sum, pr) => sum + (pr.additions || 0), 0);
+        const totalDeletions = prs.reduce((sum, pr) => sum + (pr.deletions || 0), 0);
+
+        result = {
+          prsMerged: prs.length,
+          issuesClosed: issues.length,
+          topContributors,
+          totalAdditions,
+          totalDeletions,
+          prTitles: prs.slice(0, 10).map(p => p.title),
+          issueTitles: issues.slice(0, 10).map(i => i.title),
+        };
+      timeoutMs: 10000
+
+  - id: generate-summary
+    type: llm-prompt
+    name: Generate Weekly Summary
+    inputs:
+      - from: nodes.crunch-stats.outputs.result
+        to: stats
+      - from: nodes.date-range.outputs.weekLabel
+        to: week
+      - from: context.repo
+        to: repo
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Generate a weekly engineering report for Slack based on this data:
+
+        Repository: {{repo}}
+        Period: {{week}}
+        Stats: {{stats}}
+
+        Write a concise Slack message with:
+        1. :bar_chart: Key metrics (PRs merged, issues closed, lines changed)
+        2. :trophy: Top contributors
+        3. :memo: Highlights — summarize the most significant PRs/issues
+        4. :crystal_ball: Themes — what areas of the codebase saw the most activity
+
+        Use Slack markdown. Keep it under 20 lines. Make it engaging.
+      systemPrompt: "Write engaging weekly engineering reports. Highlight achievements and trends."
+      maxTokens: 1000
+
+  - id: post-report
+    type: slack-send
+    name: Post Weekly Report
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.generate-summary.outputs.response
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: date-range
+    to: fetch-merged-prs
+  - from: date-range
+    to: fetch-issues
+  - from: fetch-merged-prs
+    to: crunch-stats
+  - from: fetch-issues
+    to: crunch-stats
+  - from: crunch-stats
+    to: generate-summary
+  - from: date-range
+    to: generate-summary
+  - from: generate-summary
+    to: post-report

@@ -1,0 +1,325 @@
+id: self-deploy-launchmatic
+name: Deploy This Workflow to LaunchMatic
+version: "1.0"
+description: Package the current Stirrup workflow as a standalone service and deploy it to LaunchMatic for persistent hosting
+
+params:
+  - name: workflowFile
+    type: string
+    required: true
+    description: "Path to the workflow YAML file to deploy"
+  - name: projectSlug
+    type: string
+    required: true
+    description: "LaunchMatic project slug"
+  - name: serviceName
+    type: string
+    required: true
+    description: "Name for the deployed service"
+  - name: lmToken
+    type: string
+    required: true
+    description: "LaunchMatic API token"
+  - name: anthropicKey
+    type: string
+    required: true
+    description: "Anthropic API key for AI nodes in the deployed workflow"
+  - name: slackToken
+    type: string
+    description: "Optional: Slack token to notify on deploy"
+  - name: slackChannel
+    type: string
+    default: "#deployments"
+    description: "Slack channel for deploy notification"
+
+nodes:
+  - id: read-workflow
+    type: fs-read
+    name: Read Workflow File
+    inputs:
+      - from: context.workflowFile
+        to: path
+    outputs: [content, path, size]
+    config: {}
+
+  - id: generate-server
+    type: llm-prompt
+    name: Generate Server Code
+    inputs:
+      - from: nodes.read-workflow.outputs.content
+        to: workflowYaml
+      - from: context.serviceName
+        to: name
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Generate a complete Node.js server (ES module) that runs this Stirrup workflow as an HTTP service.
+
+        Workflow YAML:
+        {{workflowYaml}}
+
+        Requirements:
+        - Use Express on port from PORT env var (default 3000)
+        - Import and configure stirrup-ai engine
+        - Register all node handlers (transform, condition, http, script + AI nodes if ANTHROPIC_API_KEY is set)
+        - Load the workflow from a ./workflow.yaml file
+        - POST /run — execute with request body as context params
+        - GET /health — health check
+        - GET /status/:id — execution status
+        - Use proper error handling
+
+        Return ONLY the JavaScript code, no markdown fencing.
+      systemPrompt: "Generate production-ready Node.js server code. Use ES module syntax. Be thorough with error handling."
+      maxTokens: 4096
+
+  - id: generate-package
+    type: transform
+    name: Generate package.json
+    inputs:
+      - from: context.serviceName
+        to: name
+    outputs: [packageJson]
+    config:
+      expression: |
+        ({
+          packageJson: JSON.stringify({
+            name: inputs.name,
+            version: '1.0.0',
+            type: 'module',
+            scripts: { start: 'node server.js' },
+            dependencies: {
+              'stirrup-ai': '^0.1.0',
+              'express': '^5.0.0'
+            }
+          }, null, 2)
+        })
+
+  - id: generate-dockerfile
+    type: transform
+    name: Generate Dockerfile
+    inputs: []
+    outputs: [dockerfile]
+    config:
+      expression: |
+        ({
+          dockerfile: 'FROM node:20-slim\nWORKDIR /app\nCOPY package.json ./\nRUN npm install --production\nCOPY . .\nEXPOSE 3000\nCMD ["node", "server.js"]'
+        })
+
+  - id: write-files
+    type: script
+    name: Write Project Files
+    inputs:
+      - from: nodes.generate-server.outputs.response
+        to: serverCode
+      - from: nodes.generate-package.outputs.packageJson
+        to: packageJson
+      - from: nodes.generate-dockerfile.outputs.dockerfile
+        to: dockerfile
+      - from: nodes.read-workflow.outputs.content
+        to: workflowYaml
+      - from: context.serviceName
+        to: name
+    outputs: [result]
+    config:
+      code: |
+        const fs = require('fs');
+        const path = require('path');
+        const dir = path.resolve('.deploy-' + inputs.name);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'server.js'), inputs.serverCode);
+        fs.writeFileSync(path.join(dir, 'package.json'), inputs.packageJson);
+        fs.writeFileSync(path.join(dir, 'Dockerfile'), inputs.dockerfile);
+        fs.writeFileSync(path.join(dir, 'workflow.yaml'), inputs.workflowYaml);
+        fs.writeFileSync(path.join(dir, '.env'), 'ANTHROPIC_API_KEY=' + (context.anthropicKey || '') + '\nPORT=3000\n');
+        result = { dir, files: ['server.js', 'package.json', 'Dockerfile', 'workflow.yaml', '.env'] };
+      timeoutMs: 5000
+
+  - id: create-service
+    type: lm-create-service
+    name: Create LaunchMatic Service
+    inputs:
+      - from: context.projectSlug
+        to: projectSlug
+      - from: context.serviceName
+        to: name
+      - from: context.lmToken
+        to: token
+    outputs: [serviceId, name, status]
+    config:
+      runtime: "docker"
+
+  - id: set-env-vars
+    type: lm-env-set
+    name: Set Environment Variables
+    inputs:
+      - from: nodes.create-service.outputs.serviceId
+        to: serviceId
+      - from: context.lmToken
+        to: token
+      - from: context.anthropicKey
+        to: anthropicKey
+    outputs: [set, count]
+    config:
+      variables: {}
+
+  - id: format-env
+    type: transform
+    name: Prepare Env Vars
+    inputs:
+      - from: context.anthropicKey
+        to: anthropicKey
+    outputs: [variables]
+    config:
+      expression: |
+        ({
+          variables: {
+            ANTHROPIC_API_KEY: inputs.anthropicKey,
+            PORT: '3000',
+            NODE_ENV: 'production'
+          }
+        })
+
+  - id: deploy
+    type: lm-deploy
+    name: Deploy to LaunchMatic
+    inputs:
+      - from: nodes.create-service.outputs.serviceId
+        to: serviceId
+      - from: context.lmToken
+        to: token
+    outputs: [deploymentId, status, url]
+    config: {}
+
+  - id: wait-deploy
+    type: delay
+    name: Wait for Deployment
+    inputs: []
+    outputs: [passthrough]
+    config:
+      seconds: 30
+
+  - id: verify
+    type: lm-browser-test
+    name: Verify Deployment
+    inputs:
+      - from: nodes.deploy.outputs.url
+        to: url
+    outputs: [passed, status, loadTimeMs]
+    config:
+      timeout: 30000
+
+  - id: build-result
+    type: transform
+    name: Build Result Summary
+    inputs:
+      - from: nodes.deploy.outputs.url
+        to: url
+      - from: nodes.deploy.outputs.deploymentId
+        to: deploymentId
+      - from: nodes.create-service.outputs.serviceId
+        to: serviceId
+      - from: nodes.verify.outputs.passed
+        to: verified
+      - from: context.serviceName
+        to: name
+    outputs: [result]
+    config:
+      expression: |
+        ({
+          result: {
+            serviceName: inputs.name,
+            serviceId: inputs.serviceId,
+            deploymentId: inputs.deploymentId,
+            url: inputs.url,
+            runEndpoint: inputs.url + '/run',
+            healthEndpoint: inputs.url + '/health',
+            verified: inputs.verified,
+            deployedAt: new Date().toISOString(),
+            usage: 'curl -X POST ' + inputs.url + '/run -H "Content-Type: application/json" -d \'{"param": "value"}\''
+          }
+        })
+
+  - id: check-notify
+    type: condition
+    name: Should Notify Slack?
+    inputs:
+      - from: context.slackToken
+        to: token
+    outputs: [selectedBranch]
+    config:
+      expression: "inputs.token ? 'yes' : 'no'"
+    branches:
+      yes: [notify-slack]
+      no: []
+
+  - id: notify-slack
+    type: slack-send
+    name: Notify Deployment
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.build-result.outputs.result
+        to: result
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+  - id: format-slack
+    type: transform
+    name: Format Slack Message
+    inputs:
+      - from: nodes.build-result.outputs.result
+        to: result
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':cloud: *Workflow deployed to LaunchMatic!*\n\n' +
+            '> *Service:* ' + inputs.result.serviceName + '\n' +
+            '> *URL:* ' + inputs.result.url + '\n' +
+            '> *Run endpoint:* `POST ' + inputs.result.runEndpoint + '`\n' +
+            '> *Health:* ' + inputs.result.healthEndpoint + '\n' +
+            '> *Verified:* ' + (inputs.result.verified ? ':white_check_mark: Yes' : ':warning: Check manually') + '\n\n' +
+            '```' + inputs.result.usage + '```'
+        })
+
+edges:
+  - from: read-workflow
+    to: generate-server
+  - from: generate-server
+    to: write-files
+  - from: generate-package
+    to: write-files
+  - from: generate-dockerfile
+    to: write-files
+  - from: read-workflow
+    to: write-files
+  - from: write-files
+    to: create-service
+  - from: create-service
+    to: format-env
+  - from: format-env
+    to: set-env-vars
+  - from: set-env-vars
+    to: deploy
+  - from: deploy
+    to: wait-deploy
+  - from: wait-deploy
+    to: verify
+  - from: verify
+    to: build-result
+  - from: deploy
+    to: build-result
+  - from: create-service
+    to: build-result
+  - from: build-result
+    to: check-notify
+  - from: check-notify
+    to: format-slack
+    condition: yes
+  - from: format-slack
+    to: notify-slack

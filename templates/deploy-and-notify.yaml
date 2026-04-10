@@ -1,0 +1,162 @@
+id: deploy-and-notify
+name: Deploy to LaunchMatic & Notify Team
+version: "1.0"
+description: Deploy a service to LaunchMatic, run browser smoke tests on the live URL, and post results to Slack
+
+params:
+  - name: serviceId
+    type: string
+    required: true
+    description: "LaunchMatic service ID to deploy"
+  - name: slackChannel
+    type: string
+    required: true
+    description: "Slack channel for deployment notifications"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+  - name: lmToken
+    type: string
+    required: true
+    description: "LaunchMatic API token"
+
+nodes:
+  - id: deploy
+    type: lm-deploy
+    name: Deploy to LaunchMatic
+    inputs:
+      - from: context.serviceId
+        to: serviceId
+      - from: context.lmToken
+        to: token
+    outputs: [deploymentId, status, url]
+    config: {}
+
+  - id: wait-for-ready
+    type: delay
+    name: Wait for Deployment
+    inputs: []
+    outputs: [passthrough]
+    config:
+      seconds: 15
+      reason: "Waiting for deployment to propagate"
+
+  - id: smoke-test
+    type: lm-browser-test
+    name: Smoke Test Live URL
+    inputs:
+      - from: nodes.deploy.outputs.url
+        to: url
+    outputs: [status, loadTimeMs, jsErrors, passed, title]
+    config:
+      checkLinks: true
+      timeout: 30000
+
+  - id: check-result
+    type: condition
+    name: Check Test Results
+    inputs:
+      - from: nodes.smoke-test.outputs.passed
+        to: passed
+    outputs: [selectedBranch]
+    config:
+      expression: "inputs.passed ? 'success' : 'failure'"
+    branches:
+      success: [notify-success]
+      failure: [notify-failure]
+
+  - id: notify-success
+    type: slack-send
+    name: Notify Success
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.deploy.outputs.url
+        to: url
+      - from: nodes.smoke-test.outputs.loadTimeMs
+        to: loadTime
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+  - id: format-success
+    type: transform
+    name: Format Success Message
+    inputs:
+      - from: nodes.deploy.outputs.url
+        to: url
+      - from: nodes.deploy.outputs.deploymentId
+        to: deploymentId
+      - from: nodes.smoke-test.outputs.loadTimeMs
+        to: loadTime
+      - from: nodes.smoke-test.outputs.title
+        to: title
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':white_check_mark: *Deployment Successful*\n' +
+            '> *URL:* ' + inputs.url + '\n' +
+            '> *Deployment:* `' + inputs.deploymentId + '`\n' +
+            '> *Page Title:* ' + inputs.title + '\n' +
+            '> *Load Time:* ' + inputs.loadTime + 'ms\n' +
+            '> *Smoke Test:* All checks passed'
+        })
+
+  - id: notify-failure
+    type: slack-send
+    name: Notify Failure
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+  - id: format-failure
+    type: transform
+    name: Format Failure Message
+    inputs:
+      - from: nodes.deploy.outputs.url
+        to: url
+      - from: nodes.deploy.outputs.deploymentId
+        to: deploymentId
+      - from: nodes.smoke-test.outputs.jsErrors
+        to: errors
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':x: *Deployment Failed Smoke Test*\n' +
+            '> *URL:* ' + inputs.url + '\n' +
+            '> *Deployment:* `' + inputs.deploymentId + '`\n' +
+            '> *Errors:* ' + (inputs.errors || []).join(', ') + '\n' +
+            '> :warning: Consider rolling back.'
+        })
+
+edges:
+  - from: deploy
+    to: wait-for-ready
+  - from: wait-for-ready
+    to: smoke-test
+  - from: smoke-test
+    to: check-result
+  - from: check-result
+    to: format-success
+    condition: success
+  - from: check-result
+    to: format-failure
+    condition: failure
+  - from: format-success
+    to: notify-success
+  - from: format-failure
+    to: notify-failure

@@ -1,0 +1,150 @@
+id: uptime-monitor
+name: Uptime Monitor & Alert
+version: "1.0"
+description: Check a URL on a schedule, test for downtime, log metrics, and alert in Slack if the site is down
+
+params:
+  - name: url
+    type: string
+    required: true
+    description: "URL to monitor"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+  - name: alertChannel
+    type: string
+    required: true
+    default: "#alerts"
+    description: "Slack channel for downtime alerts"
+
+triggers:
+  cron:
+    schedule: "*/5 * * * *"
+
+nodes:
+  - id: check-url
+    type: http
+    name: HTTP Health Check
+    inputs:
+      - from: context.url
+        to: url
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: GET
+
+  - id: measure
+    type: transform
+    name: Measure Response
+    inputs:
+      - from: nodes.check-url.outputs.status
+        to: status
+      - from: context.url
+        to: url
+    outputs: [isUp, statusCode]
+    config:
+      expression: |
+        ({
+          isUp: inputs.status >= 200 && inputs.status < 400,
+          statusCode: inputs.status,
+          checkedAt: new Date().toISOString(),
+          url: inputs.url
+        })
+
+  - id: log-metric
+    type: metric
+    name: Log Uptime Metric
+    inputs:
+      - from: nodes.measure.outputs.isUp
+        to: isUp
+      - from: nodes.measure.outputs.statusCode
+        to: statusCode
+      - from: context.url
+        to: url
+    outputs: [recorded]
+    config:
+      name: "uptime.check"
+      value: 1
+      tags:
+        url: "{{url}}"
+
+  - id: check-status
+    type: condition
+    name: Is Site Up?
+    inputs:
+      - from: nodes.measure.outputs.isUp
+        to: isUp
+    outputs: [selectedBranch]
+    config:
+      expression: "inputs.isUp ? 'up' : 'down'"
+    branches:
+      up: [log-ok]
+      down: [alert-down]
+
+  - id: log-ok
+    type: log
+    name: Log OK
+    inputs:
+      - from: context.url
+        to: url
+      - from: nodes.measure.outputs.statusCode
+        to: status
+    outputs: [logged]
+    config:
+      level: info
+      message: "Site is up"
+      tag: "uptime"
+
+  - id: alert-down
+    type: slack-send
+    name: Alert Downtime
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.alertChannel
+        to: channel
+      - from: context.url
+        to: url
+      - from: nodes.measure.outputs.statusCode
+        to: statusCode
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+  - id: format-alert
+    type: transform
+    name: Format Alert
+    inputs:
+      - from: context.url
+        to: url
+      - from: nodes.measure.outputs.statusCode
+        to: statusCode
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':rotating_light: *DOWNTIME DETECTED*\n' +
+            '> *URL:* ' + inputs.url + '\n' +
+            '> *Status:* HTTP ' + inputs.statusCode + '\n' +
+            '> *Time:* ' + new Date().toISOString() + '\n' +
+            '> Please investigate immediately.'
+        })
+
+edges:
+  - from: check-url
+    to: measure
+  - from: measure
+    to: log-metric
+  - from: measure
+    to: check-status
+  - from: check-status
+    to: log-ok
+    condition: up
+  - from: check-status
+    to: format-alert
+    condition: down
+  - from: format-alert
+    to: alert-down

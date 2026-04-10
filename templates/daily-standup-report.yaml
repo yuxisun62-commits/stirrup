@@ -1,0 +1,162 @@
+id: daily-standup-report
+name: Daily Standup Report Generator
+version: "1.0"
+description: Gather yesterday's GitHub activity across repos, generate an AI summary, and post a standup report to Slack
+
+params:
+  - name: repos
+    type: string
+    required: true
+    description: "Comma-separated repos to track (e.g. org/api,org/frontend)"
+  - name: githubToken
+    type: string
+    required: true
+    description: "GitHub access token"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+  - name: slackChannel
+    type: string
+    required: true
+    default: "#standup"
+    description: "Slack channel for the report"
+
+triggers:
+  cron:
+    schedule: "0 9 * * 1-5"
+    timezone: "America/New_York"
+
+nodes:
+  - id: parse-repos
+    type: transform
+    name: Parse Repository List
+    inputs:
+      - from: context.repos
+        to: repos
+    outputs: [repoList, since]
+    config:
+      expression: |
+        ({
+          repoList: inputs.repos.split(',').map(r => r.trim()),
+          since: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+        })
+
+  - id: fetch-commits
+    type: script
+    name: Fetch Commits from All Repos
+    inputs:
+      - from: nodes.parse-repos.outputs.repoList
+        to: repos
+      - from: nodes.parse-repos.outputs.since
+        to: since
+      - from: context.githubToken
+        to: token
+    outputs: [result]
+    config:
+      code: |
+        const repos = inputs.repos;
+        const since = inputs.since;
+        const allCommits = [];
+        for (const repo of repos) {
+          try {
+            const res = await fetch(
+              'https://api.github.com/repos/' + repo + '/commits?since=' + since + '&per_page=50',
+              { headers: { Authorization: 'Bearer ' + inputs.token, Accept: 'application/vnd.github.v3+json' } }
+            );
+            const commits = await res.json();
+            if (Array.isArray(commits)) {
+              for (const c of commits) {
+                allCommits.push({ repo, sha: c.sha?.slice(0, 7), message: c.commit?.message?.split('\n')[0], author: c.commit?.author?.name, date: c.commit?.author?.date });
+              }
+            }
+          } catch(e) {}
+        }
+        result = { commits: allCommits, repoCount: repos.length, commitCount: allCommits.length };
+      timeoutMs: 30000
+
+  - id: fetch-prs
+    type: script
+    name: Fetch Open PRs
+    inputs:
+      - from: nodes.parse-repos.outputs.repoList
+        to: repos
+      - from: context.githubToken
+        to: token
+    outputs: [result]
+    config:
+      code: |
+        const repos = inputs.repos;
+        const allPRs = [];
+        for (const repo of repos) {
+          try {
+            const res = await fetch(
+              'https://api.github.com/repos/' + repo + '/pulls?state=open&per_page=20',
+              { headers: { Authorization: 'Bearer ' + inputs.token, Accept: 'application/vnd.github.v3+json' } }
+            );
+            const prs = await res.json();
+            if (Array.isArray(prs)) {
+              for (const pr of prs) {
+                allPRs.push({ repo, number: pr.number, title: pr.title, author: pr.user?.login, draft: pr.draft, reviewers: pr.requested_reviewers?.map(r => r.login) });
+              }
+            }
+          } catch(e) {}
+        }
+        result = { prs: allPRs, prCount: allPRs.length };
+      timeoutMs: 30000
+
+  - id: generate-report
+    type: llm-prompt
+    name: Generate Standup Report
+    inputs:
+      - from: nodes.fetch-commits.outputs.result
+        to: commitData
+      - from: nodes.fetch-prs.outputs.result
+        to: prData
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Generate a daily standup report for a Slack post based on this activity:
+
+        Commits (last 24h):
+        {{commitData}}
+
+        Open Pull Requests:
+        {{prData}}
+
+        Format as a Slack message with sections:
+        1. :memo: *Yesterday's Activity* — summarize key commits grouped by author
+        2. :arrows_counterclockwise: *Open PRs* — list PRs needing review (highlight non-draft ones)
+        3. :dart: *Focus Areas* — what the team seems to be working on based on the commits
+
+        Keep it concise. Use Slack markdown. No more than 15 lines.
+      systemPrompt: "Write concise team standup reports. Group by theme, not by repo. Highlight what matters."
+      maxTokens: 800
+
+  - id: post-report
+    type: slack-send
+    name: Post to Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.generate-report.outputs.response
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: parse-repos
+    to: fetch-commits
+  - from: parse-repos
+    to: fetch-prs
+  - from: fetch-commits
+    to: generate-report
+  - from: fetch-prs
+    to: generate-report
+  - from: generate-report
+    to: post-report

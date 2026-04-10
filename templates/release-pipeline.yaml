@@ -1,0 +1,200 @@
+id: release-pipeline
+name: Release Pipeline — Build, Deploy, Announce
+version: "1.0"
+description: Create a GitHub release, deploy to production on LaunchMatic, screenshot the result, and announce in Slack
+
+params:
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repository (owner/repo)"
+  - name: tag
+    type: string
+    required: true
+    description: "Release tag (e.g. v1.2.0)"
+  - name: serviceId
+    type: string
+    required: true
+    description: "LaunchMatic production service ID"
+  - name: githubToken
+    type: string
+    required: true
+    description: "GitHub access token"
+  - name: lmToken
+    type: string
+    required: true
+    description: "LaunchMatic API token"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+  - name: slackChannel
+    type: string
+    required: true
+    default: "#releases"
+    description: "Slack channel for release announcements"
+
+nodes:
+  - id: get-commits
+    type: http
+    name: Fetch Recent Commits
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.githubToken
+        to: token
+    outputs: [body]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/commits?per_page=20"
+      method: GET
+      headers:
+        Authorization: "Bearer {{token}}"
+        Accept: "application/vnd.github.v3+json"
+
+  - id: generate-notes
+    type: llm-prompt
+    name: Generate Release Notes
+    inputs:
+      - from: nodes.get-commits.outputs.body
+        to: commits
+      - from: context.tag
+        to: tag
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Generate release notes for version {{tag}} based on these recent commits:
+        {{commits}}
+
+        Format as markdown with sections:
+        ## What's New
+        ## Bug Fixes
+        ## Other Changes
+
+        Group commits logically. Write user-friendly descriptions, not raw commit messages.
+      systemPrompt: "Write clear, professional release notes. Highlight user-facing changes."
+      maxTokens: 1500
+
+  - id: create-release
+    type: http
+    name: Create GitHub Release
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.tag
+        to: tag
+      - from: context.githubToken
+        to: token
+      - from: nodes.generate-notes.outputs.response
+        to: notes
+    outputs: [body, status]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/releases"
+      method: POST
+      headers:
+        Authorization: "Bearer {{token}}"
+        Content-Type: "application/json"
+
+  - id: deploy-production
+    type: lm-deploy
+    name: Deploy to Production
+    inputs:
+      - from: context.serviceId
+        to: serviceId
+      - from: context.lmToken
+        to: token
+    outputs: [deploymentId, status, url]
+    config: {}
+
+  - id: wait-deploy
+    type: delay
+    name: Wait for Production Deploy
+    inputs: []
+    outputs: [passthrough]
+    config:
+      seconds: 20
+
+  - id: verify-production
+    type: lm-browser-test
+    name: Verify Production
+    inputs:
+      - from: nodes.deploy-production.outputs.url
+        to: url
+    outputs: [passed, loadTimeMs, status, title]
+    config:
+      checkLinks: true
+      timeout: 30000
+
+  - id: screenshot-prod
+    type: lm-browser-screenshot
+    name: Screenshot Production
+    inputs:
+      - from: nodes.deploy-production.outputs.url
+        to: url
+    outputs: [path, size]
+    config:
+      fullPage: false
+
+  - id: build-announcement
+    type: transform
+    name: Build Slack Announcement
+    inputs:
+      - from: context.tag
+        to: tag
+      - from: context.repo
+        to: repo
+      - from: nodes.deploy-production.outputs.url
+        to: url
+      - from: nodes.generate-notes.outputs.response
+        to: notes
+      - from: nodes.verify-production.outputs.passed
+        to: passed
+      - from: nodes.verify-production.outputs.loadTimeMs
+        to: loadTime
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':rocket: *Release ' + inputs.tag + '* is live!\n\n' +
+            ':link: ' + inputs.url + '\n' +
+            ':package: <https://github.com/' + inputs.repo + '/releases/tag/' + inputs.tag + '|GitHub Release>\n' +
+            (inputs.passed ? ':white_check_mark: Production verified (' + inputs.loadTime + 'ms load)' : ':warning: Production check failed') +
+            '\n\n' + inputs.notes
+        })
+
+  - id: announce-slack
+    type: slack-send
+    name: Announce in Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.build-announcement.outputs.text
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: get-commits
+    to: generate-notes
+  - from: generate-notes
+    to: create-release
+  - from: create-release
+    to: deploy-production
+  - from: deploy-production
+    to: wait-deploy
+  - from: wait-deploy
+    to: verify-production
+  - from: wait-deploy
+    to: screenshot-prod
+  - from: verify-production
+    to: build-announcement
+  - from: generate-notes
+    to: build-announcement
+  - from: deploy-production
+    to: build-announcement
+  - from: build-announcement
+    to: announce-slack
