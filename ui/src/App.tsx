@@ -88,12 +88,7 @@ function App() {
         padding: '10px 12px', borderBottom: `1px solid ${tokens.border.subtle}`,
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <div style={{
-          width: 24, height: 24, borderRadius: 6,
-          background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors.transform})`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 11, fontWeight: 800, color: '#fff',
-        }}>S</div>
+        <img src="/favicon.svg" alt="Stirrup" style={{ width: 24, height: 24 }} />
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, lineHeight: 1 }}>Stirrup</div>
           <div style={{ fontSize: 9, color: tokens.text.muted }}>AI Workflow Engine</div>
