@@ -228,7 +228,11 @@ function App() {
           </div>
 
           {/* Validation */}
-          <ValidationPanel workflow={workflow} onFixed={(wf) => loadWorkflow(wf)} />
+          <ValidationPanel
+            workflow={workflow}
+            onFixed={(wf) => loadWorkflow(wf)}
+            onSelectNode={setSelectedNodeId}
+          />
 
           {/* Execution panel */}
           <ExecutionPanel

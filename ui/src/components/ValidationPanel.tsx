@@ -5,17 +5,42 @@ import { tokens } from './ui/styles';
 interface Props {
   workflow: WorkflowDefinition;
   onFixed: (wf: WorkflowDefinition) => void;
+  onSelectNode: (nodeId: string) => void;
 }
 
-export function ValidationPanel({ workflow, onFixed }: Props) {
+/** Try to extract a node ID from a validation error message */
+function extractNodeId(error: string, nodeIds: Set<string>): string | null {
+  // Check for quoted node IDs: "node-name"
+  const quotedMatch = error.match(/"([^"]+)"/g);
+  if (quotedMatch) {
+    for (const m of quotedMatch) {
+      const id = m.replace(/"/g, '');
+      if (nodeIds.has(id)) return id;
+    }
+  }
+
+  // Check for node IDs mentioned directly in the error text
+  for (const id of nodeIds) {
+    if (error.includes(id)) return id;
+  }
+
+  // Check for "nodes.<id>" references
+  const nodesMatch = error.match(/nodes\.([a-zA-Z0-9_-]+)/);
+  if (nodesMatch && nodeIds.has(nodesMatch[1])) return nodesMatch[1];
+
+  return null;
+}
+
+export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
   const [errors, setErrors] = useState<string[]>([]);
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isFixing, setIsFixing] = useState(false);
   const [fixError, setFixError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
 
+  const nodeIds = new Set(workflow.nodes.map((n) => n.id));
+
   const validate = useCallback(async () => {
-    // Don't validate empty workflows
     if (workflow.nodes.length === 0) {
       setIsValid(null);
       setErrors([]);
@@ -27,11 +52,10 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
       setErrors(result.errors);
       if (!result.valid && !expanded) setExpanded(true);
     } catch {
-      // Silently fail — validation is best-effort
+      // Silently fail
     }
   }, [workflow.nodes.length, workflow.edges.length, workflow.id]);
 
-  // Validate on workflow changes (debounced)
   useEffect(() => {
     const timer = setTimeout(validate, 500);
     return () => clearTimeout(timer);
@@ -42,9 +66,8 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
     setFixError(null);
     try {
       const fixed = await fixWorkflow(workflow, errors);
-      fixed.id = workflow.id; // Preserve the current ID
+      fixed.id = workflow.id;
       onFixed(fixed);
-      // Re-validate after fix
       setTimeout(validate, 200);
     } catch (err) {
       setFixError(err instanceof Error ? err.message : String(err));
@@ -53,7 +76,6 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
     }
   };
 
-  // Don't show anything for empty/unvalidated workflows
   if (isValid === null) return null;
   if (isValid) {
     return (
@@ -63,12 +85,8 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
         borderTop: `1px solid ${tokens.border.subtle}`,
         backgroundColor: `${tokens.status.completed}06`,
       }}>
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%', backgroundColor: tokens.status.completed,
-        }} />
-        <span style={{ fontSize: 10, color: tokens.status.completed, fontWeight: 600 }}>
-          Valid workflow
-        </span>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: tokens.status.completed }} />
+        <span style={{ fontSize: 10, color: tokens.status.completed, fontWeight: 600 }}>Valid workflow</span>
       </div>
     );
   }
@@ -78,22 +96,16 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
       borderTop: `1px solid ${tokens.status.failed}30`,
       backgroundColor: `${tokens.status.failed}06`,
     }}>
-      {/* Header — always visible */}
+      {/* Header */}
       <div
-        style={{
-          padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-        }}
+        style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
         onClick={() => setExpanded((p) => !p)}
       >
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%', backgroundColor: tokens.status.failed,
-        }} />
+        <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: tokens.status.failed }} />
         <span style={{ fontSize: 10, color: tokens.status.failed, fontWeight: 600 }}>
           {errors.length} validation error{errors.length !== 1 ? 's' : ''}
         </span>
-
         <div style={{ flex: 1 }} />
-
         <button
           onClick={(e) => { e.stopPropagation(); handleFix(); }}
           disabled={isFixing}
@@ -111,7 +123,7 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
             <>
               <span style={{
                 width: 10, height: 10, borderRadius: '50%',
-                border: `2px solid #fff`, borderTopColor: 'transparent',
+                border: '2px solid #fff', borderTopColor: 'transparent',
                 animation: 'spin 0.8s linear infinite', display: 'inline-block',
               }} />
               Fixing...
@@ -121,7 +133,6 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
           )}
         </button>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
         <span style={{
           fontSize: 12, color: tokens.text.muted,
           transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)',
@@ -132,17 +143,39 @@ export function ValidationPanel({ workflow, onFixed }: Props) {
       {/* Error list */}
       {expanded && (
         <div style={{ padding: '0 14px 8px' }}>
-          {errors.map((err, i) => (
-            <div key={i} style={{
-              display: 'flex', gap: 6, padding: '4px 8px', marginBottom: 2,
-              borderRadius: 4, backgroundColor: `${tokens.status.failed}08`,
-              fontSize: 11, color: '#fca5a5', lineHeight: 1.4,
-              fontFamily: tokens.font.mono,
-            }}>
-              <span style={{ color: tokens.status.failed, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
-              <span>{err}</span>
-            </div>
-          ))}
+          {errors.map((err, i) => {
+            const relatedNodeId = extractNodeId(err, nodeIds);
+            return (
+              <div
+                key={i}
+                onClick={() => relatedNodeId && onSelectNode(relatedNodeId)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '5px 8px', marginBottom: 2, borderRadius: 4,
+                  backgroundColor: `${tokens.status.failed}08`,
+                  fontSize: 11, color: '#fca5a5', lineHeight: 1.4,
+                  fontFamily: tokens.font.mono,
+                  cursor: relatedNodeId ? 'pointer' : 'default',
+                  transition: 'background-color 0.15s',
+                }}
+                onMouseEnter={(e) => { if (relatedNodeId) (e.currentTarget as HTMLElement).style.backgroundColor = `${tokens.status.failed}15`; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = `${tokens.status.failed}08`; }}
+              >
+                <span style={{ color: tokens.status.failed, fontWeight: 700, flexShrink: 0 }}>{i + 1}.</span>
+                <span style={{ flex: 1 }}>{err}</span>
+                {relatedNodeId && (
+                  <span style={{
+                    fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                    backgroundColor: tokens.bg.input, color: tokens.text.accent,
+                    border: `1px solid ${tokens.border.subtle}`,
+                    flexShrink: 0,
+                  }}>
+                    {relatedNodeId} →
+                  </span>
+                )}
+              </div>
+            );
+          })}
 
           {fixError && (
             <div style={{
