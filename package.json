@@ -10,6 +10,7 @@
     "bin/",
     "schemas/",
     "templates/",
+    "plugins/public/",
     "src/ui/dist/",
     "LICENSE",
     "README.md",
