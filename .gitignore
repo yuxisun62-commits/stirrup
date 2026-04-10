@@ -11,3 +11,4 @@ src/ui/dist/
 .stirrup.json
 workflows/
 plugins/premium/
+deploy/
