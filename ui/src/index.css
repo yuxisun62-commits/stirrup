@@ -22,6 +22,7 @@ body {
 
 input, textarea, select, button {
   font-family: inherit;
+  -webkit-appearance: none;
 }
 
 input:focus, textarea:focus, select:focus {
@@ -56,6 +57,10 @@ input:focus, textarea:focus, select:focus {
   50% { opacity: 0.4; }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* React Flow overrides */
 .react-flow__attribution {
   display: none !important;
@@ -71,4 +76,20 @@ input:focus, textarea:focus, select:focus {
 
 .react-flow__handle:hover {
   transform: scale(1.4);
+}
+
+/* Mobile: touch-friendly handles */
+@media (max-width: 768px) {
+  .react-flow__handle {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .react-flow__controls {
+    bottom: 60px !important;
+  }
+
+  .react-flow__minimap {
+    display: none !important;
+  }
 }

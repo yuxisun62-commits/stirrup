@@ -10,6 +10,7 @@ interface Props {
   isRunning: boolean;
   onRun: () => void;
   onClear: () => void;
+  onDeploy?: () => void;
 }
 
 function getEventColor(type: string): string {
@@ -21,7 +22,7 @@ function getEventColor(type: string): string {
   return tokens.text.muted;
 }
 
-export function ExecutionPanel({ execution, events, isRunning, onRun, onClear }: Props) {
+export function ExecutionPanel({ execution, events, isRunning, onRun, onClear, onDeploy }: Props) {
   const [expanded, setExpanded] = useState(true);
 
   return (
@@ -65,16 +66,31 @@ export function ExecutionPanel({ execution, events, isRunning, onRun, onClear }:
         </button>
 
         {execution && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onClear(); }}
-            style={{
-              padding: '4px 10px', fontSize: 10, borderRadius: 4,
-              border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
-              color: tokens.text.muted, cursor: 'pointer',
-            }}
-          >
-            Clear
-          </button>
+          <>
+            {onDeploy && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDeploy(); }}
+                style={{
+                  padding: '4px 10px', fontSize: 10, fontWeight: 600, borderRadius: 4,
+                  border: 'none', cursor: 'pointer',
+                  background: `linear-gradient(135deg, #06b6d4, #3b82f6)`,
+                  color: '#fff',
+                }}
+              >
+                Deploy
+              </button>
+            )}
+            <button
+              onClick={(e) => { e.stopPropagation(); onClear(); }}
+              style={{
+                padding: '4px 10px', fontSize: 10, borderRadius: 4,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: tokens.text.muted, cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+          </>
         )}
 
         <span style={{ fontSize: 14, color: tokens.text.muted, transition: 'transform 0.2s', transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)' }}>
