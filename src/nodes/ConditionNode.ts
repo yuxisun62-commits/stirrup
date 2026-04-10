@@ -1,16 +1,14 @@
-import vm from "node:vm";
 import type { NodeHandler } from "./NodeRegistry.js";
 import type { ConditionConfig } from "../types/nodes.js";
+import { runInSandbox } from "./sandbox.js";
 
 export const conditionHandler: NodeHandler = async (config, ctx) => {
   const { expression } = config as unknown as ConditionConfig;
 
-  const sandbox = {
+  const selectedBranch = runInSandbox(expression, {
     inputs: ctx.inputs,
     context: ctx.context,
-  };
-
-  const selectedBranch = vm.runInNewContext(expression, sandbox, { timeout: 5000 });
+  }, { timeout: 5000 });
 
   if (typeof selectedBranch !== "string") {
     throw new Error(

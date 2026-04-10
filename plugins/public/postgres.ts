@@ -42,6 +42,14 @@ export default function register(ctx: PluginContext) {
     if (rows.length === 0) return { inserted: 0 };
 
     const columns = Object.keys(rows[0]);
+    // Validate identifiers to prevent SQL injection
+    const safeId = (id: string) => {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(id)) throw new Error(`Unsafe SQL identifier: "${id}"`);
+      return `"${id}"`;
+    };
+    const safeTable = safeId(table);
+    const safeCols = columns.map(safeId);
+
     const pool = await getPool(config);
     try {
       let inserted = 0;
@@ -49,7 +57,7 @@ export default function register(ctx: PluginContext) {
         const values = columns.map((c) => row[c]);
         const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
         await pool.query(
-          `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`,
+          `INSERT INTO ${safeTable} (${safeCols.join(", ")}) VALUES (${placeholders})`,
           values
         );
         inserted++;

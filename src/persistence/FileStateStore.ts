@@ -15,6 +15,10 @@ export class FileStateStore implements StateStore {
   }
 
   private filePath(executionId: ExecutionId): string {
+    // Validate UUID format to prevent path traversal
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(executionId)) {
+      throw new Error(`Invalid execution ID format: "${executionId}"`);
+    }
     return join(this.dir, `${executionId}.json`);
   }
 

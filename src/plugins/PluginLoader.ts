@@ -81,7 +81,17 @@ export class PluginLoader {
 
   private resolveSpecifier(specifier: string): string {
     if (specifier.startsWith(".") || isAbsolute(specifier)) {
-      return resolve(process.cwd(), specifier);
+      const resolved = resolve(process.cwd(), specifier);
+      // Path containment: only allow loading from cwd subtree or node_modules
+      const cwd = resolve(process.cwd());
+      if (!resolved.startsWith(cwd)) {
+        throw new Error(`Plugin path must be within the project directory: ${specifier}`);
+      }
+      return resolved;
+    }
+    // npm package names: validate format (no path separators, no ../)
+    if (specifier.includes("..") || specifier.includes("/") && !specifier.startsWith("@")) {
+      throw new Error(`Invalid plugin specifier: ${specifier}`);
     }
     return specifier;
   }

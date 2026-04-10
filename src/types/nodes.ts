@@ -44,6 +44,8 @@ export interface HttpNodeConfig {
   headers?: Record<string, string>;
   body?: unknown;
   responseMapping?: Record<string, string>;
+  /** If true, skip SSRF protection and allow requests to private/internal URLs */
+  allowInternal?: boolean;
 }
 
 /** Config for "transform" nodes */

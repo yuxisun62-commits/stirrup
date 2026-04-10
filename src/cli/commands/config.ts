@@ -4,6 +4,7 @@ import { success, error, info, heading } from "../output.js";
 
 const KNOWN_KEYS: Record<string, { description: string; secret?: boolean }> = {
   anthropicApiKey: { description: "Anthropic API key for AI nodes", secret: true },
+  apiToken: { description: "Bearer token for API authentication (STIRRUP_API_TOKEN)", secret: true },
   workflowsDir: { description: "Default workflows directory" },
   stateStore: { description: "State store backend (sqlite | file)" },
   dbPath: { description: "SQLite database path" },
@@ -24,6 +25,11 @@ export const configCommand: CommandModule = {
         handler: (argv) => {
           const key = argv.key as string;
           const value = argv.value as string;
+
+          if (!KNOWN_KEYS[key]) {
+            error(`Unknown config key: "${key}". Valid keys: ${Object.keys(KNOWN_KEYS).join(", ")}`);
+            process.exit(1);
+          }
 
           const config = loadConfigFile();
           (config as Record<string, unknown>)[key] = value;

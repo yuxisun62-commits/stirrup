@@ -7,12 +7,33 @@ import type { PluginContext } from "../../src/plugins/PluginManifest.js";
 import { readFileSync, writeFileSync, readdirSync, unlinkSync, existsSync, statSync, mkdirSync } from "node:fs";
 import { resolve, dirname, extname, basename } from "node:path";
 
+/** Simple glob match — supports * and ? wildcards, no regex (ReDoS-safe) */
+function simpleMatch(name: string, pattern: string): boolean {
+  const regex = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")  // escape regex chars
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+  try {
+    return new RegExp(`^${regex}$`, "i").test(name);
+  } catch {
+    return name.includes(pattern);
+  }
+}
+
+function assertContained(fullPath: string, baseDir?: string) {
+  const base = resolve(baseDir ?? process.cwd());
+  if (!fullPath.startsWith(base + "/") && !fullPath.startsWith(base + "\\") && fullPath !== base) {
+    throw new Error(`Path blocked: "${fullPath}" is outside allowed directory "${base}"`);
+  }
+}
+
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("fs-read", async (config, execCtx) => {
-    const { path, encoding } = { ...execCtx.inputs, ...config } as {
-      path: string; encoding?: BufferEncoding;
+    const { path, encoding, baseDir } = { ...execCtx.inputs, ...config } as {
+      path: string; encoding?: BufferEncoding; baseDir?: string;
     };
     const fullPath = resolve(path);
+    assertContained(fullPath, baseDir);
     if (!existsSync(fullPath)) throw new Error(`File not found: ${fullPath}`);
     const content = readFileSync(fullPath, encoding ?? "utf-8");
     const stats = statSync(fullPath);
@@ -26,20 +47,22 @@ export default function register(ctx: PluginContext) {
   });
 
   ctx.registerNodeType("fs-write", async (config, execCtx) => {
-    const { path, content, encoding, createDirs } = { ...execCtx.inputs, ...config } as {
-      path: string; content: string; encoding?: BufferEncoding; createDirs?: boolean;
+    const { path, content, encoding, createDirs, baseDir } = { ...execCtx.inputs, ...config } as {
+      path: string; content: string; encoding?: BufferEncoding; createDirs?: boolean; baseDir?: string;
     };
     const fullPath = resolve(path);
+    assertContained(fullPath, baseDir);
     if (createDirs !== false) mkdirSync(dirname(fullPath), { recursive: true });
     writeFileSync(fullPath, content, encoding ?? "utf-8");
     return { path: fullPath, size: Buffer.byteLength(content), written: true };
   });
 
   ctx.registerNodeType("fs-list", async (config, execCtx) => {
-    const { path, pattern, recursive } = { ...execCtx.inputs, ...config } as {
-      path: string; pattern?: string; recursive?: boolean;
+    const { path, pattern, recursive, baseDir } = { ...execCtx.inputs, ...config } as {
+      path: string; pattern?: string; recursive?: boolean; baseDir?: string;
     };
     const fullPath = resolve(path);
+    assertContained(fullPath, baseDir);
     if (!existsSync(fullPath)) throw new Error(`Directory not found: ${fullPath}`);
 
     const listDir = (dir: string): Array<{ name: string; path: string; isFile: boolean; size: number }> => {
@@ -48,7 +71,7 @@ export default function register(ctx: PluginContext) {
       for (const entry of entries) {
         const entryPath = resolve(dir, entry.name);
         if (entry.isFile()) {
-          if (pattern && !entry.name.match(new RegExp(pattern))) continue;
+          if (pattern && !simpleMatch(entry.name, pattern)) continue;
           results.push({ name: entry.name, path: entryPath, isFile: true, size: statSync(entryPath).size });
         } else if (entry.isDirectory() && recursive) {
           results.push(...listDir(entryPath));
@@ -62,8 +85,9 @@ export default function register(ctx: PluginContext) {
   });
 
   ctx.registerNodeType("fs-delete", async (config, execCtx) => {
-    const { path } = { ...execCtx.inputs, ...config } as { path: string };
+    const { path, baseDir } = { ...execCtx.inputs, ...config } as { path: string; baseDir?: string };
     const fullPath = resolve(path);
+    assertContained(fullPath, baseDir);
     if (!existsSync(fullPath)) return { deleted: false, reason: "not found" };
     unlinkSync(fullPath);
     return { deleted: true, path: fullPath };

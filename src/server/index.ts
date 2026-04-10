@@ -12,6 +12,7 @@ import { pluginRoutes } from "./routes/plugins.js";
 import { templateRoutes } from "./routes/templates.js";
 import { generateRoutes } from "./routes/generate.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { authMiddleware } from "./middleware/auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -29,8 +30,11 @@ export function createServer(options: ServerOptions) {
   const { engine, pluginLoader, workflowsDir } = options;
   const app = express();
 
-  app.use(cors());
+  app.use(cors({ origin: process.env.STIRRUP_CORS_ORIGIN ?? "http://localhost:3710" }));
   app.use(express.json());
+
+  // Authentication
+  app.use("/api", authMiddleware);
 
   // API routes
   app.use("/api/workflows", workflowRoutes(engine, workflowsDir));

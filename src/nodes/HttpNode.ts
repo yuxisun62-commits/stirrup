@@ -1,11 +1,17 @@
 import type { NodeHandler } from "./NodeRegistry.js";
 import type { HttpNodeConfig } from "../types/nodes.js";
 import { renderTemplate } from "../ai/PromptTemplate.js";
+import { assertSafeUrl } from "../validation/urlSafety.js";
 
 export const httpHandler: NodeHandler = async (config, ctx) => {
   const cfg = config as unknown as HttpNodeConfig;
 
   const url = renderTemplate(cfg.url, ctx.inputs);
+
+  // SSRF protection: block private/internal URLs unless explicitly allowed
+  if (!cfg.allowInternal) {
+    assertSafeUrl(url);
+  }
 
   const headers: Record<string, string> = {};
   if (cfg.headers) {

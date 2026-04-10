@@ -1,6 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { WorkflowEngine } from "../engine/Engine.js";
 import type { WorkflowDefinition } from "../types/workflow.js";
 
@@ -224,7 +224,7 @@ function parseCronToInterval(expr: string): number {
 
 function verifySignature(payload: string, secret: string, signature: string): boolean {
   try {
-    const expected = "sha256=" + createHash("sha256").update(payload).update(secret).digest("hex");
+    const expected = "sha256=" + createHmac("sha256", secret).update(payload).digest("hex");
     const sigBuf = Buffer.from(signature);
     const expBuf = Buffer.from(expected);
     if (sigBuf.length !== expBuf.length) return false;

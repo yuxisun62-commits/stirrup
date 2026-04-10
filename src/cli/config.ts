@@ -34,7 +34,7 @@ export function loadConfigFile(): ConfigFile {
 }
 
 export function saveConfigFile(config: ConfigFile): void {
-  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2) + "\n", "utf-8");
+  writeFileSync(getConfigPath(), JSON.stringify(config, null, 2) + "\n", { encoding: "utf-8", mode: 0o600 });
 }
 
 export function loadConfig(cliArgs: Partial<AppConfig> = {}): AppConfig {

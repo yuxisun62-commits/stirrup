@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import type { WorkflowEngine } from "../../engine/Engine.js";
 import { validateWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
+import { assertSafeId, assertPathContained } from "../../validation/pathSafety.js";
 
 export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Router {
   const router = Router();
@@ -38,10 +39,14 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
     }
 
     const workflow = req.body;
+    try { assertSafeId(workflow.id); } catch {
+      res.status(400).json({ error: { code: "INVALID_ID", message: "Workflow ID must be alphanumeric with hyphens/underscores" } });
+      return;
+    }
     engine.registerWorkflow(workflow);
 
-    // Write to disk
     const filePath = resolve(workflowsDir, `${workflow.id}.yaml`);
+    assertPathContained(workflowsDir, filePath);
     writeFileSync(filePath, yamlStringify(workflow), "utf-8");
 
     res.status(201).json(workflow);
@@ -60,10 +65,16 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
     }
 
     const workflow = req.body;
-    workflow.id = req.params.id;
+    const id = String(req.params.id);
+    try { assertSafeId(id); } catch {
+      res.status(400).json({ error: { code: "INVALID_ID", message: "Invalid workflow ID" } });
+      return;
+    }
+    workflow.id = id;
     engine.registerWorkflow(workflow);
 
-    const filePath = resolve(workflowsDir, `${workflow.id}.yaml`);
+    const filePath = resolve(workflowsDir, `${id}.yaml`);
+    assertPathContained(workflowsDir, filePath);
     writeFileSync(filePath, yamlStringify(workflow), "utf-8");
 
     res.json(workflow);
@@ -71,14 +82,20 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
 
   // Delete workflow
   router.delete("/:id", (req, res) => {
+    const id = String(req.params.id);
+    try { assertSafeId(id); } catch {
+      res.status(400).json({ error: { code: "INVALID_ID", message: "Invalid workflow ID" } });
+      return;
+    }
     const workflows = (engine as any).workflows as Map<string, unknown>;
-    if (!workflows.has(req.params.id)) {
-      res.status(404).json({ error: { code: "NOT_FOUND", message: `Workflow not found: ${req.params.id}` } });
+    if (!workflows.has(id)) {
+      res.status(404).json({ error: { code: "NOT_FOUND", message: `Workflow not found: ${id}` } });
       return;
     }
 
-    workflows.delete(req.params.id);
-    const filePath = resolve(workflowsDir, `${req.params.id}.yaml`);
+    workflows.delete(id);
+    const filePath = resolve(workflowsDir, `${id}.yaml`);
+    assertPathContained(workflowsDir, filePath);
     if (existsSync(filePath)) unlinkSync(filePath);
 
     res.json({ ok: true });
