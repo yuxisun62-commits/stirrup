@@ -34,7 +34,7 @@ const KNOWN_SERVICES: ServiceCard[] = [
     label: 'Launchmatic',
     description: 'Deploy services, manage databases, run browser tests',
     oauthSupported: false,
-    tokenDocsUrl: 'https://app.launchmatic.io',
+    tokenDocsUrl: 'https://app.launchmatic.io/settings/api-keys',
     tokenInstructions: 'Install the Launchmatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
   },
   {
@@ -329,6 +329,25 @@ export function AuthPanel({ onClose }: Props) {
                     <div style={{ fontSize: 11, color: tokens.text.muted, lineHeight: 1.4 }}>
                       {svc.description}
                     </div>
+                    {/* Deep link to provider's key-management page — only for unconnected services
+                        that need a manual token. Lets the user jump straight to where they create the key. */}
+                    {!isConnected && svc.tokenDocsUrl && (
+                      <a
+                        href={svc.tokenDocsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          marginTop: 4, fontSize: 10, fontWeight: 600,
+                          color: tokens.text.accent, textDecoration: 'none',
+                          letterSpacing: '0.2px',
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+                      >
+                        Open {svc.label} {svc.service === 'slack' ? 'apps' : 'API keys'} ↗
+                      </a>
+                    )}
                   </div>
 
                   {isConnected ? (
