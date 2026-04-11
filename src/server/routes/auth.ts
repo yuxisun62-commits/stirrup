@@ -156,6 +156,10 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://publish.buffer.com/account/apps",
     instructions: "Open Buffer → Account → Apps & Extras → API Access. Create an access token and paste it here. Powers the buffer-schedule node for LinkedIn, Facebook, Instagram, and Threads.",
   },
+  replicate: {
+    url: "https://replicate.com/account/api-tokens",
+    instructions: "Open Replicate → Account → API Tokens, create a token, and paste it here. Powers the replicate-image node (Flux, SDXL) and the generic replicate-run node for any hosted model.",
+  },
 };
 
 export function authRoutes(): Router {

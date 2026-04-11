@@ -27,6 +27,7 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "launchmatic", description: "Launchmatic deployment platform — deploy, databases, domains, browser testing, AI", category: "cloud" },
   { name: "typefully", description: "Typefully — schedule X/Twitter threads and LinkedIn posts, with AI-friendly draft API", category: "integration" },
   { name: "buffer", description: "Buffer — schedule posts to LinkedIn, Facebook, Instagram, Threads, and more", category: "integration" },
+  { name: "replicate", description: "Replicate — run any hosted model: Flux/SDXL for images, Whisper for audio, Llama for text", category: "integration" },
   { name: "postgres", description: "PostgreSQL queries, inserts, and transactions", category: "database", peerDep: "pg", installHint: "npm install pg" },
   { name: "redis", description: "Redis get, set, publish, and list operations", category: "database", peerDep: "ioredis", installHint: "npm install ioredis" },
   { name: "email", description: "Send emails via SMTP", category: "integration", peerDep: "nodemailer", installHint: "npm install nodemailer" },

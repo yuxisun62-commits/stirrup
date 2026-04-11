@@ -99,6 +99,14 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenDocsUrl: 'https://publish.buffer.com/account/apps',
     tokenInstructions: 'Open Buffer → Account → Apps & Extras → API Access. Create an access token and paste it here.',
   },
+  {
+    service: 'replicate',
+    label: 'Replicate',
+    description: 'Run any hosted model — Flux/SDXL for images, Whisper for audio, Llama for text',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://replicate.com/account/api-tokens',
+    tokenInstructions: 'Open Replicate → Account → API Tokens, create a token, and paste it here.',
+  },
 ];
 
 export function AuthPanel({ onClose }: Props) {
