@@ -50,7 +50,7 @@ nodes:
         to: html
     outputs: [text, wordCount]
     config:
-      script: |
+      code: |
         const html = String(inputs.html ?? "");
         // Strip script/style blocks first
         const cleaned = html
@@ -70,7 +70,7 @@ nodes:
           .trim();
         // Truncate to a sane size for LLM input — keep first ~12k chars
         const truncated = text.length > 12000 ? text.slice(0, 12000) + " …[truncated]" : text;
-        return {
+        result = {
           text: truncated,
           wordCount: text.split(/\s+/).length
         };

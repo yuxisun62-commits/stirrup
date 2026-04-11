@@ -37,77 +37,81 @@ nodes:
         to: baseUrl
     outputs: [results, passed, failed, total]
     config:
-      script: |
-        const templates = typeof inputs.templates === "string"
-          ? JSON.parse(inputs.templates)
-          : inputs.templates;
-        const baseUrl = inputs.baseUrl;
-        const results = [];
-        let passed = 0;
-        let failed = 0;
+      timeoutMs: 60000
+      code: |
+        // Wrap in async IIFE — we need fetch + await to hit the templates route.
+        result = (async () => {
+          const templates = typeof inputs.templates === "string"
+            ? JSON.parse(inputs.templates)
+            : inputs.templates;
+          const baseUrl = inputs.baseUrl;
+          const results = [];
+          let passed = 0;
+          let failed = 0;
 
-        for (const t of templates) {
-          const r = { id: t.id, name: t.name, nodeCount: t.nodeCount, edgeCount: t.edgeCount };
-          try {
-            // Fetch the full template
-            const defRes = await fetch(baseUrl + "/api/templates/" + t.id);
-            if (!defRes.ok) {
-              r.ok = false;
-              r.error = "GET /api/templates/" + t.id + " → HTTP " + defRes.status;
-              results.push(r);
-              failed++;
-              continue;
-            }
-            const def = await defRes.json();
+          for (const t of templates) {
+            const r = { id: t.id, name: t.name, nodeCount: t.nodeCount, edgeCount: t.edgeCount };
+            try {
+              // Fetch the full template
+              const defRes = await fetch(baseUrl + "/api/templates/" + t.id);
+              if (!defRes.ok) {
+                r.ok = false;
+                r.error = "GET /api/templates/" + t.id + " → HTTP " + defRes.status;
+                results.push(r);
+                failed++;
+                continue;
+              }
+              const def = await defRes.json();
 
-            // Structural sanity: every edge should reference real node IDs
-            const nodeIds = new Set((def.nodes || []).map((n) => n.id));
-            const badEdges = (def.edges || []).filter(
-              (e) => !nodeIds.has(e.from) || !nodeIds.has(e.to)
-            );
-            if (badEdges.length > 0) {
-              r.ok = false;
-              r.error = "dangling edges: " + JSON.stringify(badEdges);
-              results.push(r);
-              failed++;
-              continue;
-            }
+              // Structural sanity: every edge should reference real node IDs
+              const nodeIds = new Set((def.nodes || []).map((n) => n.id));
+              const badEdges = (def.edges || []).filter(
+                (e) => !nodeIds.has(e.from) || !nodeIds.has(e.to)
+              );
+              if (badEdges.length > 0) {
+                r.ok = false;
+                r.error = "dangling edges: " + JSON.stringify(badEdges);
+                results.push(r);
+                failed++;
+                continue;
+              }
 
-            // Structural sanity: every input mapping should have from+to
-            const badInputs = [];
-            for (const node of def.nodes || []) {
-              for (const inp of node.inputs || []) {
-                if (!inp.from || !inp.to) {
-                  badInputs.push({ node: node.id, input: inp });
+              // Structural sanity: every input mapping should have from+to
+              const badInputs = [];
+              for (const node of def.nodes || []) {
+                for (const inp of node.inputs || []) {
+                  if (!inp.from || !inp.to) {
+                    badInputs.push({ node: node.id, input: inp });
+                  }
                 }
               }
-            }
-            if (badInputs.length > 0) {
+              if (badInputs.length > 0) {
+                r.ok = false;
+                r.error = "bad input mappings: " + JSON.stringify(badInputs.slice(0, 3));
+                results.push(r);
+                failed++;
+                continue;
+              }
+
+              r.ok = true;
+              results.push(r);
+              passed++;
+            } catch (err) {
               r.ok = false;
-              r.error = "bad input mappings: " + JSON.stringify(badInputs.slice(0, 3));
+              r.error = String(err?.message ?? err);
               results.push(r);
               failed++;
-              continue;
             }
-
-            r.ok = true;
-            results.push(r);
-            passed++;
-          } catch (err) {
-            r.ok = false;
-            r.error = String(err?.message ?? err);
-            results.push(r);
-            failed++;
           }
-        }
 
-        // Sort: failures first so they're easy to spot in the UI
-        results.sort((a, b) => {
-          if (a.ok === b.ok) return a.id.localeCompare(b.id);
-          return a.ok ? 1 : -1;
-        });
+          // Sort: failures first so they're easy to spot in the UI
+          results.sort((a, b) => {
+            if (a.ok === b.ok) return a.id.localeCompare(b.id);
+            return a.ok ? 1 : -1;
+          });
 
-        return { results, passed, failed, total: templates.length };
+          return { results, passed, failed, total: templates.length };
+        })();
 
   - id: summarize
     type: llm-prompt

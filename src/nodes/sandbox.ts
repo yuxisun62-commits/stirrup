@@ -16,23 +16,28 @@ export function runInSandbox(
   sandbox: Record<string, unknown>,
   options: { timeout?: number } = {}
 ): unknown {
-  // Freeze common prototype chain escape vectors
-  const frozenSandbox = vm.createContext(Object.create(null));
+  // Contextify the sandbox object IN PLACE. Using vm.createContext on the
+  // sandbox directly (rather than copying into a fresh Object.create(null))
+  // means mutations the script makes to sandbox properties propagate back
+  // to the caller's reference. This is essential for ScriptNode, which
+  // does `result = { ... }` inside the script and needs to read that
+  // assignment back after the call. TransformNode and ConditionNode only
+  // care about the return value (the last-expression value), so they're
+  // unaffected by this semantic change — previously their copy-based
+  // isolation was redundant since they never read back from sandbox.
+  const ctx = vm.createContext(sandbox);
 
-  // Copy sandbox values into the frozen context
-  for (const [key, value] of Object.entries(sandbox)) {
-    frozenSandbox[key] = value;
-  }
-
-  // Block prototype chain access by overriding constructors
+  // Block common prototype-chain escape vectors inside the vm realm.
+  // This mitigation targets Object.prototype.constructor, which attackers
+  // use to reach Function and construct arbitrary code. It applies inside
+  // the context's own realm regardless of what the sandbox object's own
+  // prototype is.
   vm.runInContext(
-    `
-    Object.defineProperty(Object.prototype, 'constructor', { get: () => undefined, configurable: false });
-    `,
-    frozenSandbox
+    `Object.defineProperty(Object.prototype, 'constructor', { get: () => undefined, configurable: false });`,
+    ctx
   );
 
-  return vm.runInContext(code, frozenSandbox, {
+  return vm.runInContext(code, ctx, {
     timeout: options.timeout ?? 5000,
     breakOnSigint: true,
   });

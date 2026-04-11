@@ -87,10 +87,10 @@ nodes:
         to: status
     outputs: [slideCount, firstTitle, statusOk]
     config:
-      script: |
+      code: |
         const body = typeof inputs.body === "string" ? JSON.parse(inputs.body) : inputs.body;
         const slides = body?.slideshow?.slides ?? [];
-        return {
+        result = {
           slideCount: slides.length,
           firstTitle: slides[0]?.title ?? "",
           statusOk: inputs.status >= 200 && inputs.status < 300

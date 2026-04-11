@@ -57,49 +57,54 @@ nodes:
         to: token
     outputs: [enrichedPosts, totalLikes, totalComments]
     config:
-      script: |
-        const posts = inputs.posts || [];
-        const token = inputs.token;
-        const enriched = [];
-        let totalLikes = 0;
-        let totalComments = 0;
+      timeoutMs: 60000
+      code: |
+        // Wrap in async IIFE and assign to `result` — the script handler
+        // awaits it with a JS-level timeout (vm's timeout only covers sync work).
+        result = (async () => {
+          const posts = inputs.posts || [];
+          const token = inputs.token;
+          const enriched = [];
+          let totalLikes = 0;
+          let totalComments = 0;
 
-        for (const post of posts) {
-          if (!post.urn) continue;
-          try {
-            const res = await fetch(
-              "https://api.linkedin.com/v2/socialActions/" + encodeURIComponent(post.urn),
-              {
-                headers: {
-                  Authorization: "Bearer " + token,
-                  "X-Restli-Protocol-Version": "2.0.0"
+          for (const post of posts) {
+            if (!post.urn) continue;
+            try {
+              const res = await fetch(
+                "https://api.linkedin.com/v2/socialActions/" + encodeURIComponent(post.urn),
+                {
+                  headers: {
+                    Authorization: "Bearer " + token,
+                    "X-Restli-Protocol-Version": "2.0.0"
+                  }
                 }
+              );
+              if (!res.ok) {
+                enriched.push({ ...post, likes: 0, comments: 0, statsError: "HTTP " + res.status });
+                continue;
               }
-            );
-            if (!res.ok) {
-              enriched.push({ ...post, likes: 0, comments: 0, statsError: "HTTP " + res.status });
-              continue;
+              const data = await res.json();
+              const likes = data.likesSummary?.aggregatedTotalLikes ?? data.likesSummary?.totalLikes ?? 0;
+              const comments = data.commentsSummary?.aggregatedTotalComments ?? data.commentsSummary?.totalFirstLevelComments ?? 0;
+              enriched.push({
+                ...post,
+                likes,
+                comments,
+                engagementScore: likes + comments * 3
+              });
+              totalLikes += likes;
+              totalComments += comments;
+            } catch (err) {
+              enriched.push({ ...post, likes: 0, comments: 0, statsError: String(err?.message ?? err) });
             }
-            const data = await res.json();
-            const likes = data.likesSummary?.aggregatedTotalLikes ?? data.likesSummary?.totalLikes ?? 0;
-            const comments = data.commentsSummary?.aggregatedTotalComments ?? data.commentsSummary?.totalFirstLevelComments ?? 0;
-            enriched.push({
-              ...post,
-              likes,
-              comments,
-              engagementScore: likes + comments * 3
-            });
-            totalLikes += likes;
-            totalComments += comments;
-          } catch (err) {
-            enriched.push({ ...post, likes: 0, comments: 0, statsError: String(err?.message ?? err) });
           }
-        }
 
-        // Sort by engagement (comments weighted 3x — they matter more than likes)
-        enriched.sort((a, b) => (b.engagementScore ?? 0) - (a.engagementScore ?? 0));
+          // Sort by engagement (comments weighted 3x — they matter more than likes)
+          enriched.sort((a, b) => (b.engagementScore ?? 0) - (a.engagementScore ?? 0));
 
-        return { enrichedPosts: enriched, totalLikes, totalComments };
+          return { enrichedPosts: enriched, totalLikes, totalComments };
+        })();
 
   - id: analyze
     type: llm-prompt

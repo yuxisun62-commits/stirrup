@@ -63,7 +63,7 @@ nodes:
         to: maxEntries
     outputs: [entries, count]
     config:
-      script: |
+      code: |
         const xml = String(inputs.xml ?? "");
         const limit = Number(inputs.maxEntries ?? 5);
 
@@ -95,7 +95,7 @@ nodes:
           link: (block.match(/<link[^>]*href="([^"]+)"/) ?? block.match(/<link[^>]*>([^<]+)<\/link>/) ?? [])[1] ?? ""
         }));
 
-        return { entries, count: entries.length };
+        result = { entries, count: entries.length };
 
   - id: summarize
     type: llm-prompt

@@ -64,7 +64,7 @@ nodes:
         to: serp
     outputs: [results, count]
     config:
-      script: |
+      code: |
         const raw = inputs.serp;
         const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
 
@@ -73,14 +73,14 @@ nodes:
         // Be tolerant of both shapes.
         const list = parsed?.organic ?? parsed?.organic_results ?? [];
 
-        const results = list.slice(0, 10).map((r, i) => ({
+        const extracted = list.slice(0, 10).map((r, i) => ({
           rank: r.position ?? i + 1,
           title: r.title ?? "",
           url: r.link ?? r.url ?? "",
           snippet: (r.snippet ?? r.description ?? "").slice(0, 400)
         }));
 
-        return { results, count: results.length };
+        result = { results: extracted, count: extracted.length };
 
   - id: analyze
     type: llm-prompt

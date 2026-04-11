@@ -56,7 +56,7 @@ nodes:
         to: xml
     outputs: [stories, count]
     config:
-      script: |
+      code: |
         const xml = String(inputs.xml ?? "");
         const atomMatches = xml.match(/<entry[\s\S]*?<\/entry>/g) ?? [];
         const rssMatches = xml.match(/<item[\s\S]*?<\/item>/g) ?? [];
@@ -85,7 +85,7 @@ nodes:
           published: pick(block, "published") || pick(block, "pubDate") || pick(block, "updated")
         }));
 
-        return { stories, count: stories.length };
+        result = { stories, count: stories.length };
 
   - id: pick-and-comment
     type: llm-prompt
@@ -130,7 +130,7 @@ nodes:
         to: response
     outputs: [postText, linkUrl, linkTitle]
     config:
-      script: |
+      code: |
         // The LLM was asked to return JSON. Handle both "already parsed" and "string" cases.
         let parsed = inputs.response;
         if (typeof parsed === "string") {
@@ -141,7 +141,7 @@ nodes:
             parsed = JSON.parse(cleaned);
           }
         }
-        return {
+        result = {
           postText: parsed.postText || "",
           linkUrl: parsed.pickedStoryUrl || "",
           linkTitle: parsed.pickedStoryTitle || ""
