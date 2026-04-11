@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import {
   getAuthStatus, startAuthFlow, pollAuthFlow, saveServiceToken, logoutService,
-  type AuthStatus,
+  detectCli, connectViaCli,
+  type AuthStatus, type CliDetection,
 } from '../api/client';
 import { tokens, inputBase } from './ui/styles';
 
@@ -26,14 +27,6 @@ const KNOWN_SERVICES: ServiceCard[] = [
     oauthSupported: true,
   },
   {
-    service: 'slack',
-    label: 'Slack',
-    description: 'Send messages, upload files, list channels',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://api.slack.com/apps',
-    tokenInstructions: 'Create a Slack app at api.slack.com/apps, install it to your workspace, and copy the bot token (xoxb-...).',
-  },
-  {
     service: 'launchmatic',
     label: 'LaunchMatic',
     description: 'Deploy services, manage databases, run browser tests',
@@ -42,20 +35,42 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenInstructions: 'Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
   },
   {
+    service: 'stripe',
+    label: 'Stripe',
+    description: 'Charges, customers, payments, invoices',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://dashboard.stripe.com/apikeys',
+    tokenInstructions: 'Get a secret API key from your Stripe dashboard, or run `stripe login` and Stirrup will detect it.',
+  },
+  {
+    service: 'aws',
+    label: 'AWS',
+    description: 'S3, Lambda, DynamoDB, and all AWS services',
+    oauthSupported: false,
+    tokenInstructions: 'Run `aws configure` to set up credentials — Stirrup will detect them automatically.',
+  },
+  {
+    service: 'gcloud',
+    label: 'Google Cloud',
+    description: 'GCS, BigQuery, Cloud Run, Pub/Sub',
+    oauthSupported: false,
+    tokenInstructions: 'Run `gcloud auth login` and Stirrup will grab a fresh access token.',
+  },
+  {
+    service: 'slack',
+    label: 'Slack',
+    description: 'Send messages, upload files, list channels',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://api.slack.com/apps',
+    tokenInstructions: 'Create a Slack app at api.slack.com/apps, install it to your workspace, and copy the bot token (xoxb-...).',
+  },
+  {
     service: 'jira',
     label: 'Jira',
     description: 'Create issues, transitions, search',
     oauthSupported: false,
     tokenDocsUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
     tokenInstructions: 'Create an API token from your Atlassian account settings.',
-  },
-  {
-    service: 'stripe',
-    label: 'Stripe',
-    description: 'Charges, customers, payments, invoices',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://dashboard.stripe.com/apikeys',
-    tokenInstructions: 'Get a secret API key from your Stripe dashboard.',
   },
   {
     service: 'hubspot',
@@ -69,6 +84,7 @@ const KNOWN_SERVICES: ServiceCard[] = [
 
 export function AuthPanel({ onClose }: Props) {
   const [authStatus, setAuthStatus] = useState<Record<string, AuthStatus>>({});
+  const [cliDetection, setCliDetection] = useState<Record<string, CliDetection>>({});
   const [authingService, setAuthingService] = useState<string | null>(null);
   const [authPrompt, setAuthPrompt] = useState<{ service: string; userCode: string } | null>(null);
   const [pasteFor, setPasteFor] = useState<string | null>(null);
@@ -77,9 +93,34 @@ export function AuthPanel({ onClose }: Props) {
 
   const refresh = () => {
     getAuthStatus().then((res) => setAuthStatus(res.services)).catch(() => {});
+    // Detect CLI sessions for all known services in parallel
+    Promise.all(
+      KNOWN_SERVICES.map((svc) =>
+        detectCli(svc.service).then((d) => [svc.service, d] as const).catch(() => null)
+      )
+    ).then((results) => {
+      const map: Record<string, CliDetection> = {};
+      for (const r of results) {
+        if (r) map[r[0]] = r[1];
+      }
+      setCliDetection(map);
+    });
   };
 
   useEffect(refresh, []);
+
+  const handleCliConnect = async (service: string) => {
+    setAuthingService(service);
+    setError(null);
+    try {
+      await connectViaCli(service);
+      refresh();
+    } catch (err) {
+      setError(`CLI connect failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAuthingService(null);
+    }
+  };
 
   const startOauth = async (service: string) => {
     setAuthingService(service);
@@ -210,6 +251,8 @@ export function AuthPanel({ onClose }: Props) {
             const status = authStatus[svc.service];
             const isConnected = status?.authenticated;
             const isPasting = pasteFor === svc.service;
+            const cli = cliDetection[svc.service];
+            const canUseCli = cli?.available && cli?.authenticated;
 
             return (
               <div key={svc.service} style={{
@@ -241,6 +284,15 @@ export function AuthPanel({ onClose }: Props) {
                           {svc.oauthSupported ? 'OAUTH' : 'API TOKEN'}
                         </span>
                       )}
+                      {!isConnected && canUseCli && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                          backgroundColor: `${tokens.status.completed}20`, color: tokens.status.completed,
+                          textTransform: 'uppercase', letterSpacing: '0.5px',
+                        }}>
+                          CLI DETECTED{cli?.user ? ` · ${cli.user}` : ''}
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: tokens.text.muted, lineHeight: 1.4 }}>
                       {svc.description}
@@ -257,6 +309,18 @@ export function AuthPanel({ onClose }: Props) {
                       }}
                     >
                       Disconnect
+                    </button>
+                  ) : canUseCli ? (
+                    <button
+                      onClick={() => handleCliConnect(svc.service)}
+                      disabled={authingService === svc.service}
+                      style={{
+                        padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                        background: `linear-gradient(135deg, ${tokens.status.completed}, #10b981)`,
+                        color: '#fff', cursor: 'pointer', flexShrink: 0,
+                      }}
+                    >
+                      {authingService === svc.service ? '...' : 'Use Local CLI'}
                     </button>
                   ) : svc.oauthSupported ? (
                     <button

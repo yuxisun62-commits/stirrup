@@ -1,7 +1,14 @@
 import { Router } from "express";
 import { listTokens, removeToken, getToken } from "../../auth/tokenStore.js";
-import { startGithubDeviceFlow, pollGithubDeviceFlow, getGithubUser } from "../../auth/github.js";
+import { startGithubDeviceFlow, getGithubUser } from "../../auth/github.js";
 import { setToken } from "../../auth/tokenStore.js";
+import {
+  detectLaunchmaticCli, createLaunchmaticApiKey,
+  detectGithubCli, getGithubCliToken,
+  detectStripeCli, getStripeCliToken,
+  detectAwsCli, getAwsCliCredentials,
+  detectGcloudCli, getGcloudToken,
+} from "../../auth/cliDetect.js";
 
 interface DeviceFlowSession {
   deviceCode: string;
@@ -14,6 +21,67 @@ const activeFlows = new Map<string, DeviceFlowSession>();
 
 // Services that support full OAuth device flow (no manual token needed)
 const OAUTH_CAPABLE_SERVICES = new Set(["github"]);
+
+// Map service → CLI name for auto-detection
+const CLI_TOOLS: Record<string, { cli: string; cmd?: string }> = {
+  github: { cli: "gh", cmd: "gh auth login" },
+  launchmatic: { cli: "lm", cmd: "npm i -g @launchmatic/cli && lm login" },
+  stripe: { cli: "stripe", cmd: "stripe login" },
+  aws: { cli: "aws", cmd: "aws configure" },
+  gcloud: { cli: "gcloud", cmd: "gcloud auth login" },
+};
+
+/** Detect if a service has a local CLI session */
+async function detectServiceCli(service: string) {
+  switch (service) {
+    case "launchmatic": return await detectLaunchmaticCli();
+    case "github": return await detectGithubCli();
+    case "stripe": return await detectStripeCli();
+    case "aws": return await detectAwsCli();
+    case "gcloud": return await detectGcloudCli();
+    default: return { available: false, authenticated: false };
+  }
+}
+
+/** Connect using a local CLI session */
+async function connectViaCli(service: string): Promise<{ userName?: string } | null> {
+  switch (service) {
+    case "launchmatic": {
+      const apiKey = await createLaunchmaticApiKey(`stirrup-${Date.now()}`);
+      const detection = await detectLaunchmaticCli();
+      setToken(service, { accessToken: apiKey, userName: detection.user });
+      return { userName: detection.user };
+    }
+    case "github": {
+      const token = await getGithubCliToken();
+      const user = await getGithubUser(token);
+      setToken(service, {
+        accessToken: token,
+        userName: user.login,
+        userId: String(user.id),
+      });
+      return { userName: user.login };
+    }
+    case "stripe": {
+      const token = await getStripeCliToken();
+      setToken(service, { accessToken: token });
+      return {};
+    }
+    case "aws": {
+      const creds = await getAwsCliCredentials();
+      const detection = await detectAwsCli();
+      setToken(service, { accessToken: creds, userName: detection.user });
+      return { userName: detection.user };
+    }
+    case "gcloud": {
+      const token = await getGcloudToken();
+      const detection = await detectGcloudCli();
+      setToken(service, { accessToken: token, userName: detection.user });
+      return { userName: detection.user };
+    }
+    default: return null;
+  }
+}
 
 // Documentation links for services that need a manual token
 const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
@@ -50,20 +118,50 @@ export function authRoutes(): Router {
       oauthSupported: OAUTH_CAPABLE_SERVICES.has(service),
       tokenDocsUrl: TOKEN_DOCS[service]?.url,
       tokenInstructions: TOKEN_DOCS[service]?.instructions,
+      cliTool: CLI_TOOLS[service]?.cli,
+      cliCommand: CLI_TOOLS[service]?.cmd,
     });
   });
 
   // List all known services and their capabilities
   router.get("/services", (_req, res) => {
-    const services = [...new Set([...OAUTH_CAPABLE_SERVICES, ...Object.keys(TOKEN_DOCS)])];
+    const services = [...new Set([...OAUTH_CAPABLE_SERVICES, ...Object.keys(TOKEN_DOCS), ...Object.keys(CLI_TOOLS)])];
     res.json({
       services: services.map((service) => ({
         service,
         oauthSupported: OAUTH_CAPABLE_SERVICES.has(service),
         tokenDocsUrl: TOKEN_DOCS[service]?.url,
         tokenInstructions: TOKEN_DOCS[service]?.instructions,
+        cliTool: CLI_TOOLS[service]?.cli,
+        cliCommand: CLI_TOOLS[service]?.cmd,
       })),
     });
+  });
+
+  // Detect local CLI sessions for a service
+  router.get("/cli-detect/:service", async (req, res) => {
+    const service = req.params.service;
+    try {
+      const detection = await detectServiceCli(service);
+      res.json({ service, ...detection });
+    } catch (err) {
+      res.status(500).json({ error: { code: "DETECT_FAILED", message: (err as Error).message } });
+    }
+  });
+
+  // Auto-create credentials using a detected local CLI session
+  router.post("/cli-connect/:service", async (req, res) => {
+    const service = req.params.service;
+    try {
+      const result = await connectViaCli(service);
+      if (!result) {
+        res.status(400).json({ error: { code: "UNSUPPORTED", message: `CLI auto-connect not supported for ${service}` } });
+        return;
+      }
+      res.json({ saved: true, service, userName: result.userName });
+    } catch (err) {
+      res.status(500).json({ error: { code: "CLI_CONNECT_FAILED", message: (err as Error).message } });
+    }
   });
 
   // List authenticated services

@@ -40,9 +40,27 @@ export interface ServiceInfo {
   oauthSupported: boolean;
   tokenDocsUrl?: string;
   tokenInstructions?: string;
+  cliTool?: string;
+  cliCommand?: string;
+}
+export interface CliDetection {
+  service: string;
+  available: boolean;
+  authenticated: boolean;
+  user?: string;
+  configPath?: string;
 }
 export const getServiceInfo = (service: string) =>
   request<ServiceInfo>(`/auth/services/${service}`);
+export const listServices = () =>
+  request<{ services: ServiceInfo[] }>('/auth/services');
+export const detectCli = (service: string) =>
+  request<CliDetection>(`/auth/cli-detect/${service}`);
+export const connectViaCli = (service: string) =>
+  request<{ saved: boolean; service: string; userName?: string }>(
+    `/auth/cli-connect/${service}`,
+    { method: 'POST' }
+  );
 export const getAuthStatus = () =>
   request<{ services: Record<string, AuthStatus> }>('/auth/status');
 export const getServiceAuthStatus = (service: string) =>
