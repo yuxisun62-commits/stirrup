@@ -1,13 +1,13 @@
 id: deploy-and-notify
-name: Deploy to LaunchMatic & Notify Team
+name: Deploy to Launchmatic & Notify Team
 version: "1.0"
-description: Deploy a service to LaunchMatic, run browser smoke tests on the live URL, and post results to Slack
+description: Deploy a service to Launchmatic, run browser smoke tests on the live URL, and post results to Slack
 
 params:
   - name: serviceId
     type: string
     required: true
-    description: "LaunchMatic service ID to deploy"
+    description: "Launchmatic service ID to deploy"
   - name: slackChannel
     type: string
     required: true
@@ -20,13 +20,13 @@ params:
   - name: lmToken
     type: string
     required: true
-    description: "LaunchMatic API token"
+    description: "Launchmatic API token"
     service: launchmatic
 
 nodes:
   - id: deploy
     type: lm-deploy
-    name: Deploy to LaunchMatic
+    name: Deploy to Launchmatic
     inputs:
       - from: context.serviceId
         to: serviceId

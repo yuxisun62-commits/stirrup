@@ -1,7 +1,7 @@
 id: release-pipeline
 name: Release Pipeline — Build, Deploy, Announce
 version: "1.0"
-description: Create a GitHub release, deploy to production on LaunchMatic, screenshot the result, and announce in Slack
+description: Create a GitHub release, deploy to production on Launchmatic, screenshot the result, and announce in Slack
 
 params:
   - name: repo
@@ -15,7 +15,7 @@ params:
   - name: serviceId
     type: string
     required: true
-    description: "LaunchMatic production service ID"
+    description: "Launchmatic production service ID"
   - name: githubToken
     type: string
     required: true
@@ -24,7 +24,7 @@ params:
   - name: lmToken
     type: string
     required: true
-    description: "LaunchMatic API token"
+    description: "Launchmatic API token"
     service: launchmatic
   - name: slackToken
     type: string

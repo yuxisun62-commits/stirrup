@@ -33,8 +33,8 @@ const OPTIONS: Array<{
   },
   {
     format: 'deploy',
-    title: 'Deploy to LaunchMatic',
-    description: 'Package and push directly to LaunchMatic as a persistent hosted service.',
+    title: 'Deploy to Launchmatic',
+    description: 'Package and push directly to Launchmatic as a persistent hosted service.',
     icon: 'LM',
     color: '#06b6d4',
   },

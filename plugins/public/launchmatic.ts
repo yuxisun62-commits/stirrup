@@ -1,7 +1,7 @@
 /**
- * Stirrup Plugin: LaunchMatic (launchmatic.io)
+ * Stirrup Plugin: Launchmatic (launchmatic.io)
  *
- * Full integration with the LaunchMatic deployment platform.
+ * Full integration with the Launchmatic deployment platform.
  * Covers projects, services, deployments, databases, domains,
  * environment variables, browser automation, and the Lightspeed AI feature.
  *
@@ -38,7 +38,7 @@ function lmApi(token: string) {
     });
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      throw new Error(`LaunchMatic API ${res.status}: ${errBody}`);
+      throw new Error(`Launchmatic API ${res.status}: ${errBody}`);
     }
     if (res.status === 204) return { ok: true };
     return (await res.json()) as Record<string, unknown>;
@@ -47,7 +47,7 @@ function lmApi(token: string) {
 
 function getToken(config: Record<string, unknown>): string {
   const token = (config.token as string) ?? process.env.LAUNCHMATIC_TOKEN;
-  if (!token) throw new Error("LaunchMatic token required: set LAUNCHMATIC_TOKEN or pass token in config");
+  if (!token) throw new Error("Launchmatic token required: set LAUNCHMATIC_TOKEN or pass token in config");
   return token;
 }
 
@@ -372,7 +372,7 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerTool({
     name: "lm-deploy-service",
-    description: "Deploy a LaunchMatic service. Triggers a new deployment build.",
+    description: "Deploy a Launchmatic service. Triggers a new deployment build.",
     inputSchema: {
       type: "object",
       properties: { serviceId: { type: "string", description: "Service ID to deploy" } },
@@ -385,7 +385,7 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerTool({
     name: "lm-get-status",
-    description: "Get the current status of a LaunchMatic service including latest deployment.",
+    description: "Get the current status of a Launchmatic service including latest deployment.",
     inputSchema: {
       type: "object",
       properties: { serviceId: { type: "string", description: "Service ID to check" } },
@@ -399,7 +399,7 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerTool({
     name: "lm-run-query",
-    description: "Run a SQL query against a LaunchMatic-provisioned PostgreSQL database.",
+    description: "Run a SQL query against a Launchmatic-provisioned PostgreSQL database.",
     inputSchema: {
       type: "object",
       properties: {
@@ -422,7 +422,7 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerTool({
     name: "lm-get-logs",
-    description: "Fetch recent logs from a LaunchMatic service deployment.",
+    description: "Fetch recent logs from a Launchmatic service deployment.",
     inputSchema: {
       type: "object",
       properties: {

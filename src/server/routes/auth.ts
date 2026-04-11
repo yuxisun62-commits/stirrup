@@ -134,7 +134,7 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
   },
   launchmatic: {
     url: "https://app.launchmatic.io",
-    instructions: "Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste the value here.",
+    instructions: "Install the Launchmatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste the value here.",
   },
   jira: {
     url: "https://id.atlassian.com/manage-profile/security/api-tokens",
@@ -213,7 +213,7 @@ export function authRoutes(): Router {
    * Spawns e.g. `lm login`, which opens the user's browser and runs its own
    * localhost callback. If the user is already signed into GitHub (which
    * Stirrup's own GitHub OAuth guarantees), this is typically a one-click flow:
-   * the user just clicks "Authorize" on LaunchMatic's page and the CLI captures
+   * the user just clicks "Authorize" on Launchmatic's page and the CLI captures
    * the resulting session.
    *
    * After the CLI exits successfully we run the provider's `afterLogin` step

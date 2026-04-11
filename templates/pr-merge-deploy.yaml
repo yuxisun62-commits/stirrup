@@ -1,7 +1,7 @@
 id: pr-merge-deploy
 name: PR Merge → Deploy → Notify Pipeline
 version: "1.0"
-description: When a PR merges, deploy to LaunchMatic staging, run tests, and update the GitHub PR with deployment status
+description: When a PR merges, deploy to Launchmatic staging, run tests, and update the GitHub PR with deployment status
 
 params:
   - name: repo
@@ -20,11 +20,11 @@ params:
   - name: serviceId
     type: string
     required: true
-    description: "LaunchMatic service ID"
+    description: "Launchmatic service ID"
   - name: lmToken
     type: string
     required: true
-    description: "LaunchMatic API token"
+    description: "Launchmatic API token"
     service: launchmatic
 
 triggers:

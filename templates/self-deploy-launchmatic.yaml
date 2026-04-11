@@ -1,7 +1,7 @@
 id: self-deploy-launchmatic
-name: Deploy This Workflow to LaunchMatic
+name: Deploy This Workflow to Launchmatic
 version: "1.0"
-description: Package the current Stirrup workflow as a standalone service and deploy it to LaunchMatic for persistent hosting
+description: Package the current Stirrup workflow as a standalone service and deploy it to Launchmatic for persistent hosting
 
 params:
   - name: workflowFile
@@ -11,7 +11,7 @@ params:
   - name: projectSlug
     type: string
     required: true
-    description: "LaunchMatic project slug"
+    description: "Launchmatic project slug"
   - name: serviceName
     type: string
     required: true
@@ -19,7 +19,7 @@ params:
   - name: lmToken
     type: string
     required: true
-    description: "LaunchMatic API token"
+    description: "Launchmatic API token"
     service: launchmatic
   - name: anthropicKey
     type: string
@@ -138,7 +138,7 @@ nodes:
 
   - id: create-service
     type: lm-create-service
-    name: Create LaunchMatic Service
+    name: Create Launchmatic Service
     inputs:
       - from: context.projectSlug
         to: projectSlug
@@ -183,7 +183,7 @@ nodes:
 
   - id: deploy
     type: lm-deploy
-    name: Deploy to LaunchMatic
+    name: Deploy to Launchmatic
     inputs:
       - from: nodes.create-service.outputs.serviceId
         to: serviceId
@@ -280,7 +280,7 @@ nodes:
     config:
       expression: |
         ({
-          text: ':cloud: *Workflow deployed to LaunchMatic!*\n\n' +
+          text: ':cloud: *Workflow deployed to Launchmatic!*\n\n' +
             '> *Service:* ' + inputs.result.serviceName + '\n' +
             '> *URL:* ' + inputs.result.url + '\n' +
             '> *Run endpoint:* `POST ' + inputs.result.runEndpoint + '`\n' +

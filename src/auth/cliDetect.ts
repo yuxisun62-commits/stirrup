@@ -96,7 +96,7 @@ async function commandExists(cmd: string): Promise<boolean> {
   }
 }
 
-/** Detect LaunchMatic CLI session */
+/** Detect Launchmatic CLI session */
 export async function detectLaunchmaticCli(): Promise<CliDetection> {
   if (!(await commandExists("lm"))) return { available: false, authenticated: false };
 
@@ -139,7 +139,7 @@ function extractToken(output: string): string | null {
   return null;
 }
 
-/** Use the local LaunchMatic CLI to create a new API key (or reuse existing) */
+/** Use the local Launchmatic CLI to create a new API key (or reuse existing) */
 export async function createLaunchmaticApiKey(name: string = "stirrup"): Promise<string> {
   try {
     const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000 });

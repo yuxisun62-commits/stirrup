@@ -31,11 +31,11 @@ const KNOWN_SERVICES: ServiceCard[] = [
   },
   {
     service: 'launchmatic',
-    label: 'LaunchMatic',
+    label: 'Launchmatic',
     description: 'Deploy services, manage databases, run browser tests',
     oauthSupported: false,
     tokenDocsUrl: 'https://app.launchmatic.io',
-    tokenInstructions: 'Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
+    tokenInstructions: 'Install the Launchmatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
   },
   {
     service: 'stripe',

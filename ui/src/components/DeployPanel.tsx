@@ -93,7 +93,7 @@ export function DeployPanel({ workflow, onClose }: Props) {
               fontSize: 12, fontWeight: 800, color: '#fff',
             }}>LM</div>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Deploy to LaunchMatic</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Deploy to Launchmatic</div>
               <div style={{ fontSize: 11, color: tokens.text.muted }}>
                 Deploy "{workflow.name}" as a persistent service
               </div>
@@ -109,7 +109,7 @@ export function DeployPanel({ workflow, onClose }: Props) {
             <>
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: tokens.text.muted, display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  LaunchMatic Project Slug *
+                  Launchmatic Project Slug *
                 </label>
                 <input
                   style={inputBase}
@@ -133,7 +133,7 @@ export function DeployPanel({ workflow, onClose }: Props) {
 
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: tokens.text.muted, display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  LaunchMatic API Token *
+                  Launchmatic API Token *
                 </label>
                 <input
                   type="password"
@@ -143,7 +143,7 @@ export function DeployPanel({ workflow, onClose }: Props) {
                   placeholder="lm_..."
                 />
                 <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 2 }}>
-                  Get a token from your LaunchMatic dashboard
+                  Get a token from your Launchmatic dashboard
                 </div>
               </div>
 
@@ -156,7 +156,7 @@ export function DeployPanel({ workflow, onClose }: Props) {
                 <ol style={{ margin: '4px 0 0 16px', padding: 0 }}>
                   <li>Generate a production Express server for this workflow</li>
                   <li>Create a Dockerfile for containerized deployment</li>
-                  <li>Deploy to LaunchMatic with environment variables</li>
+                  <li>Deploy to Launchmatic with environment variables</li>
                   <li>Verify the deployment is live</li>
                 </ol>
               </div>
