@@ -12,6 +12,21 @@ import { homedir } from "node:os";
 const execFileAsync = promisify(execFile);
 
 /**
+ * Options for invoking a third-party CLI binary via execFile.
+ *
+ * On Windows, npm-installed CLIs like `lm`, `gh`, `stripe`, `gcloud`, etc.
+ * are usually `.cmd` shims. execFile calls CreateProcessW directly which only
+ * matches an exact filename and ignores PATHEXT — so `execFile("lm", ...)`
+ * fails with ENOENT even though `where lm` finds `lm.cmd` fine.
+ *
+ * Setting `shell: true` routes the call through `cmd.exe`, which DOES honor
+ * PATHEXT and resolves the shim. Safe here because all our args are fixed
+ * internal strings (no user input goes through the shell), but if any caller
+ * later starts passing user-controlled args, they need to be validated first.
+ */
+const cliExecOpts: { shell?: boolean | string } = process.platform === "win32" ? { shell: true } : {};
+
+/**
  * Spawn a CLI's interactive login command and wait for it to exit.
  * The command is expected to open a browser, run a localhost callback,
  * and exit on its own once the user authorizes.
@@ -117,7 +132,7 @@ export async function detectLaunchmaticCli(): Promise<CliDetection> {
 
   // Fallback: try `lm whoami` (or similar) to verify
   try {
-    const { stdout } = await execFileAsync("lm", ["whoami"], { timeout: 3000 });
+    const { stdout } = await execFileAsync("lm", ["whoami"], { timeout: 3000, ...cliExecOpts });
     if (stdout && !stdout.toLowerCase().includes("not logged in")) {
       return { available: true, authenticated: true, user: stdout.trim(), configPath };
     }
@@ -142,7 +157,7 @@ function extractToken(output: string): string | null {
 /** Use the local Launchmatic CLI to create a new API key (or reuse existing) */
 export async function createLaunchmaticApiKey(name: string = "stirrup"): Promise<string> {
   try {
-    const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000 });
+    const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000, ...cliExecOpts });
     const output = (stdout + stderr).trim();
     const token = extractToken(output);
     if (token) return token;
@@ -153,8 +168,8 @@ export async function createLaunchmaticApiKey(name: string = "stirrup"): Promise
     if (msg.toLowerCase().includes("already exists") || msg.toLowerCase().includes("duplicate")) {
       try {
         // Delete the existing one and recreate
-        await execFileAsync("lm", ["api-key", "delete", name], { timeout: 10000 });
-        const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000 });
+        await execFileAsync("lm", ["api-key", "delete", name], { timeout: 10000, ...cliExecOpts });
+        const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000, ...cliExecOpts });
         const output = (stdout + stderr).trim();
         const token = extractToken(output);
         if (token) return token;
@@ -170,7 +185,7 @@ export async function detectGithubCli(): Promise<CliDetection> {
   if (!(await commandExists("gh"))) return { available: false, authenticated: false };
 
   try {
-    const { stdout, stderr } = await execFileAsync("gh", ["auth", "status"], { timeout: 3000 });
+    const { stdout, stderr } = await execFileAsync("gh", ["auth", "status"], { timeout: 3000, ...cliExecOpts });
     const output = stdout + stderr;
     if (output.includes("Logged in to github.com")) {
       const userMatch = output.match(/account (\w+)/);
@@ -187,7 +202,7 @@ export async function detectGithubCli(): Promise<CliDetection> {
 
 /** Get the GitHub token from `gh` CLI */
 export async function getGithubCliToken(): Promise<string> {
-  const { stdout } = await execFileAsync("gh", ["auth", "token"], { timeout: 3000 });
+  const { stdout } = await execFileAsync("gh", ["auth", "token"], { timeout: 3000, ...cliExecOpts });
   const token = stdout.trim();
   if (!token) throw new Error("gh auth token returned empty");
   return token;
@@ -216,7 +231,7 @@ export async function detectStripeCli(): Promise<CliDetection> {
 export async function getStripeCliToken(): Promise<string> {
   // `stripe config --list` includes the test_mode_api_key etc.
   try {
-    const { stdout } = await execFileAsync("stripe", ["config", "--list"], { timeout: 3000 });
+    const { stdout } = await execFileAsync("stripe", ["config", "--list"], { timeout: 3000, ...cliExecOpts });
     // Look for test_mode_api_key or live_mode_api_key (prefer live if both)
     const liveMatch = stdout.match(/live_mode_api_key\s*=\s*(['"]?)([^'"\n]+)\1/);
     const testMatch = stdout.match(/test_mode_api_key\s*=\s*(['"]?)([^'"\n]+)\1/);
@@ -272,7 +287,7 @@ export async function detectGcloudCli(): Promise<CliDetection> {
   if (!(await commandExists("gcloud"))) return { available: false, authenticated: false };
 
   try {
-    const { stdout } = await execFileAsync("gcloud", ["auth", "list", "--format=value(account)"], { timeout: 3000 });
+    const { stdout } = await execFileAsync("gcloud", ["auth", "list", "--format=value(account)"], { timeout: 3000, ...cliExecOpts });
     const account = stdout.trim();
     if (account) {
       return { available: true, authenticated: true, user: account };
@@ -284,7 +299,7 @@ export async function detectGcloudCli(): Promise<CliDetection> {
 
 /** Get a fresh gcloud access token */
 export async function getGcloudToken(): Promise<string> {
-  const { stdout } = await execFileAsync("gcloud", ["auth", "print-access-token"], { timeout: 5000 });
+  const { stdout } = await execFileAsync("gcloud", ["auth", "print-access-token"], { timeout: 5000, ...cliExecOpts });
   const token = stdout.trim();
   if (!token) throw new Error("gcloud returned empty token");
   return token;
