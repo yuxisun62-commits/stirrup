@@ -39,7 +39,7 @@ const KNOWN_SERVICES: ServiceCard[] = [
     description: 'Deploy services, manage databases, run browser tests',
     oauthSupported: false,
     tokenDocsUrl: 'https://app.launchmatic.io',
-    tokenInstructions: 'Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then copy the token from ~/.launchmatic/config.json.',
+    tokenInstructions: 'Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
   },
   {
     service: 'jira',

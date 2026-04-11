@@ -23,7 +23,7 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
   },
   launchmatic: {
     url: "https://app.launchmatic.io",
-    instructions: "Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then copy the token from `~/.launchmatic/config.json`. Or sign in at app.launchmatic.io and copy the JWT from browser DevTools (Application → Cookies → 'token').",
+    instructions: "Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste the value here.",
   },
   jira: {
     url: "https://id.atlassian.com/manage-profile/security/api-tokens",
