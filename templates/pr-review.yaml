@@ -16,6 +16,7 @@ params:
     type: string
     description: "GitHub personal access token"
     required: true
+    service: github
 
 triggers:
   http:

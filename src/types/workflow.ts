@@ -60,6 +60,8 @@ export interface WorkflowParam {
   description?: string;
   required?: boolean;
   default?: unknown;
+  /** Service this param belongs to — enables OAuth auto-injection (e.g., "github", "slack") */
+  service?: string;
 }
 
 /** Trigger configuration — how a workflow gets invoked in serve mode */

@@ -16,6 +16,7 @@ params:
     type: string
     required: true
     description: "GitHub access token"
+    service: github
   - name: serviceId
     type: string
     required: true
@@ -24,6 +25,7 @@ params:
     type: string
     required: true
     description: "LaunchMatic API token"
+    service: launchmatic
 
 triggers:
   webhook:

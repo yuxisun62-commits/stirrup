@@ -16,10 +16,12 @@ params:
     type: string
     required: true
     description: "GitHub access token"
+    service: github
   - name: slackToken
     type: string
     required: true
     description: "Slack bot token"
+    service: slack
 
 triggers:
   webhook:

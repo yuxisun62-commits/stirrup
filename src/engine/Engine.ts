@@ -73,28 +73,16 @@ export class WorkflowEngine extends EventEmitter {
 
     const mergedContext: Record<string, unknown> = { ...paramDefaults, ...(workflow.context ?? {}), ...(initialContext ?? {}) };
 
-    // Auto-inject stored OAuth tokens for missing service token params
+    // Auto-inject stored OAuth tokens for params with a declared service
     if (workflow.params) {
       try {
         const { getToken } = await import("../auth/tokenStore.js");
         for (const param of workflow.params) {
           if (mergedContext[param.name] !== undefined) continue;
-          // Detect token params by naming convention
-          const name = param.name.toLowerCase();
-          const services: Array<[string, string]> = [
-            ["github", "github"],
-            ["slack", "slack"],
-            ["launchmatic", "launchmatic"],
-            ["lm", "launchmatic"],
-          ];
-          for (const [prefix, service] of services) {
-            if (name.startsWith(prefix) && (name.includes("token") || name.includes("key"))) {
-              const stored = getToken(service);
-              if (stored) {
-                mergedContext[param.name] = stored.accessToken;
-                break;
-              }
-            }
+          if (!param.service) continue;
+          const stored = getToken(param.service);
+          if (stored) {
+            mergedContext[param.name] = stored.accessToken;
           }
         }
       } catch { /* token store optional */ }

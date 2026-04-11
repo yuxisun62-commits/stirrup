@@ -12,6 +12,7 @@ params:
     type: string
     required: true
     description: "Slack bot token"
+    service: slack
   - name: alertChannel
     type: string
     required: true

@@ -20,6 +20,7 @@ params:
     type: string
     required: true
     description: "LaunchMatic API token"
+    service: launchmatic
   - name: anthropicKey
     type: string
     required: true
@@ -27,6 +28,7 @@ params:
   - name: slackToken
     type: string
     description: "Optional: Slack token to notify on deploy"
+    service: slack
   - name: slackChannel
     type: string
     default: "#deployments"

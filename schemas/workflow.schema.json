@@ -19,7 +19,8 @@
           "type": { "type": "string", "enum": ["string", "number", "boolean", "json"] },
           "description": { "type": "string" },
           "required": { "type": "boolean" },
-          "default": {}
+          "default": {},
+          "service": { "type": "string" }
         },
         "additionalProperties": false
       }

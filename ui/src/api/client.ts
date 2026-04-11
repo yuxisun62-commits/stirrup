@@ -18,7 +18,39 @@ export interface WorkflowParam {
   description?: string;
   required?: boolean;
   default?: unknown;
+  service?: string;
 }
+
+// Auth API
+export interface AuthStatus {
+  authenticated: boolean;
+  userName?: string;
+  userId?: string;
+  service?: string;
+}
+export interface DeviceFlowStart {
+  userCode: string;
+  verificationUri: string;
+  deviceCode: string;
+  expiresIn: number;
+  interval: number;
+}
+export const getAuthStatus = () =>
+  request<{ services: Record<string, AuthStatus> }>('/auth/status');
+export const getServiceAuthStatus = (service: string) =>
+  request<AuthStatus>(`/auth/status/${service}`);
+export const startAuthFlow = (service: string, scope?: string) =>
+  request<DeviceFlowStart>(`/auth/login/${service}/start`, {
+    method: 'POST',
+    body: JSON.stringify({ scope }),
+  });
+export const pollAuthFlow = (service: string, deviceCode: string) =>
+  request<{ status: 'pending' | 'completed'; authenticated?: boolean; userName?: string; slowDown?: boolean }>(
+    `/auth/login/${service}/poll`,
+    { method: 'POST', body: JSON.stringify({ deviceCode }) }
+  );
+export const logoutService = (service: string) =>
+  request<{ removed: boolean }>(`/auth/logout/${service}`, { method: 'DELETE' });
 
 export interface WorkflowDefinition {
   id: string;

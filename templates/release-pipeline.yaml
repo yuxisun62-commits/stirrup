@@ -20,14 +20,17 @@ params:
     type: string
     required: true
     description: "GitHub access token"
+    service: github
   - name: lmToken
     type: string
     required: true
     description: "LaunchMatic API token"
+    service: launchmatic
   - name: slackToken
     type: string
     required: true
     description: "Slack bot token"
+    service: slack
   - name: slackChannel
     type: string
     required: true
