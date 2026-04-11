@@ -49,7 +49,12 @@ function tfApi(apiKey: string) {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
-        "X-API-KEY": `Bearer ${apiKey}`,
+        // Typefully uses an X-API-KEY header, NOT Authorization. Verified by
+        // probing the live endpoint: requests with `Authorization: Bearer ...`
+        // return "No API key provided" — the header is ignored entirely.
+        // Both `X-API-KEY: <key>` and `X-API-KEY: Bearer <key>` are accepted,
+        // but the bare form is canonical for X-API-KEY headers.
+        "X-API-KEY": apiKey,
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
