@@ -1,0 +1,177 @@
+id: smoke-test-templates
+name: Meta — Validate All Built-In Templates
+version: "1.0"
+description: Calls the local Stirrup API to list all built-in templates, then validates each one against the workflow schema. Reports which templates are healthy vs broken. Does NOT execute templates (that would require real tokens for every integration) — this is a structural health check that catches template regressions, bad edges, and schema violations.
+
+params:
+  - name: stirrupBaseUrl
+    type: string
+    required: false
+    default: "http://localhost:3710"
+    description: "Base URL of the running Stirrup server. Leave as default unless you changed the port."
+
+context:
+  stirrupBaseUrl: "http://localhost:3710"
+
+nodes:
+  - id: list-templates
+    type: http
+    name: List All Templates
+    inputs:
+      - from: context.stirrupBaseUrl
+        to: baseUrl
+    outputs: [status, body]
+    config:
+      url: "{{baseUrl}}/api/templates"
+      method: GET
+      headers:
+        Accept: "application/json"
+
+  - id: validate-each
+    type: script
+    name: Fetch & Validate Each Template
+    inputs:
+      - from: nodes.list-templates.outputs.body
+        to: templates
+      - from: context.stirrupBaseUrl
+        to: baseUrl
+    outputs: [results, passed, failed, total]
+    config:
+      script: |
+        const templates = typeof inputs.templates === "string"
+          ? JSON.parse(inputs.templates)
+          : inputs.templates;
+        const baseUrl = inputs.baseUrl;
+        const results = [];
+        let passed = 0;
+        let failed = 0;
+
+        for (const t of templates) {
+          const r = { id: t.id, name: t.name, nodeCount: t.nodeCount, edgeCount: t.edgeCount };
+          try {
+            // Fetch the full template
+            const defRes = await fetch(baseUrl + "/api/templates/" + t.id);
+            if (!defRes.ok) {
+              r.ok = false;
+              r.error = "GET /api/templates/" + t.id + " → HTTP " + defRes.status;
+              results.push(r);
+              failed++;
+              continue;
+            }
+            const def = await defRes.json();
+
+            // Structural sanity: every edge should reference real node IDs
+            const nodeIds = new Set((def.nodes || []).map((n) => n.id));
+            const badEdges = (def.edges || []).filter(
+              (e) => !nodeIds.has(e.from) || !nodeIds.has(e.to)
+            );
+            if (badEdges.length > 0) {
+              r.ok = false;
+              r.error = "dangling edges: " + JSON.stringify(badEdges);
+              results.push(r);
+              failed++;
+              continue;
+            }
+
+            // Structural sanity: every input mapping should have from+to
+            const badInputs = [];
+            for (const node of def.nodes || []) {
+              for (const inp of node.inputs || []) {
+                if (!inp.from || !inp.to) {
+                  badInputs.push({ node: node.id, input: inp });
+                }
+              }
+            }
+            if (badInputs.length > 0) {
+              r.ok = false;
+              r.error = "bad input mappings: " + JSON.stringify(badInputs.slice(0, 3));
+              results.push(r);
+              failed++;
+              continue;
+            }
+
+            r.ok = true;
+            results.push(r);
+            passed++;
+          } catch (err) {
+            r.ok = false;
+            r.error = String(err?.message ?? err);
+            results.push(r);
+            failed++;
+          }
+        }
+
+        // Sort: failures first so they're easy to spot in the UI
+        results.sort((a, b) => {
+          if (a.ok === b.ok) return a.id.localeCompare(b.id);
+          return a.ok ? 1 : -1;
+        });
+
+        return { results, passed, failed, total: templates.length };
+
+  - id: summarize
+    type: llm-prompt
+    name: Summarize Health Report
+    inputs:
+      - from: nodes.validate-each.outputs.results
+        to: results
+      - from: nodes.validate-each.outputs.passed
+        to: passed
+      - from: nodes.validate-each.outputs.failed
+        to: failed
+      - from: nodes.validate-each.outputs.total
+        to: total
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are reviewing a Stirrup template health report. {{passed}} of {{total}} templates passed structural validation, {{failed}} failed.
+
+        Full results (failures first):
+        {{results}}
+
+        Write a short summary for a developer:
+        1. Overall verdict (healthy / needs attention / broken) — one sentence
+        2. If there are failures, list each with a ONE-sentence root cause guess. Be specific — don't say "check the file", name the likely issue (dangling edge, bad input mapping, schema violation, etc.)
+        3. If everything passed, suggest ONE improvement: a template category that seems thin based on the list.
+
+        Keep it under 500 characters. Be direct.
+      maxTokens: 800
+      temperature: 0.3
+
+  - id: final
+    type: transform
+    name: Final Report
+    inputs:
+      - from: nodes.validate-each.outputs.results
+        to: results
+      - from: nodes.validate-each.outputs.passed
+        to: passed
+      - from: nodes.validate-each.outputs.failed
+        to: failed
+      - from: nodes.validate-each.outputs.total
+        to: total
+      - from: nodes.summarize.outputs.response
+        to: summary
+    outputs: [report]
+    config:
+      expression: |
+        ({
+          report: {
+            ranAt: new Date().toISOString(),
+            total: inputs.total,
+            passed: inputs.passed,
+            failed: inputs.failed,
+            healthScore: inputs.total > 0 ? Math.round((inputs.passed / inputs.total) * 100) : 0,
+            summary: inputs.summary,
+            failures: (inputs.results || []).filter((r) => !r.ok),
+            results: inputs.results
+          }
+        })
+
+edges:
+  - from: list-templates
+    to: validate-each
+  - from: validate-each
+    to: summarize
+  - from: summarize
+    to: final

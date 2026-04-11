@@ -62,12 +62,26 @@ export function executionRoutes(engine: WorkflowEngine): Router {
         if (responded) return;
         responded = true;
         engine.off("execution:start", startListener);
-        // Return the initial state snapshot so the client can subscribe to SSE
+
+        // Build a safe fallback that matches the ExecutionState shape so the UI
+        // never sees a partial object. Critical: `steps` MUST be present (even
+        // if empty) because the UI's stepStatuses memo runs Object.entries over
+        // it on every render and crashes on undefined.
+        const fallback = {
+          executionId: event.executionId,
+          workflowId: req.params.id,
+          status: "running" as const,
+          context: context,
+          steps: {} as Record<string, unknown>,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
         engine.getState(event.executionId).then((state) => {
           if (state) res.status(202).json(state);
-          else res.status(202).json({ executionId: event.executionId, status: "running" });
+          else res.status(202).json(fallback);
         }).catch(() => {
-          res.status(202).json({ executionId: event.executionId, status: "running" });
+          res.status(202).json(fallback);
         });
       };
       engine.on("execution:start", startListener);

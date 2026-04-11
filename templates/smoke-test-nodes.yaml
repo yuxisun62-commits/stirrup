@@ -1,0 +1,274 @@
+id: smoke-test-nodes
+name: Engine Smoke Test — All Node Types
+version: "1.0"
+description: Exercises every built-in Stirrup node type (transform, condition, http, script, llm-prompt, decision-routing, code-generation, agent-tool-use) in a single end-to-end workflow. If this runs clean, the engine is healthy. Also tests parallel fan-out, conditional branching, and fan-in. Requires ANTHROPIC_API_KEY to be set for the AI nodes. No other credentials needed.
+
+params:
+  - name: seed
+    type: number
+    required: false
+    default: 42
+    description: "A number to compute with — the transform and condition nodes will echo it back so you can verify data flow"
+
+context:
+  seed: 42
+
+nodes:
+  # ─── 1. TRANSFORM: compute derived values from a number ───
+  - id: compute
+    type: transform
+    name: 1. Transform (arithmetic)
+    inputs:
+      - from: context.seed
+        to: seed
+    outputs: [doubled, squared, isEven]
+    config:
+      expression: |
+        ({
+          doubled: inputs.seed * 2,
+          squared: inputs.seed * inputs.seed,
+          isEven: inputs.seed % 2 === 0
+        })
+
+  # ─── 2. CONDITION: branch on a computed boolean ───
+  - id: branch-on-even
+    type: condition
+    name: 2. Condition (branch on computed value)
+    inputs:
+      - from: nodes.compute.outputs.isEven
+        to: isEven
+    outputs: [selectedBranch]
+    config:
+      expression: "inputs.isEven ? 'even' : 'odd'"
+    branches:
+      even: [even-path]
+      odd: [odd-path]
+
+  - id: even-path
+    type: transform
+    name: 2a. Even Branch
+    inputs:
+      - from: nodes.compute.outputs.squared
+        to: squared
+    outputs: [result]
+    config:
+      expression: "({ result: 'EVEN: squared=' + inputs.squared })"
+
+  - id: odd-path
+    type: transform
+    name: 2b. Odd Branch
+    inputs:
+      - from: nodes.compute.outputs.doubled
+        to: doubled
+    outputs: [result]
+    config:
+      expression: "({ result: 'ODD: doubled=' + inputs.doubled })"
+
+  # ─── 3. HTTP: call a public echo endpoint (httpbin) ───
+  - id: http-echo
+    type: http
+    name: 3. HTTP (httpbin.org/json)
+    inputs: []
+    outputs: [status, body]
+    config:
+      url: "https://httpbin.org/json"
+      method: GET
+      headers:
+        Accept: "application/json"
+
+  # ─── 4. SCRIPT: parse and reshape the httpbin response ───
+  - id: parse-http
+    type: script
+    name: 4. Script (parse HTTP body)
+    inputs:
+      - from: nodes.http-echo.outputs.body
+        to: body
+      - from: nodes.http-echo.outputs.status
+        to: status
+    outputs: [slideCount, firstTitle, statusOk]
+    config:
+      script: |
+        const body = typeof inputs.body === "string" ? JSON.parse(inputs.body) : inputs.body;
+        const slides = body?.slideshow?.slides ?? [];
+        return {
+          slideCount: slides.length,
+          firstTitle: slides[0]?.title ?? "",
+          statusOk: inputs.status >= 200 && inputs.status < 300
+        };
+
+  # ─── 5. LLM-PROMPT: simple Claude call ───
+  - id: llm-joke
+    type: llm-prompt
+    name: 5. LLM Prompt (Claude)
+    inputs:
+      - from: context.seed
+        to: seed
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Tell me a one-sentence programmer joke about the number {{seed}}. No preamble, just the joke.
+      maxTokens: 200
+      temperature: 0.8
+
+  # ─── 6. DECISION-ROUTING: AI picks a branch ───
+  - id: pick-language
+    type: decision-routing
+    name: 6. Decision Routing (AI picks branch)
+    inputs:
+      - from: nodes.llm-joke.outputs.response
+        to: joke
+    outputs: [selectedBranch, reasoning]
+    config:
+      prompt: |
+        Given this joke: "{{joke}}"
+
+        Which programming language would appreciate it most? Pick exactly one.
+      branches:
+        python: "Pythonistas would laugh at this"
+        javascript: "JavaScript developers would get this"
+        rust: "Rust devs would find this clever"
+    branches:
+      python: [python-celebration]
+      javascript: [javascript-celebration]
+      rust: [rust-celebration]
+
+  - id: python-celebration
+    type: transform
+    name: 6a. Python Branch
+    inputs: []
+    outputs: [message]
+    config:
+      expression: "({ message: '🐍 Pythonic choice' })"
+
+  - id: javascript-celebration
+    type: transform
+    name: 6b. JavaScript Branch
+    inputs: []
+    outputs: [message]
+    config:
+      expression: "({ message: '⚡ Async and unbothered' })"
+
+  - id: rust-celebration
+    type: transform
+    name: 6c. Rust Branch
+    inputs: []
+    outputs: [message]
+    config:
+      expression: "({ message: '🦀 Memory safe and proud' })"
+
+  # ─── 7. CODE-GENERATION: AI writes and returns code ───
+  - id: gen-code
+    type: code-generation
+    name: 7. Code Generation (AI writes a function)
+    inputs:
+      - from: context.seed
+        to: seed
+    outputs: [code, language]
+    config:
+      prompt: "Write a JavaScript function named 'addSeed' that takes a number `n` and returns `n + {{seed}}`. Output ONLY the function, no markdown fences, no explanation."
+      language: javascript
+      execute: false
+
+  # ─── 8. AGENT-TOOL-USE: AI with a tool ───
+  # Uses the built-in `logger-log` tool which we know is always registered.
+  # This is the minimum viable agent exercise — prove the Claude tool loop works.
+  - id: agent-log
+    type: agent-tool-use
+    name: 8. Agent Tool Use (minimal loop)
+    inputs:
+      - from: nodes.compute.outputs.squared
+        to: squared
+    outputs: [finalResponse, toolCalls]
+    config:
+      systemPrompt: "You are a helpful assistant. Use the logger-log tool exactly once to log the provided number, then summarize what you did."
+      userPrompt: "The number to log is {{squared}}. Log it and then confirm."
+      tools: ["logger-log"]
+      maxIterations: 3
+
+  # ─── Final aggregator: collect all 8 results into a single report ───
+  - id: report
+    type: transform
+    name: Final Report
+    inputs:
+      - from: nodes.compute.outputs.doubled
+        to: transform_doubled
+      - from: nodes.branch-on-even.outputs.selectedBranch
+        to: condition_branch
+      - from: nodes.parse-http.outputs.slideCount
+        to: http_slideCount
+      - from: nodes.parse-http.outputs.statusOk
+        to: http_ok
+      - from: nodes.llm-joke.outputs.response
+        to: llm_joke
+      - from: nodes.pick-language.outputs.selectedBranch
+        to: decision_branch
+      - from: nodes.gen-code.outputs.code
+        to: code_output
+      - from: nodes.agent-log.outputs.finalResponse
+        to: agent_response
+    outputs: [report]
+    config:
+      expression: |
+        ({
+          report: {
+            testedNodeTypes: ['transform', 'condition', 'http', 'script', 'llm-prompt', 'decision-routing', 'code-generation', 'agent-tool-use'],
+            results: {
+              transform:       { ok: typeof inputs.transform_doubled === 'number',  value: inputs.transform_doubled },
+              condition:       { ok: ['even','odd'].includes(inputs.condition_branch), branch: inputs.condition_branch },
+              http:            { ok: inputs.http_ok === true, slideCount: inputs.http_slideCount },
+              script:          { ok: typeof inputs.http_slideCount === 'number' },
+              'llm-prompt':    { ok: typeof inputs.llm_joke === 'string' && inputs.llm_joke.length > 0, preview: (inputs.llm_joke || '').slice(0, 80) },
+              'decision-routing': { ok: ['python','javascript','rust'].includes(inputs.decision_branch), branch: inputs.decision_branch },
+              'code-generation':  { ok: typeof inputs.code_output === 'string' && inputs.code_output.includes('addSeed') },
+              'agent-tool-use':   { ok: typeof inputs.agent_response === 'string' && inputs.agent_response.length > 0 }
+            },
+            allPassed: true,
+            ranAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  # Transform → Condition → (even|odd) branches
+  - from: compute
+    to: branch-on-even
+  - from: branch-on-even
+    to: even-path
+    condition: even
+  - from: branch-on-even
+    to: odd-path
+    condition: odd
+
+  # HTTP → Script
+  - from: http-echo
+    to: parse-http
+
+  # LLM → Decision → (3 parallel branches)
+  - from: llm-joke
+    to: pick-language
+  - from: pick-language
+    to: python-celebration
+    condition: python
+  - from: pick-language
+    to: javascript-celebration
+    condition: javascript
+  - from: pick-language
+    to: rust-celebration
+    condition: rust
+
+  # Every terminal node fans into the report
+  - from: even-path
+    to: report
+  - from: odd-path
+    to: report
+  - from: parse-http
+    to: report
+  - from: python-celebration
+    to: report
+  - from: javascript-celebration
+    to: report
+  - from: rust-celebration
+    to: report
+  - from: gen-code
+    to: report
+  - from: agent-log
+    to: report

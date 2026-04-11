@@ -54,7 +54,11 @@ function App() {
   };
 
   const stepStatuses = useMemo(() => {
-    if (!execution) return {};
+    // Guard against the async execute route's "early" response which only
+    // contains { executionId, status: 'running' } before the full state has
+    // been persisted — execution.steps is undefined at that point and
+    // Object.entries() would throw.
+    if (!execution || !execution.steps) return {};
     const statuses: Record<string, string> = {};
     for (const [nodeId, step] of Object.entries(execution.steps)) {
       statuses[nodeId] = step.status;
