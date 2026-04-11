@@ -62,7 +62,7 @@ export const connectViaCli = (service: string) =>
     { method: 'POST' }
   );
 export const getAuthStatus = () =>
-  request<{ services: Record<string, AuthStatus> }>('/auth/status');
+  request<{ services: Record<string, AuthStatus>; storeLocation?: string }>('/auth/status');
 export const getServiceAuthStatus = (service: string) =>
   request<AuthStatus>(`/auth/status/${service}`);
 export const startAuthFlow = (service: string, scope?: string) =>

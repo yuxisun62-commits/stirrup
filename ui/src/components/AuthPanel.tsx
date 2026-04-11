@@ -84,6 +84,7 @@ const KNOWN_SERVICES: ServiceCard[] = [
 
 export function AuthPanel({ onClose }: Props) {
   const [authStatus, setAuthStatus] = useState<Record<string, AuthStatus>>({});
+  const [storeLocation, setStoreLocation] = useState<string>('');
   const [cliDetection, setCliDetection] = useState<Record<string, CliDetection>>({});
   const [authingService, setAuthingService] = useState<string | null>(null);
   const [authPrompt, setAuthPrompt] = useState<{ service: string; userCode: string } | null>(null);
@@ -92,7 +93,10 @@ export function AuthPanel({ onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = () => {
-    getAuthStatus().then((res) => setAuthStatus(res.services)).catch(() => {});
+    getAuthStatus().then((res) => {
+      setAuthStatus(res.services);
+      if (res.storeLocation) setStoreLocation(res.storeLocation);
+    }).catch(() => {});
     // Detect CLI sessions for all known services in parallel
     Promise.all(
       KNOWN_SERVICES.map((svc) =>
@@ -403,8 +407,14 @@ export function AuthPanel({ onClose }: Props) {
         <div style={{
           padding: '10px 20px', borderTop: `1px solid ${tokens.border.subtle}`,
           fontSize: 10, color: tokens.text.muted,
+          display: 'flex', flexDirection: 'column', gap: 2,
         }}>
-          Saved credentials are auto-injected into workflows that declare matching service params.
+          <div>Credentials are auto-injected into workflows that declare matching service params.</div>
+          {storeLocation && (
+            <div style={{ fontFamily: tokens.font.mono, color: tokens.text.secondary }}>
+              Stored in: {storeLocation} (mode 0600)
+            </div>
+          )}
         </div>
       </div>
     </div>

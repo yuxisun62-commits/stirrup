@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { listTokens, removeToken, getToken } from "../../auth/tokenStore.js";
+import { listTokens, removeToken, getToken, getTokenStoreLocation } from "../../auth/tokenStore.js";
 import { startGithubDeviceFlow, getGithubUser } from "../../auth/github.js";
 import { setToken } from "../../auth/tokenStore.js";
 import {
@@ -47,7 +47,7 @@ async function detectServiceCli(service: string) {
 async function connectViaCli(service: string): Promise<{ userName?: string } | null> {
   switch (service) {
     case "launchmatic": {
-      const apiKey = await createLaunchmaticApiKey(`stirrup-${Date.now()}`);
+      const apiKey = await createLaunchmaticApiKey("stirrup");
       const detection = await detectLaunchmaticCli();
       setToken(service, { accessToken: apiKey, userName: detection.user });
       return { userName: detection.user };
@@ -167,15 +167,19 @@ export function authRoutes(): Router {
   // List authenticated services
   router.get("/status", (_req, res) => {
     const tokens = listTokens();
-    const status: Record<string, { authenticated: boolean; userName?: string; userId?: string }> = {};
+    const status: Record<string, { authenticated: boolean; userName?: string; userId?: string; savedAt?: number }> = {};
     for (const t of tokens) {
       status[t.service] = {
         authenticated: true,
         userName: t.userName,
         userId: t.userId,
+        savedAt: t.savedAt,
       };
     }
-    res.json({ services: status });
+    res.json({
+      services: status,
+      storeLocation: getTokenStoreLocation(),
+    });
   });
 
   // Get token info for a specific service (without exposing the token itself)

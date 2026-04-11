@@ -62,29 +62,42 @@ export async function detectLaunchmaticCli(): Promise<CliDetection> {
   return { available: true, authenticated: false, configPath };
 }
 
-/** Use the local LaunchMatic CLI to create a new API key */
+function extractToken(output: string): string | null {
+  const patterns = [
+    /\b(eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/,
+    /\b(lm_[A-Za-z0-9_-]{20,})\b/,
+    /\b([A-Za-z0-9_-]{32,})\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = output.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/** Use the local LaunchMatic CLI to create a new API key (or reuse existing) */
 export async function createLaunchmaticApiKey(name: string = "stirrup"): Promise<string> {
   try {
     const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000 });
     const output = (stdout + stderr).trim();
-
-    // Parse the API key from the output. Try common patterns:
-    // - JWT-like tokens (eyJ...)
-    // - lm_xxx format
-    // - Plain alphanumeric tokens 32+ chars
-    const patterns = [
-      /\b(eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/,
-      /\b(lm_[A-Za-z0-9_-]{20,})\b/,
-      /\b([A-Za-z0-9_-]{32,})\b/,
-    ];
-    for (const pattern of patterns) {
-      const match = output.match(pattern);
-      if (match) return match[1];
-    }
+    const token = extractToken(output);
+    if (token) return token;
     throw new Error(`Could not parse API key from CLI output: ${output.slice(0, 200)}`);
   } catch (err) {
-    if ((err as Error).message.includes("Could not parse")) throw err;
-    throw new Error(`Failed to create API key via lm CLI: ${(err as Error).message}`);
+    const msg = (err as Error).message;
+    // If the key with this name already exists, try to rotate it
+    if (msg.toLowerCase().includes("already exists") || msg.toLowerCase().includes("duplicate")) {
+      try {
+        // Delete the existing one and recreate
+        await execFileAsync("lm", ["api-key", "delete", name], { timeout: 10000 });
+        const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000 });
+        const output = (stdout + stderr).trim();
+        const token = extractToken(output);
+        if (token) return token;
+      } catch { /* fall through */ }
+    }
+    if (msg.includes("Could not parse")) throw err;
+    throw new Error(`Failed to create API key via lm CLI: ${msg}`);
   }
 }
 
