@@ -1,5 +1,43 @@
 import { Router } from "express";
 import type { WorkflowEngine } from "../../engine/Engine.js";
+import type { WorkflowDefinition, WorkflowParam } from "../../types/workflow.js";
+import { getToken } from "../../auth/tokenStore.js";
+
+/**
+ * Enrich an execution context by injecting stored credentials for any workflow
+ * param that declares `service: X` and wasn't given a value by the caller.
+ *
+ * Without this, the Run Workflow dialog's "✓ Using saved credential" path
+ * silently breaks: the UI stops sending the token (because it's saved), but
+ * the engine runs with context[paramName] = undefined and every plugin node
+ * fails with "token required". This bridges the two.
+ *
+ * Rules:
+ * - Only injects when the param is missing/empty in the caller's context
+ * - If the stored token has a userName, also injects `<paramName>_user` so
+ *   nodes that want the username alongside the token can grab it
+ * - Silently skips params whose service has no saved token (the plugin node
+ *   will surface a clearer error than we can here)
+ */
+function injectServiceTokens(
+  params: WorkflowParam[] | undefined,
+  context: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!params || params.length === 0) return context;
+  const enriched = { ...context };
+  for (const p of params) {
+    if (!p.service) continue;
+    const existing = enriched[p.name];
+    if (existing !== undefined && existing !== "" && existing !== null) continue;
+    const token = getToken(p.service);
+    if (!token) continue;
+    enriched[p.name] = token.accessToken;
+    if (token.userName && enriched[`${p.name}_user`] === undefined) {
+      enriched[`${p.name}_user`] = token.userName;
+    }
+  }
+  return enriched;
+}
 
 export function executionRoutes(engine: WorkflowEngine): Router {
   const router = Router();
@@ -8,7 +46,15 @@ export function executionRoutes(engine: WorkflowEngine): Router {
   // client subscribes to SSE for live progress)
   router.post("/workflows/:id/execute", async (req, res, next) => {
     try {
-      const context = req.body?.context as Record<string, unknown> | undefined;
+      const rawContext = (req.body?.context as Record<string, unknown> | undefined) ?? {};
+
+      // Look up the workflow to find its param definitions, then enrich the
+      // context with stored credentials for any service-backed params the
+      // caller didn't explicitly pass.
+      const workflows = (engine as unknown as { workflows: Map<string, WorkflowDefinition> }).workflows;
+      const workflow = workflows.get(req.params.id);
+      const context = injectServiceTokens(workflow?.params, rawContext);
+
       let responded = false;
 
       // Listen for execution:start to capture the ID and respond early

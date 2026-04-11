@@ -62,6 +62,12 @@ export interface WorkflowParam {
   default?: unknown;
   /** Service this param belongs to — enables OAuth auto-injection (e.g., "github", "slack") */
   service?: string;
+  /**
+   * If set, the Run Workflow dialog renders a typed picker UI instead of a
+   * plain text input. UI-only field; ignored by the engine. Currently:
+   * 'github-repo' shows a searchable dropdown of the user's accessible repos.
+   */
+  picker?: "github-repo";
 }
 
 /** Trigger configuration — how a workflow gets invoked in serve mode */
