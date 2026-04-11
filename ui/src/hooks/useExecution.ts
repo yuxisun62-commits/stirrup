@@ -21,10 +21,12 @@ export function useExecution() {
     setIsRunning(true);
 
     try {
+      // Server responds immediately after execution has started (202 Accepted)
       const state = await executeWorkflow(workflowId, context);
-      setExecution(state);
+      setExecution({ ...state, status: 'running' });
 
-      // Subscribe to SSE events
+      // Subscribe to SSE events — now that execution has started but not yet completed,
+      // we'll receive all node:start / node:complete events live
       const unsub = subscribeToExecution(state.executionId, (type, data) => {
         const evt: ExecutionEvent = {
           type,
@@ -34,34 +36,13 @@ export function useExecution() {
         };
         setEvents((prev) => [...prev, evt]);
 
-        // Update step statuses from events
-        if (type === 'node:complete' || type === 'node:fail' || type === 'node:skip') {
-          setExecution((prev) => {
-            if (!prev) return prev;
-            const d = data as any;
-            return {
-              ...prev,
-              steps: {
-                ...prev.steps,
-                [d.nodeId]: {
-                  ...prev.steps[d.nodeId],
-                  nodeId: d.nodeId,
-                  status: type === 'node:complete' ? 'completed' : type === 'node:fail' ? 'failed' : 'skipped',
-                  outputs: d.outputs ?? {},
-                  startedAt: prev.steps[d.nodeId]?.startedAt ?? new Date().toISOString(),
-                  attempts: d.attempt ?? 1,
-                },
-              },
-            };
-          });
-        }
-
         if (type === 'node:start') {
           setExecution((prev) => {
             if (!prev) return prev;
             const d = data as any;
             return {
               ...prev,
+              status: 'running',
               steps: {
                 ...prev.steps,
                 [d.nodeId]: {
@@ -76,11 +57,57 @@ export function useExecution() {
           });
         }
 
+        if (type === 'node:complete' || type === 'node:fail' || type === 'node:skip') {
+          setExecution((prev) => {
+            if (!prev) return prev;
+            const d = data as any;
+            const existing = prev.steps[d.nodeId];
+            return {
+              ...prev,
+              steps: {
+                ...prev.steps,
+                [d.nodeId]: {
+                  ...existing,
+                  nodeId: d.nodeId,
+                  status: type === 'node:complete' ? 'completed' : type === 'node:fail' ? 'failed' : 'skipped',
+                  outputs: d.outputs ?? existing?.outputs ?? {},
+                  error: type === 'node:fail'
+                    ? { message: d.error ?? 'unknown', attempt: d.attempt ?? 1 }
+                    : undefined,
+                  startedAt: existing?.startedAt ?? new Date().toISOString(),
+                  completedAt: new Date().toISOString(),
+                  attempts: d.attempt ?? existing?.attempts ?? 1,
+                },
+              },
+            };
+          });
+        }
+
+        if (type === 'node:retry') {
+          setExecution((prev) => {
+            if (!prev) return prev;
+            const d = data as any;
+            const existing = prev.steps[d.nodeId];
+            return {
+              ...prev,
+              steps: {
+                ...prev.steps,
+                [d.nodeId]: {
+                  ...existing,
+                  attempts: d.attempt ?? (existing?.attempts ?? 0) + 1,
+                },
+              },
+            };
+          });
+        }
+
         if (type === 'execution:complete' || type === 'execution:fail') {
           setIsRunning(false);
           setExecution((prev) =>
             prev ? { ...prev, status: type === 'execution:complete' ? 'completed' : 'failed' } : prev
           );
+          // Keep subscription open briefly so any final events aren't missed
+          setTimeout(() => unsubRef.current?.(), 500);
         }
       });
 

@@ -246,9 +246,14 @@ function App() {
 
           <ValidationPanel workflow={workflow} onFixed={(wf) => loadWorkflow(wf)} onSelectNode={setSelectedNodeId} />
           <ExecutionPanel
-            execution={execution} events={events} isRunning={isRunning}
-            onRun={handleRunClick} onClear={clear}
+            execution={execution}
+            events={events}
+            isRunning={isRunning}
+            totalNodes={workflow.nodes.length}
+            onRun={handleRunClick}
+            onClear={clear}
             onDeploy={execution?.status === 'completed' ? () => setShowDeploy(true) : undefined}
+            onSelectNode={setSelectedNodeId}
           />
         </div>
 
