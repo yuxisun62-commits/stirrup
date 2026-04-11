@@ -20,6 +20,22 @@ interface DeviceFlowSession {
 
 const activeFlows = new Map<string, DeviceFlowSession>();
 
+/** In-memory cache of the user's GitHub repo list. Refreshed every 60s. */
+interface GithubRepoCacheEntry {
+  repos: Array<{
+    fullName: string;
+    name: string;
+    owner: string;
+    private: boolean;
+    description: string | null;
+    updatedAt: string;
+    defaultBranch: string;
+  }>;
+  fetchedAt: number;
+}
+const REPO_CACHE_TTL_MS = 60 * 1000;
+const githubRepoCache = new Map<string, GithubRepoCacheEntry>();
+
 // Services that support full OAuth device flow (no manual token needed)
 const OAUTH_CAPABLE_SERVICES = new Set(["github"]);
 
@@ -264,6 +280,81 @@ export function authRoutes(): Router {
       res.json({ saved: true, service, userName: after.userName });
     } catch (err) {
       res.status(500).json({ error: { code: "CLI_LOGIN_FAILED", message: (err as Error).message } });
+    }
+  });
+
+  /**
+   * List the authenticated user's GitHub repos. Powers the github-repo
+   * picker in the Run Workflow dialog so users can pick a repo from a
+   * dropdown instead of typing "owner/name" by hand.
+   *
+   * Uses the stored GitHub OAuth token. Caches in-memory for 60s to avoid
+   * burning the user's API rate limit on every dialog open.
+   *
+   * Returns up to 100 repos sorted by most recently updated. If you have
+   * more than 100, search by typing — we don't paginate (yet).
+   */
+  router.get("/github/repos", async (_req, res) => {
+    const stored = getToken("github");
+    if (!stored) {
+      res.status(401).json({
+        error: { code: "NOT_AUTHENTICATED", message: "Connect GitHub first via the Connections panel." },
+      });
+      return;
+    }
+
+    // Cache key includes the userId so multiple users on the same install don't see each other's repos
+    const cacheKey = stored.userId ?? "default";
+    const cached = githubRepoCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < REPO_CACHE_TTL_MS) {
+      res.json({ repos: cached.repos, cached: true });
+      return;
+    }
+
+    try {
+      const ghRes = await fetch(
+        "https://api.github.com/user/repos?per_page=100&sort=updated&affiliation=owner,collaborator,organization_member",
+        {
+          headers: {
+            Authorization: `Bearer ${stored.accessToken}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "Stirrup",
+          },
+        },
+      );
+      if (!ghRes.ok) {
+        const body = await ghRes.text().catch(() => "");
+        res.status(ghRes.status).json({
+          error: {
+            code: "GITHUB_API_ERROR",
+            message: `GitHub API ${ghRes.status}: ${body.slice(0, 300)}`,
+          },
+        });
+        return;
+      }
+      const raw = (await ghRes.json()) as Array<{
+        full_name: string;
+        name: string;
+        owner: { login: string };
+        private: boolean;
+        description: string | null;
+        updated_at: string;
+        default_branch: string;
+      }>;
+      const repos = raw.map((r) => ({
+        fullName: r.full_name,
+        name: r.name,
+        owner: r.owner.login,
+        private: r.private,
+        description: r.description,
+        updatedAt: r.updated_at,
+        defaultBranch: r.default_branch,
+      }));
+      githubRepoCache.set(cacheKey, { repos, fetchedAt: Date.now() });
+      res.json({ repos, cached: false });
+    } catch (err) {
+      res.status(500).json({ error: { code: "REPO_FETCH_FAILED", message: (err as Error).message } });
     }
   });
 

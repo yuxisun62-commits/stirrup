@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { tokens, inputBase, monoInput } from './ui/styles';
 import {
   getAuthStatus, startAuthFlow, pollAuthFlow, getServiceInfo, saveServiceToken,
-  type AuthStatus, type ServiceInfo,
+  listGithubRepos,
+  type AuthStatus, type ServiceInfo, type GithubRepoSummary,
 } from '../api/client';
 
 interface WorkflowParam {
@@ -12,6 +13,7 @@ interface WorkflowParam {
   required?: boolean;
   default?: unknown;
   service?: string;
+  picker?: 'github-repo';
 }
 
 interface Props {
@@ -356,6 +358,13 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
                       </div>
                     );
                   })()
+                ) : p.picker === 'github-repo' ? (
+                  <GithubRepoPicker
+                    value={values[p.name] ?? ''}
+                    onChange={(v) => setValues((vals) => ({ ...vals, [p.name]: v }))}
+                    githubAuthed={!!authStatus.github?.authenticated}
+                    onConnectGithub={() => startAuth('github')}
+                  />
                 ) : p.type === 'boolean' ? (
                   <select
                     style={{ ...inputBase, width: 120 }}
@@ -421,6 +430,170 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Searchable picker for GitHub repos. Loads the user's accessible repos via
+ * the stored OAuth token, lets them filter by typing, and emits the selected
+ * `owner/name` back to the parent. Also supports manual typing as a fallback
+ * (useful for repos that aren't in the first 100 results, or for typing a
+ * repo you don't have access to but the workflow does via a different token).
+ *
+ * Three states:
+ *   1. Not authenticated → prompt to connect GitHub
+ *   2. Loading           → spinner
+ *   3. Loaded            → search input + filtered list
+ */
+function GithubRepoPicker({
+  value,
+  onChange,
+  githubAuthed,
+  onConnectGithub,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  githubAuthed: boolean;
+  onConnectGithub: () => void;
+}) {
+  const [repos, setRepos] = useState<GithubRepoSummary[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  // Load repos as soon as we have GitHub auth
+  useEffect(() => {
+    if (!githubAuthed || repos !== null) return;
+    setLoading(true);
+    setError(null);
+    listGithubRepos()
+      .then((res) => setRepos(res.repos))
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setLoading(false));
+  }, [githubAuthed, repos]);
+
+  const filtered = useMemo(() => {
+    if (!repos) return [];
+    const q = value.trim().toLowerCase();
+    if (!q) return repos.slice(0, 8);
+    return repos
+      .filter((r) =>
+        r.fullName.toLowerCase().includes(q) ||
+        (r.description?.toLowerCase().includes(q) ?? false),
+      )
+      .slice(0, 8);
+  }, [repos, value]);
+
+  // Not authenticated → show connect prompt
+  if (!githubAuthed) {
+    return (
+      <div style={{
+        padding: 10, borderRadius: 6,
+        backgroundColor: `${tokens.nodeColors['llm-prompt']}08`,
+        border: `1px solid ${tokens.nodeColors['llm-prompt']}30`,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+      }}>
+        <span style={{ fontSize: 11, color: tokens.text.secondary }}>
+          Connect GitHub to browse your repos.
+        </span>
+        <button
+          onClick={onConnectGithub}
+          style={{
+            padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: 'none',
+            background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
+            color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          Connect GitHub
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        style={{ ...inputBase, fontFamily: tokens.font.mono }}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        placeholder={loading ? 'Loading repos...' : 'owner/name — start typing to filter'}
+      />
+      {loading && (
+        <div style={{
+          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+          width: 12, height: 12, borderRadius: '50%',
+          border: '2px solid ' + tokens.text.muted, borderTopColor: 'transparent',
+          animation: 'spin 0.8s linear infinite',
+        }} />
+      )}
+      {error && (
+        <div style={{ fontSize: 10, color: tokens.status.failed, marginTop: 3 }}>
+          {error} — falling back to manual entry
+        </div>
+      )}
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 2, zIndex: 10,
+          maxHeight: 280, overflow: 'auto',
+          backgroundColor: tokens.bg.surface,
+          border: `1px solid ${tokens.border.default}`,
+          borderRadius: 6,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        }}>
+          {filtered.map((repo) => (
+            <div
+              key={repo.fullName}
+              onMouseDown={(e) => {
+                // mouseDown (not click) so it fires before the input's blur closes the dropdown
+                e.preventDefault();
+                onChange(repo.fullName);
+                setOpen(false);
+              }}
+              style={{
+                padding: '7px 10px', cursor: 'pointer',
+                borderBottom: `1px solid ${tokens.border.subtle}`,
+                display: 'flex', flexDirection: 'column', gap: 2,
+              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = tokens.bg.hover; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontSize: 12, fontFamily: tokens.font.mono, color: tokens.text.primary, fontWeight: 600,
+                }}>
+                  {repo.fullName}
+                </span>
+                {repo.private && (
+                  <span style={{
+                    fontSize: 8, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                    backgroundColor: `${tokens.text.muted}25`, color: tokens.text.muted,
+                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                  }}>
+                    PRIVATE
+                  </span>
+                )}
+              </div>
+              {repo.description && (
+                <div style={{
+                  fontSize: 10, color: tokens.text.muted, lineHeight: 1.3,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {repo.description}
+                </div>
+              )}
+            </div>
+          ))}
+          {repos && repos.length > 100 && (
+            <div style={{ padding: '6px 10px', fontSize: 10, color: tokens.text.muted, fontStyle: 'italic' }}>
+              Showing first 100 repos by recent activity. Type to filter.
+            </div>
+          )}
+        </div>
+      )}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

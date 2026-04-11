@@ -8,6 +8,7 @@ params:
     type: string
     required: true
     description: "GitHub repository (owner/repo)"
+    picker: github-repo
   - name: issueNumber
     type: number
     required: true

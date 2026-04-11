@@ -19,6 +19,12 @@ export interface WorkflowParam {
   required?: boolean;
   default?: unknown;
   service?: string;
+  /**
+   * If set, the Run Workflow dialog renders a typed picker UI instead of a
+   * plain text input. Currently supports: 'github-repo' (searchable dropdown
+   * of the user's accessible repos via the stored GitHub OAuth token).
+   */
+  picker?: 'github-repo';
 }
 
 // Auth API
@@ -91,6 +97,19 @@ export const saveServiceToken = (service: string, token: string, userName?: stri
   });
 export const logoutService = (service: string) =>
   request<{ removed: boolean }>(`/auth/logout/${service}`, { method: 'DELETE' });
+
+// GitHub repo picker — used by RunDialog when a workflow param has picker: 'github-repo'
+export interface GithubRepoSummary {
+  fullName: string;
+  name: string;
+  owner: string;
+  private: boolean;
+  description: string | null;
+  updatedAt: string;
+  defaultBranch: string;
+}
+export const listGithubRepos = () =>
+  request<{ repos: GithubRepoSummary[]; cached: boolean }>('/auth/github/repos');
 
 // Debug
 export interface DebugInfo {

@@ -20,7 +20,12 @@
           "description": { "type": "string" },
           "required": { "type": "boolean" },
           "default": {},
-          "service": { "type": "string" }
+          "service": { "type": "string" },
+          "picker": {
+            "type": "string",
+            "description": "If set, the Run Workflow dialog renders a typed picker UI instead of a plain text input. 'github-repo' shows a searchable list of the user's accessible repos.",
+            "enum": ["github-repo"]
+          }
         },
         "additionalProperties": false
       }
