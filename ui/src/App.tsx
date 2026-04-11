@@ -16,6 +16,7 @@ import { ValidationPanel } from './components/ValidationPanel';
 import { DeployPanel } from './components/DeployPanel';
 import { ExportDialog } from './components/ExportDialog';
 import { AuthPanel } from './components/AuthPanel';
+import { DebugPanel } from './components/DebugPanel';
 import { tokens } from './components/ui/styles';
 
 function useIsMobile() {
@@ -42,6 +43,7 @@ function App() {
   const [showDeploy, setShowDeploy] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -260,7 +262,13 @@ function App() {
         {/* ── Right inspector (desktop: side panel, mobile: bottom sheet) ── */}
         {selectedNode && !isMobile && (
           <div style={{ width: 300, overflow: 'hidden' }}>
-            <NodeInspector node={selectedNode} stepResult={execution?.steps[selectedNode.id]} onUpdate={updateNode} onDelete={removeNode} />
+            <NodeInspector
+              node={selectedNode}
+              stepResult={execution?.steps[selectedNode.id]}
+              onUpdate={updateNode}
+              onDelete={removeNode}
+              onDebug={execution ? () => setShowDebug(true) : undefined}
+            />
           </div>
         )}
         {selectedNode && isMobile && (
@@ -283,7 +291,13 @@ function App() {
                 <div style={{ width: 36, height: 4, borderRadius: 2, backgroundColor: tokens.border.default }} />
               </div>
               <div style={{ maxHeight: 'calc(70vh - 20px)', overflow: 'auto' }}>
-                <NodeInspector node={selectedNode} stepResult={execution?.steps[selectedNode.id]} onUpdate={updateNode} onDelete={removeNode} />
+                <NodeInspector
+                  node={selectedNode}
+                  stepResult={execution?.steps[selectedNode.id]}
+                  onUpdate={updateNode}
+                  onDelete={removeNode}
+                  onDebug={execution ? () => setShowDebug(true) : undefined}
+                />
               </div>
             </div>
           </>
@@ -315,6 +329,14 @@ function App() {
           />
         )}
         {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
+        {showDebug && selectedNode && execution && (
+          <DebugPanel
+            executionId={execution.executionId}
+            node={selectedNode}
+            onClose={() => setShowDebug(false)}
+            onRetrySuccess={() => { /* Optional: refresh execution state */ }}
+          />
+        )}
       </div>
     </ReactFlowProvider>
   );

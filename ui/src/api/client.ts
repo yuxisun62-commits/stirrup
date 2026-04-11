@@ -83,6 +83,27 @@ export const saveServiceToken = (service: string, token: string, userName?: stri
 export const logoutService = (service: string) =>
   request<{ removed: boolean }>(`/auth/logout/${service}`, { method: 'DELETE' });
 
+// Debug
+export interface DebugInfo {
+  step: StepResult;
+  resolvedInputs: Record<string, unknown>;
+  mappings: Array<{ from: string; to: string }>;
+  config: Record<string, unknown>;
+  context: Record<string, unknown>;
+}
+export const getNodeDebugInfo = (executionId: string, nodeId: string) =>
+  request<DebugInfo>(`/debug/executions/${executionId}/nodes/${nodeId}`);
+export const retryNode = (executionId: string, nodeId: string, inputs?: Record<string, unknown>, config?: Record<string, unknown>) =>
+  request<StepResult>(`/debug/executions/${executionId}/nodes/${nodeId}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ inputs, config }),
+  });
+export const analyzeFailure = (executionId: string, nodeId: string) =>
+  request<{ analysis: string; nodeId: string; executionId: string }>(
+    `/debug/executions/${executionId}/nodes/${nodeId}/analyze`,
+    { method: 'POST' }
+  );
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
@@ -126,7 +147,7 @@ export interface StepResult {
   nodeId: string;
   status: string;
   outputs: Record<string, unknown>;
-  error?: { message: string; attempt: number };
+  error?: { message: string; attempt: number; stack?: string };
   startedAt: string;
   completedAt?: string;
   attempts: number;

@@ -167,6 +167,98 @@ export class WorkflowEngine extends EventEmitter {
     return this.stateStore.load(executionId);
   }
 
+  /**
+   * Debug a single node: re-run it in isolation using the current execution's
+   * context, optionally with override inputs. Does not modify the parent execution state.
+   * Returns the step result (success or failure with error + stack trace).
+   */
+  async debugNode(
+    executionId: ExecutionId,
+    nodeId: string,
+    overrideInputs?: Record<string, unknown>,
+    overrideConfig?: Record<string, unknown>,
+  ): Promise<import("../types/execution.js").StepResult> {
+    const state = await this.stateStore.load(executionId);
+    if (!state) throw new Error(`Execution not found: "${executionId}"`);
+
+    const workflow = this.workflows.get(state.workflowId);
+    if (!workflow) throw new Error(`Workflow not found: "${state.workflowId}"`);
+
+    const node = workflow.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new Error(`Node not found: "${nodeId}"`);
+
+    // Resolve the inputs the same way the scheduler would, using the current execution's state
+    const { ContextManager } = await import("./ContextManager.js");
+    const contextManager = new ContextManager(state.context, state.steps);
+    const resolvedInputs = contextManager.resolveInputs(node.inputs);
+    const finalInputs = { ...resolvedInputs, ...(overrideInputs ?? {}) };
+    const finalConfig = overrideConfig ?? node.config;
+
+    // Build a minimal execution context for the handler
+    const execCtx: import("../types/execution.js").NodeExecutionContext = {
+      inputs: finalInputs,
+      context: state.context,
+      logger: {
+        info: (msg: string) => console.log(`[debug:${nodeId}]`, msg),
+        warn: (msg: string) => console.warn(`[debug:${nodeId}]`, msg),
+        error: (msg: string) => console.error(`[debug:${nodeId}]`, msg),
+      },
+    };
+
+    // Run the node's handler directly (bypassing retry, scheduler)
+    const startedAt = new Date().toISOString();
+    try {
+      const handler = this.registry.get(node.type);
+      const outputs = await handler(finalConfig, execCtx);
+      return {
+        nodeId,
+        status: "completed",
+        outputs,
+        startedAt,
+        completedAt: new Date().toISOString(),
+        attempts: 1,
+      };
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return {
+        nodeId,
+        status: "failed",
+        outputs: {},
+        error: {
+          message: error.message,
+          stack: error.stack,
+          attempt: 1,
+        },
+        startedAt,
+        completedAt: new Date().toISOString(),
+        attempts: 1,
+      };
+    }
+  }
+
+  /** Get the resolved inputs a node would receive at a given execution state */
+  async getNodeInputs(
+    executionId: ExecutionId,
+    nodeId: string,
+  ): Promise<{ resolvedInputs: Record<string, unknown>; mappings: import("../types/workflow.js").InputMapping[]; config: Record<string, unknown> }> {
+    const state = await this.stateStore.load(executionId);
+    if (!state) throw new Error(`Execution not found: "${executionId}"`);
+    const workflow = this.workflows.get(state.workflowId);
+    if (!workflow) throw new Error(`Workflow not found: "${state.workflowId}"`);
+    const node = workflow.nodes.find((n) => n.id === nodeId);
+    if (!node) throw new Error(`Node not found: "${nodeId}"`);
+
+    const { ContextManager } = await import("./ContextManager.js");
+    const contextManager = new ContextManager(state.context, state.steps);
+    const resolvedInputs = contextManager.resolveInputs(node.inputs);
+
+    return {
+      resolvedInputs,
+      mappings: node.inputs,
+      config: node.config,
+    };
+  }
+
   /** List all executions, optionally filtered by workflow ID */
   async listExecutions(workflowId?: string): Promise<ExecutionState[]> {
     return this.stateStore.list(workflowId);

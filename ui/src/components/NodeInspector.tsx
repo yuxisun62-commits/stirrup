@@ -9,6 +9,7 @@ interface Props {
   stepResult?: StepResult;
   onUpdate: (nodeId: string, updates: Partial<WorkflowNode>) => void;
   onDelete: (nodeId: string) => void;
+  onDebug?: () => void;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -22,7 +23,7 @@ const TYPE_LABELS: Record<string, string> = {
   'code-generation': 'Code Generation',
 };
 
-export function NodeInspector({ node, stepResult, onUpdate, onDelete }: Props) {
+export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }: Props) {
   const [activeTab, setActiveTab] = useState<'config' | 'io' | 'results' | 'advanced'>(
     stepResult?.status === 'completed' || stepResult?.status === 'failed' ? 'results' : 'config'
   );
@@ -110,7 +111,7 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete }: Props) {
         )}
 
         {activeTab === 'results' && (
-          <ResultsViewer stepResult={stepResult} />
+          <ResultsViewer stepResult={stepResult} onDebug={onDebug} />
         )}
 
         {activeTab === 'advanced' && (
@@ -304,7 +305,7 @@ function AdvancedEditor({ node, onUpdate, onDelete }: {
   );
 }
 
-function ResultsViewer({ stepResult }: { stepResult?: StepResult }) {
+function ResultsViewer({ stepResult, onDebug }: { stepResult?: StepResult; onDebug?: () => void }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
   if (!stepResult) {
@@ -378,6 +379,20 @@ function ResultsViewer({ stepResult }: { stepResult?: StepResult }) {
           <div style={{ fontSize: 11, color: '#fca5a5', fontFamily: tokens.font.mono, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
             {stepResult.error.message}
           </div>
+          {onDebug && (
+            <button
+              onClick={onDebug}
+              style={{
+                marginTop: 8, padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5,
+                border: 'none',
+                background: `linear-gradient(135deg, ${tokens.status.failed}, #f97316)`,
+                color: '#fff', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              🐛 Debug Node
+            </button>
+          )}
         </div>
       )}
 
