@@ -1,0 +1,348 @@
+import { useEffect, useState } from 'react';
+import {
+  getAuthStatus, startAuthFlow, pollAuthFlow, saveServiceToken, logoutService,
+  type AuthStatus,
+} from '../api/client';
+import { tokens, inputBase } from './ui/styles';
+
+interface Props {
+  onClose: () => void;
+}
+
+interface ServiceCard {
+  service: string;
+  label: string;
+  description: string;
+  oauthSupported: boolean;
+  tokenDocsUrl?: string;
+  tokenInstructions?: string;
+}
+
+const KNOWN_SERVICES: ServiceCard[] = [
+  {
+    service: 'github',
+    label: 'GitHub',
+    description: 'PRs, issues, comments, file listing, code search',
+    oauthSupported: true,
+  },
+  {
+    service: 'slack',
+    label: 'Slack',
+    description: 'Send messages, upload files, list channels',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://api.slack.com/apps',
+    tokenInstructions: 'Create a Slack app at api.slack.com/apps, install it to your workspace, and copy the bot token (xoxb-...).',
+  },
+  {
+    service: 'launchmatic',
+    label: 'LaunchMatic',
+    description: 'Deploy services, manage databases, run browser tests',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://app.launchmatic.io',
+    tokenInstructions: 'Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then copy the token from ~/.launchmatic/config.json.',
+  },
+  {
+    service: 'jira',
+    label: 'Jira',
+    description: 'Create issues, transitions, search',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
+    tokenInstructions: 'Create an API token from your Atlassian account settings.',
+  },
+  {
+    service: 'stripe',
+    label: 'Stripe',
+    description: 'Charges, customers, payments, invoices',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://dashboard.stripe.com/apikeys',
+    tokenInstructions: 'Get a secret API key from your Stripe dashboard.',
+  },
+  {
+    service: 'hubspot',
+    label: 'HubSpot',
+    description: 'Contacts, deals, search, engagements',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://app.hubspot.com/private-apps',
+    tokenInstructions: 'Create a private app in HubSpot to generate an access token.',
+  },
+];
+
+export function AuthPanel({ onClose }: Props) {
+  const [authStatus, setAuthStatus] = useState<Record<string, AuthStatus>>({});
+  const [authingService, setAuthingService] = useState<string | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<{ service: string; userCode: string } | null>(null);
+  const [pasteFor, setPasteFor] = useState<string | null>(null);
+  const [pasteValue, setPasteValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = () => {
+    getAuthStatus().then((res) => setAuthStatus(res.services)).catch(() => {});
+  };
+
+  useEffect(refresh, []);
+
+  const startOauth = async (service: string) => {
+    setAuthingService(service);
+    setError(null);
+    try {
+      const flow = await startAuthFlow(service);
+      setAuthPrompt({ service, userCode: flow.userCode });
+      window.open(flow.verificationUri, '_blank');
+
+      const interval = (flow.interval ?? 5) * 1000;
+      let pollDelay = interval;
+      const maxAttempts = 180;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, pollDelay));
+        const result = await pollAuthFlow(service, flow.deviceCode);
+        if (result.status === 'completed') {
+          refresh();
+          setAuthPrompt(null);
+          setAuthingService(null);
+          return;
+        }
+        if (result.slowDown) pollDelay += 5000;
+      }
+      throw new Error('Authentication timed out');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setAuthPrompt(null);
+      setAuthingService(null);
+    }
+  };
+
+  const handleSaveToken = async (service: string) => {
+    if (!pasteValue.trim()) return;
+    try {
+      await saveServiceToken(service, pasteValue.trim());
+      setPasteFor(null);
+      setPasteValue('');
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleLogout = async (service: string) => {
+    if (!confirm(`Remove saved credentials for ${service}?`)) return;
+    try {
+      await logoutService(service);
+      refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const connectedCount = Object.values(authStatus).filter((s) => s.authenticated).length;
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        backgroundColor: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: 600, maxHeight: '85vh', borderRadius: 12,
+          backgroundColor: tokens.bg.surface, border: `1px solid ${tokens.border.subtle}`,
+          display: 'flex', flexDirection: 'column', overflow: 'hidden',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${tokens.border.subtle}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Connected Services</div>
+              <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 2 }}>
+                {connectedCount} of {KNOWN_SERVICES.length} services authenticated
+              </div>
+            </div>
+            <button onClick={onClose} style={{
+              background: 'none', border: 'none', color: tokens.text.muted, fontSize: 20, cursor: 'pointer',
+            }}>x</button>
+          </div>
+        </div>
+
+        {/* Auth prompt overlay */}
+        {authPrompt && (
+          <div style={{
+            padding: 16, borderBottom: `1px solid ${tokens.border.subtle}`,
+            backgroundColor: `${tokens.nodeColors['llm-prompt']}10`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, marginBottom: 6 }}>
+              Authenticating with {authPrompt.service}
+            </div>
+            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 8 }}>
+              A browser tab opened. Enter this code to continue:
+            </div>
+            <div style={{
+              fontSize: 22, fontWeight: 800, fontFamily: tokens.font.mono,
+              color: tokens.nodeColors['llm-prompt'], letterSpacing: 4,
+              textAlign: 'center', padding: 12, borderRadius: 6,
+              backgroundColor: tokens.bg.input, border: `1px solid ${tokens.border.subtle}`,
+              userSelect: 'all',
+            }}>
+              {authPrompt.userCode}
+            </div>
+            <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 6 }}>
+              Waiting for authorization...
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div style={{
+            padding: '8px 20px', backgroundColor: `${tokens.status.failed}10`,
+            borderBottom: `1px solid ${tokens.border.subtle}`, fontSize: 11, color: tokens.status.failed,
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Service list */}
+        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+          {KNOWN_SERVICES.map((svc) => {
+            const status = authStatus[svc.service];
+            const isConnected = status?.authenticated;
+            const isPasting = pasteFor === svc.service;
+
+            return (
+              <div key={svc.service} style={{
+                marginBottom: 8, borderRadius: 8,
+                backgroundColor: isConnected ? `${tokens.status.completed}08` : tokens.bg.raised,
+                border: `1px solid ${isConnected ? `${tokens.status.completed}30` : tokens.border.subtle}`,
+                overflow: 'hidden',
+              }}>
+                <div style={{ padding: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: tokens.text.primary }}>{svc.label}</span>
+                      {isConnected && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                          backgroundColor: `${tokens.status.completed}25`, color: tokens.status.completed,
+                          textTransform: 'uppercase', letterSpacing: '0.5px',
+                        }}>
+                          ✓ {status?.userName ?? 'CONNECTED'}
+                        </span>
+                      )}
+                      {!isConnected && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                          backgroundColor: svc.oauthSupported ? `${tokens.nodeColors['llm-prompt']}20` : `${tokens.border.default}`,
+                          color: svc.oauthSupported ? tokens.nodeColors['llm-prompt'] : tokens.text.muted,
+                          textTransform: 'uppercase', letterSpacing: '0.5px',
+                        }}>
+                          {svc.oauthSupported ? 'OAUTH' : 'API TOKEN'}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: tokens.text.muted, lineHeight: 1.4 }}>
+                      {svc.description}
+                    </div>
+                  </div>
+
+                  {isConnected ? (
+                    <button
+                      onClick={() => handleLogout(svc.service)}
+                      style={{
+                        padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5,
+                        border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                        color: tokens.text.muted, cursor: 'pointer', flexShrink: 0,
+                      }}
+                    >
+                      Disconnect
+                    </button>
+                  ) : svc.oauthSupported ? (
+                    <button
+                      onClick={() => startOauth(svc.service)}
+                      disabled={authingService === svc.service}
+                      style={{
+                        padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                        background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
+                        color: '#fff', cursor: 'pointer', flexShrink: 0,
+                      }}
+                    >
+                      {authingService === svc.service ? '...' : 'Connect'}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => { setPasteFor(svc.service); setPasteValue(''); }}
+                      style={{
+                        padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                        background: 'linear-gradient(135deg, #06b6d4, #3b82f6)',
+                        color: '#fff', cursor: 'pointer', flexShrink: 0,
+                      }}
+                    >
+                      Add Token
+                    </button>
+                  )}
+                </div>
+
+                {/* Token paste form */}
+                {isPasting && (
+                  <div style={{
+                    padding: 12, borderTop: `1px solid ${tokens.border.subtle}`,
+                    backgroundColor: tokens.bg.surface,
+                  }}>
+                    {svc.tokenInstructions && (
+                      <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 8, lineHeight: 1.4 }}>
+                        {svc.tokenInstructions}
+                        {svc.tokenDocsUrl && (
+                          <> <a href={svc.tokenDocsUrl} target="_blank" rel="noopener" style={{ color: tokens.text.accent, textDecoration: 'underline' }}>Open docs →</a></>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        style={{ ...inputBase, flex: 1, fontFamily: tokens.font.mono }}
+                        type="password"
+                        autoFocus
+                        value={pasteValue}
+                        onChange={(e) => setPasteValue(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSaveToken(svc.service)}
+                        placeholder={`Paste your ${svc.label} token...`}
+                      />
+                      <button
+                        onClick={() => handleSaveToken(svc.service)}
+                        disabled={!pasteValue.trim()}
+                        style={{
+                          padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                          backgroundColor: pasteValue.trim() ? tokens.status.completed : tokens.border.default,
+                          color: '#fff', cursor: pasteValue.trim() ? 'pointer' : 'default',
+                        }}
+                      >Save</button>
+                      <button
+                        onClick={() => { setPasteFor(null); setPasteValue(''); }}
+                        style={{
+                          padding: '6px 10px', fontSize: 11, borderRadius: 6,
+                          border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                          color: tokens.text.muted, cursor: 'pointer',
+                        }}
+                      >Cancel</button>
+                    </div>
+                    <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 6 }}>
+                      Saved to ~/.stirrup/tokens.json (0600 permissions)
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{
+          padding: '10px 20px', borderTop: `1px solid ${tokens.border.subtle}`,
+          fontSize: 10, color: tokens.text.muted,
+        }}>
+          Saved credentials are auto-injected into workflows that declare matching service params.
+        </div>
+      </div>
+    </div>
+  );
+}

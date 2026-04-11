@@ -22,8 +22,8 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     instructions: "Create a Slack app at api.slack.com/apps and install it to your workspace to get a bot token (xoxb-...).",
   },
   launchmatic: {
-    url: "https://app.launchmatic.io/account/tokens",
-    instructions: "Generate an API token from your LaunchMatic dashboard.",
+    url: "https://app.launchmatic.io",
+    instructions: "Install the LaunchMatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then copy the token from `~/.launchmatic/config.json`. Or sign in at app.launchmatic.io and copy the JWT from browser DevTools (Application → Cookies → 'token').",
   },
   jira: {
     url: "https://id.atlassian.com/manage-profile/security/api-tokens",

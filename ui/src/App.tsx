@@ -15,6 +15,7 @@ import { PluginPanel } from './components/PluginPanel';
 import { ValidationPanel } from './components/ValidationPanel';
 import { DeployPanel } from './components/DeployPanel';
 import { ExportDialog } from './components/ExportDialog';
+import { AuthPanel } from './components/AuthPanel';
 import { tokens } from './components/ui/styles';
 
 function useIsMobile() {
@@ -40,6 +41,7 @@ function App() {
   const [showPlugins, setShowPlugins] = useState(false);
   const [showDeploy, setShowDeploy] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showAuth, setShowAuth] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -202,6 +204,11 @@ function App() {
               </span>
             )}
             <div style={{ flex: 1 }} />
+            <button onClick={() => setShowAuth(true)} style={{
+              padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+              border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+              color: tokens.text.muted, cursor: 'pointer',
+            }}>Connections</button>
             {!isMobile && (
               <button onClick={() => setShowPlugins(true)} style={{
                 padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
@@ -302,6 +309,7 @@ function App() {
             onDeploy={() => setShowDeploy(true)}
           />
         )}
+        {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
       </div>
     </ReactFlowProvider>
   );
