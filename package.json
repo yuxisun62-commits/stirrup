@@ -1,6 +1,6 @@
 {
   "name": "stirrup-ai",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "DAG workflow engine with AI-powered nodes — design, run, and deploy workflows from CLI, UI, or code",
   "type": "module",
   "main": "./dist/index.js",
