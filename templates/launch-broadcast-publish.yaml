@@ -1,0 +1,360 @@
+id: launch-broadcast-publish
+name: Multi-Platform Launch Broadcast (Auto-Publish)
+version: "1.0"
+description: End-to-end launch automation. Generate platform-tailored posts in parallel (LinkedIn, X thread, Facebook, TikTok script, YouTube Short script), then auto-schedule the publishable ones via Typefully (X + LinkedIn) and Buffer (Facebook). TikTok and YouTube outputs are returned as scripts for manual rendering.
+
+params:
+  - name: announcement
+    type: string
+    required: true
+    description: "Raw announcement / release notes / feature description. The AI will tailor it per platform."
+  - name: productName
+    type: string
+    required: true
+    description: "Product or brand name"
+  - name: productUrl
+    type: string
+    required: true
+    description: "Canonical link to include in posts"
+  - name: brandTone
+    type: string
+    required: false
+    default: "confident, technical, slightly playful — never corporate"
+  - name: targetAudience
+    type: string
+    required: false
+    default: "developers and technical founders"
+  - name: scheduleAt
+    type: string
+    required: false
+    description: "ISO 8601 datetime for scheduled publish, or 'next-free-slot' for Typefully's queue. Omit to add to queues without a fixed time."
+  - name: typefullyApiKey
+    type: string
+    required: true
+    description: "Typefully API key for X thread + LinkedIn publishing"
+    service: typefully
+  - name: bufferAccessToken
+    type: string
+    required: true
+    description: "Buffer access token for Facebook publishing"
+    service: buffer
+  - name: bufferFacebookProfileId
+    type: string
+    required: true
+    description: "Buffer profile ID for the Facebook page (run buffer-list-profiles once to discover)"
+
+context:
+  announcement: ""
+  productName: ""
+  productUrl: ""
+  brandTone: "confident, technical, slightly playful — never corporate"
+  targetAudience: "developers and technical founders"
+  scheduleAt: ""
+
+nodes:
+  # ─── 5 parallel platform writers ───
+
+  - id: linkedin-post
+    type: llm-prompt
+    name: Write LinkedIn Post
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+      - from: context.targetAudience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are writing a LinkedIn post for {{productName}}.
+
+        Audience: {{audience}}
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Write a LinkedIn post that:
+        - Opens with a hook in the first line (no "Excited to announce")
+        - 3–4 short paragraphs separated by line breaks
+        - Specifics from the announcement, not vague claims
+        - Ends with the link: {{productUrl}}
+        - Closes with 3–5 hashtags on a single line
+        - Total length: 900–1300 characters
+
+        Output ONLY the post text. No preamble.
+      maxTokens: 1000
+      temperature: 0.7
+
+  - id: twitter-thread
+    type: llm-prompt
+    name: Write X/Twitter Thread
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+      - from: context.targetAudience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are writing an X (Twitter) thread for {{productName}}.
+
+        Audience: {{audience}}
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Write a 5–7 tweet thread. CRITICAL: separate each tweet with exactly four newlines (\n\n\n\n) so Typefully will auto-detect them as separate tweets.
+
+        - Tweet 1: a strong hook, no thread emoji, no "🧵"
+        - Tweets 2–N: one specific point per tweet, ≤ 280 chars each
+        - Final tweet: include {{productUrl}} and a CTA
+        - Do NOT number the tweets (Typefully handles that)
+
+        Output ONLY the thread.
+      maxTokens: 1200
+      temperature: 0.7
+
+  - id: facebook-post
+    type: llm-prompt
+    name: Write Facebook Post
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a Facebook post for {{productName}}.
+
+        Voice: {{tone}}, slightly more conversational than LinkedIn.
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Constraints:
+        - 2–3 paragraphs, narrative tone
+        - One clear "what's new" claim, one tangible benefit, one CTA
+        - End with the link: {{productUrl}}
+        - 400–700 characters total
+
+        Output ONLY the post text.
+      maxTokens: 600
+      temperature: 0.7
+
+  - id: tiktok-script
+    type: llm-prompt
+    name: Write TikTok Script
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a 45–60 second TikTok script for {{productName}}.
+
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Format as a table:
+        | Time | On Screen | Voiceover |
+
+        - Hook in first 3s — no "Hey everyone"
+        - 5–8 rows covering 0–60s
+        - "On Screen" = visuals / b-roll / text overlays
+        - "Voiceover" = spoken line, ≤ 12 words
+        - Final row is a CTA
+
+        Below the table, output a one-line caption (≤ 200 chars) with 4–5 hashtags.
+      maxTokens: 800
+      temperature: 0.8
+
+  - id: youtube-short-script
+    type: llm-prompt
+    name: Write YouTube Short Script
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a 60-second YouTube Short for {{productName}}.
+
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Output three sections:
+
+        ## Script
+        Beat-by-beat with timestamps (0:00, 0:05, 0:15, 0:30, 0:45, 0:55). Each beat = visual cue + voiceover. Hook in first 3s.
+
+        ## Title (≤ 60 characters)
+
+        ## Description
+        2–3 sentences, then the link: {{productUrl}}, then 5–8 hashtags.
+      maxTokens: 1000
+      temperature: 0.7
+
+  # ─── Publish stage: 3 parallel scheduled posts ───
+
+  - id: publish-twitter
+    type: typefully-create-draft
+    name: Schedule X Thread (Typefully)
+    inputs:
+      - from: context.typefullyApiKey
+        to: apiKey
+      - from: nodes.twitter-thread.outputs.response
+        to: content
+      - from: context.scheduleAt
+        to: scheduleDate
+    outputs: [draftId, shareUrl, scheduledDate, status]
+    config:
+      threadify: false
+      share: true
+
+  - id: publish-linkedin
+    type: typefully-create-draft
+    name: Schedule LinkedIn Post (Typefully)
+    inputs:
+      - from: context.typefullyApiKey
+        to: apiKey
+      - from: nodes.linkedin-post.outputs.response
+        to: content
+      - from: context.scheduleAt
+        to: scheduleDate
+    outputs: [draftId, shareUrl, scheduledDate, status]
+    config:
+      share: true
+
+  - id: publish-facebook
+    type: buffer-schedule
+    name: Schedule Facebook Post (Buffer)
+    inputs:
+      - from: context.bufferAccessToken
+        to: accessToken
+      - from: nodes.facebook-post.outputs.response
+        to: text
+      - from: context.bufferFacebookProfileId
+        to: profileIds
+      - from: context.scheduleAt
+        to: scheduledAt
+    outputs: [updates, bufferCount]
+    config:
+      shorten: true
+
+  # ─── Final bundle with publish receipts + scripts ───
+
+  - id: bundle
+    type: transform
+    name: Bundle Receipts & Scripts
+    inputs:
+      - from: nodes.publish-linkedin.outputs.draftId
+        to: linkedinDraftId
+      - from: nodes.publish-linkedin.outputs.shareUrl
+        to: linkedinShareUrl
+      - from: nodes.publish-twitter.outputs.draftId
+        to: twitterDraftId
+      - from: nodes.publish-twitter.outputs.shareUrl
+        to: twitterShareUrl
+      - from: nodes.publish-facebook.outputs.updates
+        to: facebookUpdates
+      - from: nodes.tiktok-script.outputs.response
+        to: tiktokScript
+      - from: nodes.youtube-short-script.outputs.response
+        to: youtubeShortScript
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+    outputs: [bundle]
+    config:
+      expression: |
+        ({
+          bundle: {
+            product: inputs.productName,
+            url: inputs.productUrl,
+            generatedAt: new Date().toISOString(),
+            scheduled: {
+              linkedin: {
+                draftId: inputs.linkedinDraftId,
+                previewUrl: inputs.linkedinShareUrl,
+                via: 'typefully'
+              },
+              twitter: {
+                draftId: inputs.twitterDraftId,
+                previewUrl: inputs.twitterShareUrl,
+                via: 'typefully'
+              },
+              facebook: {
+                updates: inputs.facebookUpdates,
+                via: 'buffer'
+              }
+            },
+            manualRendering: {
+              tiktokScript: inputs.tiktokScript,
+              youtubeShortScript: inputs.youtubeShortScript,
+              note: 'TikTok and YouTube Shorts require video rendering — use Vibe.co, HeyGen, or manual recording.'
+            }
+          }
+        })
+
+edges:
+  # Writers → publish (writers run in parallel; publishers wait on their writer)
+  - from: linkedin-post
+    to: publish-linkedin
+  - from: twitter-thread
+    to: publish-twitter
+  - from: facebook-post
+    to: publish-facebook
+  # All terminal nodes → bundle
+  - from: publish-linkedin
+    to: bundle
+  - from: publish-twitter
+    to: bundle
+  - from: publish-facebook
+    to: bundle
+  - from: tiktok-script
+    to: bundle
+  - from: youtube-short-script
+    to: bundle

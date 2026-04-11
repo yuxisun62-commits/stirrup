@@ -83,6 +83,22 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenDocsUrl: 'https://app.hubspot.com/private-apps',
     tokenInstructions: 'Create a private app in HubSpot to generate an access token.',
   },
+  {
+    service: 'typefully',
+    label: 'Typefully',
+    description: 'Schedule X/Twitter threads and LinkedIn posts with an AI-friendly draft API',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://typefully.com/settings/integrations',
+    tokenInstructions: 'Open Typefully → Settings → Integrations → API Keys, create a key, and paste it here.',
+  },
+  {
+    service: 'buffer',
+    label: 'Buffer',
+    description: 'Schedule posts to LinkedIn, Facebook, Instagram, and Threads',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://publish.buffer.com/account/apps',
+    tokenInstructions: 'Open Buffer → Account → Apps & Extras → API Access. Create an access token and paste it here.',
+  },
 ];
 
 export function AuthPanel({ onClose }: Props) {

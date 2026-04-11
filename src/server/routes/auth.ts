@@ -148,6 +148,14 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://app.hubspot.com/private-apps",
     instructions: "Create a private app in HubSpot to generate an access token.",
   },
+  typefully: {
+    url: "https://typefully.com/settings/integrations",
+    instructions: "Open Typefully → Settings → Integrations → API Keys, then create a key and paste it here. Powers the typefully-create-draft node for X/Twitter threads and LinkedIn posts.",
+  },
+  buffer: {
+    url: "https://publish.buffer.com/account/apps",
+    instructions: "Open Buffer → Account → Apps & Extras → API Access. Create an access token and paste it here. Powers the buffer-schedule node for LinkedIn, Facebook, Instagram, and Threads.",
+  },
 };
 
 export function authRoutes(): Router {
