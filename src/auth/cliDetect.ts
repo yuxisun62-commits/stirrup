@@ -3,13 +3,77 @@
  * Lets Stirrup leverage existing `lm login` / `gh auth login` sessions
  * instead of requiring users to manually paste tokens.
  */
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Spawn a CLI's interactive login command and wait for it to exit.
+ * The command is expected to open a browser, run a localhost callback,
+ * and exit on its own once the user authorizes.
+ *
+ * Used by services whose CLI already implements OAuth (lm, gh, vercel, etc.) —
+ * we don't need to register our own OAuth app, we just orchestrate theirs.
+ */
+export async function spawnCliLogin(
+  cmd: string,
+  args: string[] = ["login"],
+  timeoutMs: number = 5 * 60 * 1000,
+): Promise<{ success: boolean; stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(cmd, args, {
+      // stdin must be a real pipe (not "ignore") because some CLIs — notably
+      // @launchmatic/cli — call `process.stdin.unref()` after the OAuth callback
+      // fires to release their TTY hold. With "ignore", Node hands the child a
+      // stub stream that doesn't have .unref() and the process crashes with
+      // "TypeError: process.stdin.unref is not a function". A piped stdin is a
+      // real Socket and has .unref().
+      stdio: ["pipe", "pipe", "pipe"],
+      // On Windows, lm/gh/etc. are typically .cmd shims. shell:true lets us
+      // resolve them through PATHEXT without needing to know the exact extension.
+      shell: process.platform === "win32",
+    });
+
+    // Close our end of the child's stdin immediately so it sees EOF and never
+    // blocks waiting for keyboard input. The Socket still exists with .unref().
+    child.stdin?.end();
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    child.stdout?.on("data", (chunk) => { stdout += chunk.toString(); });
+    child.stderr?.on("data", (chunk) => { stderr += chunk.toString(); });
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, timeoutMs);
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      rejectPromise(new Error(`Failed to spawn ${cmd}: ${err.message}`));
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        rejectPromise(new Error(`${cmd} ${args.join(" ")} timed out after ${timeoutMs / 1000}s — did you complete the browser login?`));
+        return;
+      }
+      resolvePromise({
+        success: code === 0,
+        stdout,
+        stderr,
+        exitCode: code,
+      });
+    });
+  });
+}
 
 export interface CliDetection {
   available: boolean;

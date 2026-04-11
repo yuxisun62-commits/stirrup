@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
   getAuthStatus, startAuthFlow, pollAuthFlow, saveServiceToken, logoutService,
-  detectCli, connectViaCli,
+  detectCli, connectViaCli, cliLogin,
   type AuthStatus, type CliDetection,
 } from '../api/client';
+
+/** Services whose CLI ships an interactive `<cli> login` command we can spawn */
+const CLI_LOGIN_CAPABLE = new Set(['launchmatic', 'github']);
 import { tokens, inputBase } from './ui/styles';
 
 interface Props {
@@ -126,6 +129,19 @@ export function AuthPanel({ onClose }: Props) {
     }
   };
 
+  const handleCliLogin = async (service: string) => {
+    setAuthingService(service);
+    setError(null);
+    try {
+      await cliLogin(service);
+      refresh();
+    } catch (err) {
+      setError(`Browser login failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setAuthingService(null);
+    }
+  };
+
   const startOauth = async (service: string) => {
     setAuthingService(service);
     setError(null);
@@ -198,6 +214,7 @@ export function AuthPanel({ onClose }: Props) {
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         {/* Header */}
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${tokens.border.subtle}` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -257,6 +274,8 @@ export function AuthPanel({ onClose }: Props) {
             const isPasting = pasteFor === svc.service;
             const cli = cliDetection[svc.service];
             const canUseCli = cli?.available && cli?.authenticated;
+            const canCliLogin = cli?.available && !cli?.authenticated && CLI_LOGIN_CAPABLE.has(svc.service);
+            const isAuthing = authingService === svc.service;
 
             return (
               <div key={svc.service} style={{
@@ -297,6 +316,15 @@ export function AuthPanel({ onClose }: Props) {
                           CLI DETECTED{cli?.user ? ` · ${cli.user}` : ''}
                         </span>
                       )}
+                      {!isConnected && canCliLogin && (
+                        <span style={{
+                          fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
+                          backgroundColor: `${tokens.text.accent}20`, color: tokens.text.accent,
+                          textTransform: 'uppercase', letterSpacing: '0.5px',
+                        }}>
+                          CLI READY · NOT LOGGED IN
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: 11, color: tokens.text.muted, lineHeight: 1.4 }}>
                       {svc.description}
@@ -317,14 +345,35 @@ export function AuthPanel({ onClose }: Props) {
                   ) : canUseCli ? (
                     <button
                       onClick={() => handleCliConnect(svc.service)}
-                      disabled={authingService === svc.service}
+                      disabled={isAuthing}
                       style={{
                         padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
                         background: `linear-gradient(135deg, ${tokens.status.completed}, #10b981)`,
                         color: '#fff', cursor: 'pointer', flexShrink: 0,
                       }}
                     >
-                      {authingService === svc.service ? '...' : 'Use Local CLI'}
+                      {isAuthing ? '...' : 'Use Local CLI'}
+                    </button>
+                  ) : canCliLogin ? (
+                    <button
+                      onClick={() => handleCliLogin(svc.service)}
+                      disabled={isAuthing}
+                      title={`Spawns \`${svc.service === 'launchmatic' ? 'lm' : 'gh'} login\` and waits for the browser flow to finish. If you're already signed into github.com, this is one click.`}
+                      style={{
+                        padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                        background: `linear-gradient(135deg, ${tokens.text.accent}, ${tokens.border.focus})`,
+                        color: '#fff', cursor: isAuthing ? 'default' : 'pointer', flexShrink: 0,
+                        display: 'flex', alignItems: 'center', gap: 6,
+                      }}
+                    >
+                      {isAuthing && (
+                        <span style={{
+                          width: 10, height: 10, borderRadius: '50%',
+                          border: '2px solid #fff', borderTopColor: 'transparent',
+                          animation: 'spin 0.8s linear infinite', display: 'inline-block',
+                        }} />
+                      )}
+                      {isAuthing ? 'Waiting for browser…' : `Login with ${svc.label}`}
                     </button>
                   ) : svc.oauthSupported ? (
                     <button

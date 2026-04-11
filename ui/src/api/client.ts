@@ -61,6 +61,15 @@ export const connectViaCli = (service: string) =>
     `/auth/cli-connect/${service}`,
     { method: 'POST' }
   );
+/**
+ * Trigger an interactive browser login via the service's CLI tool.
+ * Long-polls — the request hangs until the CLI's login command exits.
+ */
+export const cliLogin = (service: string) =>
+  request<{ saved: boolean; service: string; userName?: string }>(
+    `/auth/cli-login/${service}`,
+    { method: 'POST' }
+  );
 export const getAuthStatus = () =>
   request<{ services: Record<string, AuthStatus>; storeLocation?: string }>('/auth/status');
 export const getServiceAuthStatus = (service: string) =>

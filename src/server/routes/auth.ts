@@ -8,6 +8,7 @@ import {
   detectStripeCli, getStripeCliToken,
   detectAwsCli, getAwsCliCredentials,
   detectGcloudCli, getGcloudToken,
+  spawnCliLogin,
 } from "../../auth/cliDetect.js";
 
 interface DeviceFlowSession {
@@ -82,6 +83,48 @@ async function connectViaCli(service: string): Promise<{ userName?: string } | n
     default: return null;
   }
 }
+
+/**
+ * Services whose CLI ships an interactive `<cli> login` command.
+ * For these we can spawn the CLI's own OAuth flow (which already knows how to
+ * talk to the third party — typically via GitHub OAuth in the case of lm) and
+ * then harvest the resulting credentials. The user only needs to be logged
+ * into github.com in their browser; the CLI handles everything else.
+ */
+const CLI_LOGIN_PROVIDERS: Record<
+  string,
+  {
+    cli: string;
+    args?: string[];
+    /** Called after `<cli> login` exits successfully. Should save the token. */
+    afterLogin: () => Promise<{ userName?: string }>;
+  }
+> = {
+  launchmatic: {
+    cli: "lm",
+    args: ["login"],
+    afterLogin: async () => {
+      const apiKey = await createLaunchmaticApiKey("stirrup");
+      const detection = await detectLaunchmaticCli();
+      setToken("launchmatic", { accessToken: apiKey, userName: detection.user });
+      return { userName: detection.user };
+    },
+  },
+  github: {
+    cli: "gh",
+    args: ["auth", "login", "--web", "--git-protocol", "https"],
+    afterLogin: async () => {
+      const token = await getGithubCliToken();
+      const user = await getGithubUser(token);
+      setToken("github", {
+        accessToken: token,
+        userName: user.login,
+        userId: String(user.id),
+      });
+      return { userName: user.login };
+    },
+  },
+};
 
 // Documentation links for services that need a manual token
 const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
@@ -161,6 +204,54 @@ export function authRoutes(): Router {
       res.json({ saved: true, service, userName: result.userName });
     } catch (err) {
       res.status(500).json({ error: { code: "CLI_CONNECT_FAILED", message: (err as Error).message } });
+    }
+  });
+
+  /**
+   * Trigger an interactive browser login via the service's CLI tool.
+   *
+   * Spawns e.g. `lm login`, which opens the user's browser and runs its own
+   * localhost callback. If the user is already signed into GitHub (which
+   * Stirrup's own GitHub OAuth guarantees), this is typically a one-click flow:
+   * the user just clicks "Authorize" on LaunchMatic's page and the CLI captures
+   * the resulting session.
+   *
+   * After the CLI exits successfully we run the provider's `afterLogin` step
+   * (e.g. `lm api-key create stirrup`) and persist the resulting token.
+   *
+   * This is a long-poll endpoint — it will not respond until the CLI exits or
+   * the timeout fires. The UI shows a "Waiting for browser login..." spinner.
+   */
+  router.post("/cli-login/:service", async (req, res) => {
+    const service = req.params.service;
+    const provider = CLI_LOGIN_PROVIDERS[service];
+    if (!provider) {
+      res.status(400).json({
+        error: {
+          code: "UNSUPPORTED",
+          message: `CLI login flow not supported for ${service}. Supported: ${Object.keys(CLI_LOGIN_PROVIDERS).join(", ")}`,
+        },
+      });
+      return;
+    }
+
+    try {
+      const result = await spawnCliLogin(provider.cli, provider.args);
+      if (!result.success) {
+        const detail = (result.stderr || result.stdout || "").trim().slice(0, 500);
+        res.status(500).json({
+          error: {
+            code: "CLI_LOGIN_FAILED",
+            message: `${provider.cli} ${(provider.args ?? ["login"]).join(" ")} exited with code ${result.exitCode}${detail ? `: ${detail}` : ""}`,
+          },
+        });
+        return;
+      }
+
+      const after = await provider.afterLogin();
+      res.json({ saved: true, service, userName: after.userName });
+    } catch (err) {
+      res.status(500).json({ error: { code: "CLI_LOGIN_FAILED", message: (err as Error).message } });
     }
   });
 
