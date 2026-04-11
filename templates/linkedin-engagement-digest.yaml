@@ -1,0 +1,175 @@
+id: linkedin-engagement-digest
+name: LinkedIn Weekly Engagement Digest
+version: "1.0"
+description: Pull your recent LinkedIn posts, fetch engagement stats for each in parallel, have Claude analyze what's working and what's not, then post the summary to a Slack channel. Designed for weekly cron execution — Monday morning review of last week's LinkedIn performance.
+
+params:
+  - name: postCount
+    type: number
+    required: false
+    default: 10
+    description: "How many recent posts to analyze (max 50)"
+  - name: slackChannel
+    type: string
+    required: true
+    description: "Slack channel for the digest (e.g. #marketing or your DM channel)"
+  - name: linkedinToken
+    type: string
+    required: true
+    description: "LinkedIn access token with r_member_social scope"
+    service: linkedin
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+    service: slack
+
+context:
+  postCount: 10
+  slackChannel: ""
+
+nodes:
+  - id: list-posts
+    type: linkedin-list-posts
+    name: List Recent Posts
+    inputs:
+      - from: context.linkedinToken
+        to: accessToken
+      - from: context.postCount
+        to: count
+    outputs: [posts, count]
+    config: {}
+
+  # ─── NOTE on fan-out ───
+  # Ideally we'd fan out one linkedin-get-post-stats node per post. Stirrup
+  # doesn't yet support dynamic node creation (a node that runs N times based
+  # on an array output), so instead we use a single script node that loops
+  # through the posts and calls the LinkedIn stats endpoint directly. This
+  # gives us the same result in one node.
+
+  - id: fetch-all-stats
+    type: script
+    name: Fetch Stats for All Posts
+    inputs:
+      - from: nodes.list-posts.outputs.posts
+        to: posts
+      - from: context.linkedinToken
+        to: token
+    outputs: [enrichedPosts, totalLikes, totalComments]
+    config:
+      script: |
+        const posts = inputs.posts || [];
+        const token = inputs.token;
+        const enriched = [];
+        let totalLikes = 0;
+        let totalComments = 0;
+
+        for (const post of posts) {
+          if (!post.urn) continue;
+          try {
+            const res = await fetch(
+              "https://api.linkedin.com/v2/socialActions/" + encodeURIComponent(post.urn),
+              {
+                headers: {
+                  Authorization: "Bearer " + token,
+                  "X-Restli-Protocol-Version": "2.0.0"
+                }
+              }
+            );
+            if (!res.ok) {
+              enriched.push({ ...post, likes: 0, comments: 0, statsError: "HTTP " + res.status });
+              continue;
+            }
+            const data = await res.json();
+            const likes = data.likesSummary?.aggregatedTotalLikes ?? data.likesSummary?.totalLikes ?? 0;
+            const comments = data.commentsSummary?.aggregatedTotalComments ?? data.commentsSummary?.totalFirstLevelComments ?? 0;
+            enriched.push({
+              ...post,
+              likes,
+              comments,
+              engagementScore: likes + comments * 3
+            });
+            totalLikes += likes;
+            totalComments += comments;
+          } catch (err) {
+            enriched.push({ ...post, likes: 0, comments: 0, statsError: String(err?.message ?? err) });
+          }
+        }
+
+        // Sort by engagement (comments weighted 3x — they matter more than likes)
+        enriched.sort((a, b) => (b.engagementScore ?? 0) - (a.engagementScore ?? 0));
+
+        return { enrichedPosts: enriched, totalLikes, totalComments };
+
+  - id: analyze
+    type: llm-prompt
+    name: Analyze Performance
+    inputs:
+      - from: nodes.fetch-all-stats.outputs.enrichedPosts
+        to: posts
+      - from: nodes.fetch-all-stats.outputs.totalLikes
+        to: totalLikes
+      - from: nodes.fetch-all-stats.outputs.totalComments
+        to: totalComments
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are a social media analyst reviewing the user's recent LinkedIn performance.
+
+        Posts (sorted by engagement, highest first):
+        {{posts}}
+
+        Totals: {{totalLikes}} likes, {{totalComments}} comments across all posts.
+
+        Write a Slack-ready weekly digest with this structure. Use Slack mrkdwn (single asterisks for bold, no markdown headers). Keep total under 1800 characters.
+
+        1. *TL;DR* — one sentence on overall engagement health
+        2. *Top performer* — the best post, first 80 chars + stats, and ONE specific reason it worked
+        3. *Underperformer* — the worst post, first 80 chars + stats, and ONE specific reason it fell flat. Be honest, not mean.
+        4. *Pattern* — if you see a clear signal across the top 3 vs bottom 3 (format, topic, hook style), name it. If you don't, say so — don't force a pattern that isn't there.
+        5. *This week's experiment* — one concrete thing to try next week based on the data. Be specific.
+
+        No hedging. No "it depends". If the data is too thin to conclude, say that explicitly.
+      maxTokens: 1500
+      temperature: 0.4
+
+  - id: format-message
+    type: transform
+    name: Format Slack Message
+    inputs:
+      - from: nodes.analyze.outputs.response
+        to: brief
+      - from: nodes.fetch-all-stats.outputs.enrichedPosts
+        to: posts
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':chart_with_upwards_trend: *LinkedIn Weekly Digest* (' + (inputs.posts?.length || 0) + ' posts analyzed)\n\n' + inputs.brief
+        })
+
+  - id: notify
+    type: slack-send
+    name: Post Digest to Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.format-message.outputs.text
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: list-posts
+    to: fetch-all-stats
+  - from: fetch-all-stats
+    to: analyze
+  - from: analyze
+    to: format-message
+  - from: format-message
+    to: notify

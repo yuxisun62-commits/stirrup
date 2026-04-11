@@ -107,6 +107,14 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenDocsUrl: 'https://replicate.com/account/api-tokens',
     tokenInstructions: 'Open Replicate → Account → API Tokens, create a token, and paste it here.',
   },
+  {
+    service: 'linkedin',
+    label: 'LinkedIn',
+    description: 'Post to personal or org feed, fetch post stats, list recent shares',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://www.linkedin.com/developers/apps',
+    tokenInstructions: 'Create a LinkedIn Developer App at linkedin.com/developers/apps, run the OAuth flow with scopes `w_member_social r_liteprofile`, and paste the resulting access token here. Tokens are long-lived (~60 days).',
+  },
 ];
 
 export function AuthPanel({ onClose }: Props) {

@@ -1,0 +1,175 @@
+id: linkedin-thought-leader
+name: LinkedIn Thought Leader — RSS → Commentary
+version: "1.0"
+description: Fetch an industry RSS feed, have Claude pick the single most interesting recent story and write a thoughtful commentary post in your voice, then publish it to LinkedIn with the original article as a link preview. Build a reputation as someone who has takes, not just reshares.
+
+params:
+  - name: feedUrl
+    type: string
+    required: true
+    description: "RSS/Atom feed URL of an industry publication, blog, or newsletter"
+  - name: expertise
+    type: string
+    required: true
+    description: "Your domain of expertise — shapes which story the AI picks and how it frames the take (e.g. 'AI infrastructure and developer tools', 'fintech and payments', 'B2B SaaS go-to-market')"
+  - name: brandVoice
+    type: string
+    required: false
+    default: "contrarian when justified, concrete always, never hype. Name specific things."
+    description: "Voice constraints"
+  - name: visibility
+    type: string
+    required: false
+    default: "PUBLIC"
+  - name: linkedinToken
+    type: string
+    required: true
+    description: "LinkedIn access token"
+    service: linkedin
+
+context:
+  feedUrl: ""
+  expertise: ""
+  brandVoice: "contrarian when justified, concrete always, never hype. Name specific things."
+  visibility: "PUBLIC"
+
+nodes:
+  - id: fetch-feed
+    type: http
+    name: Fetch RSS Feed
+    inputs:
+      - from: context.feedUrl
+        to: url
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: GET
+      headers:
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml"
+        User-Agent: "Stirrup-ThoughtLeader/1.0"
+
+  - id: parse-feed
+    type: script
+    name: Parse Recent Stories
+    inputs:
+      - from: nodes.fetch-feed.outputs.body
+        to: xml
+    outputs: [stories, count]
+    config:
+      script: |
+        const xml = String(inputs.xml ?? "");
+        const atomMatches = xml.match(/<entry[\s\S]*?<\/entry>/g) ?? [];
+        const rssMatches = xml.match(/<item[\s\S]*?<\/item>/g) ?? [];
+        const blocks = (atomMatches.length > 0 ? atomMatches : rssMatches).slice(0, 10);
+
+        const stripTags = (s) => String(s ?? "")
+          .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const pick = (block, tag) => {
+          const m = block.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">"));
+          return m ? stripTags(m[1]) : "";
+        };
+
+        const stories = blocks.map((block) => ({
+          title: pick(block, "title"),
+          summary: (pick(block, "summary") || pick(block, "description") || pick(block, "content")).slice(0, 1000),
+          link: (block.match(/<link[^>]*href="([^"]+)"/) ?? block.match(/<link[^>]*>([^<]+)<\/link>/) ?? [])[1] ?? "",
+          published: pick(block, "published") || pick(block, "pubDate") || pick(block, "updated")
+        }));
+
+        return { stories, count: stories.length };
+
+  - id: pick-and-comment
+    type: llm-prompt
+    name: Pick Story & Write Commentary
+    inputs:
+      - from: nodes.parse-feed.outputs.stories
+        to: stories
+      - from: context.expertise
+        to: expertise
+      - from: context.brandVoice
+        to: voice
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are someone with expertise in: {{expertise}}
+
+        Voice: {{voice}}
+
+        Here are 10 recent stories from an industry feed:
+        {{stories}}
+
+        Your task:
+        1. Pick the ONE story that is most interesting to comment on from your expertise lens. Not the biggest news — the one where your perspective adds the most value.
+        2. Write a LinkedIn post with a strong, specific take on that story.
+
+        Output EXACTLY this JSON structure (no prose, no markdown fences, no preamble):
+        {
+          "pickedStoryTitle": "the title you chose",
+          "pickedStoryUrl": "the url you chose",
+          "pickedStoryReasoning": "one sentence on why this story and not the others",
+          "postText": "the full LinkedIn post — 900 to 1400 chars, strong hook, 3–4 short paragraphs with line breaks, one concrete take, ends with 3–5 hashtags on a single line"
+        }
+      maxTokens: 2000
+      temperature: 0.6
+      responseFormat: json
+
+  - id: extract-fields
+    type: script
+    name: Extract Post Fields
+    inputs:
+      - from: nodes.pick-and-comment.outputs.response
+        to: response
+    outputs: [postText, linkUrl, linkTitle]
+    config:
+      script: |
+        // The LLM was asked to return JSON. Handle both "already parsed" and "string" cases.
+        let parsed = inputs.response;
+        if (typeof parsed === "string") {
+          try { parsed = JSON.parse(parsed); }
+          catch {
+            // Strip markdown fences if Claude added them despite being asked not to
+            const cleaned = parsed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+            parsed = JSON.parse(cleaned);
+          }
+        }
+        return {
+          postText: parsed.postText || "",
+          linkUrl: parsed.pickedStoryUrl || "",
+          linkTitle: parsed.pickedStoryTitle || ""
+        };
+
+  - id: publish
+    type: linkedin-create-post
+    name: Publish with Link Card
+    inputs:
+      - from: context.linkedinToken
+        to: accessToken
+      - from: nodes.extract-fields.outputs.postText
+        to: text
+      - from: nodes.extract-fields.outputs.linkUrl
+        to: linkUrl
+      - from: nodes.extract-fields.outputs.linkTitle
+        to: linkTitle
+      - from: context.visibility
+        to: visibility
+    outputs: [postId, postUrl, author]
+    config: {}
+
+edges:
+  - from: fetch-feed
+    to: parse-feed
+  - from: parse-feed
+    to: pick-and-comment
+  - from: pick-and-comment
+    to: extract-fields
+  - from: extract-fields
+    to: publish

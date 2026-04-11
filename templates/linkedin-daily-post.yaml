@@ -1,0 +1,121 @@
+id: linkedin-daily-post
+name: LinkedIn Daily Post Generator
+version: "1.0"
+description: Take a topic or brief, have Claude write a LinkedIn-tailored post in your voice, then publish it directly to your feed via the LinkedIn API. Designed for daily cron use — ship one thoughtful post every morning without opening LinkedIn.
+
+params:
+  - name: topic
+    type: string
+    required: true
+    description: "What to write about — a rough brief, headline, or one-sentence angle. The AI will expand it into a full post."
+  - name: brandVoice
+    type: string
+    required: false
+    default: "clear, opinionated, no corporate buzzwords, one concrete example per post"
+    description: "Voice and style constraints the AI should follow"
+  - name: targetAudience
+    type: string
+    required: false
+    default: "software engineers and technical founders"
+    description: "Who the post is written for — shapes jargon and assumptions"
+  - name: ctaUrl
+    type: string
+    required: false
+    description: "Optional link to include at the end of the post (blog URL, repo link, product page)"
+  - name: visibility
+    type: string
+    required: false
+    default: "PUBLIC"
+    description: "PUBLIC (default) or CONNECTIONS"
+  - name: linkedinToken
+    type: string
+    required: true
+    description: "LinkedIn access token with w_member_social and r_liteprofile scopes"
+    service: linkedin
+
+context:
+  topic: ""
+  brandVoice: "clear, opinionated, no corporate buzzwords, one concrete example per post"
+  targetAudience: "software engineers and technical founders"
+  ctaUrl: ""
+  visibility: "PUBLIC"
+
+nodes:
+  - id: write-post
+    type: llm-prompt
+    name: Write LinkedIn Post
+    inputs:
+      - from: context.topic
+        to: topic
+      - from: context.brandVoice
+        to: voice
+      - from: context.targetAudience
+        to: audience
+      - from: context.ctaUrl
+        to: ctaUrl
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a LinkedIn post about: {{topic}}
+
+        Audience: {{audience}}
+        Voice: {{voice}}
+
+        Constraints:
+        - Open with a hook in the first line. Never "Excited to announce" or "I'm thrilled to share"
+        - 3–5 short paragraphs separated by line breaks
+        - Include ONE concrete, specific example, number, or anecdote
+        - Avoid jargon the audience doesn't already use
+        - Total length: 900–1400 characters (LinkedIn's "see more" cutoff is around 200–250 chars, so your first 2 lines must earn the click)
+        - If a CTA URL is provided, include it naturally in the closing paragraph: {{ctaUrl}}
+        - Close with 3–5 relevant hashtags on a single line at the end
+
+        Output ONLY the post text — no preamble, no explanation, nothing the user would have to delete before posting.
+      maxTokens: 1200
+      temperature: 0.7
+
+  - id: publish
+    type: linkedin-create-post
+    name: Publish to LinkedIn
+    inputs:
+      - from: context.linkedinToken
+        to: accessToken
+      - from: nodes.write-post.outputs.response
+        to: text
+      - from: context.ctaUrl
+        to: linkUrl
+      - from: context.visibility
+        to: visibility
+    outputs: [postId, postUrl, author]
+    config: {}
+
+  - id: receipt
+    type: transform
+    name: Format Receipt
+    inputs:
+      - from: nodes.publish.outputs.postId
+        to: postId
+      - from: nodes.publish.outputs.postUrl
+        to: postUrl
+      - from: nodes.write-post.outputs.response
+        to: text
+      - from: context.topic
+        to: topic
+    outputs: [receipt]
+    config:
+      expression: |
+        ({
+          receipt: {
+            topic: inputs.topic,
+            publishedAt: new Date().toISOString(),
+            postId: inputs.postId,
+            postUrl: inputs.postUrl,
+            preview: (inputs.text || '').slice(0, 200) + ((inputs.text || '').length > 200 ? '…' : '')
+          }
+        })
+
+edges:
+  - from: write-post
+    to: publish
+  - from: publish
+    to: receipt
