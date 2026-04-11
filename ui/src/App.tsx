@@ -77,8 +77,14 @@ function App() {
   };
 
   const handleRunClick = () => {
-    if (workflow.params && workflow.params.length > 0) setShowRunDialog(true);
-    else handleRun({});
+    // Always show the dialog. Even for workflows without declared params,
+    // the user benefits from a confirm step — and this avoids a whole class
+    // of bug where `workflow.params` is undefined/empty due to save/load
+    // round-trips, AI-generated workflows omitting the field, or upstream
+    // template loading stripping it. The dialog handles the empty-params
+    // case gracefully with a "No parameters declared" message and a single
+    // Run button.
+    setShowRunDialog(true);
   };
 
   const handleRun = async (params: Record<string, unknown>) => {
