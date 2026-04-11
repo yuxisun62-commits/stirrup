@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { type WorkflowDefinition } from '../api/client';
+import { useState, useEffect } from 'react';
+import { getServiceAuthStatus, type WorkflowDefinition } from '../api/client';
 import { tokens, inputBase } from './ui/styles';
 
 interface Props {
@@ -15,27 +15,52 @@ export function DeployPanel({ workflow, onClose }: Props) {
   const [result, setResult] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Check if Launchmatic is already connected via the Connections panel.
+  // If so, we don't need to ask for a token — the engine will auto-inject
+  // the stored token when the workflow runs (self-deploy-launchmatic
+  // declares lmToken with `service: launchmatic`).
+  const [lmConnected, setLmConnected] = useState<boolean | null>(null);
+  const [lmUserName, setLmUserName] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    getServiceAuthStatus('launchmatic')
+      .then((status) => {
+        setLmConnected(status.authenticated);
+        setLmUserName(status.userName);
+      })
+      .catch(() => setLmConnected(false));
+  }, []);
+
+  // Deploy is gated on projectSlug + serviceName + (either a manually pasted
+  // token OR a saved Launchmatic credential that the engine will inject)
+  const canDeploy = !!projectSlug && !!serviceName && (lmConnected === true || !!lmToken);
+
   const handleDeploy = async () => {
-    if (!projectSlug || !serviceName || !lmToken) return;
+    if (!canDeploy) return;
     setDeploying(true);
     setError(null);
 
     try {
+      // Build the context. If Launchmatic is connected via the store, omit
+      // lmToken entirely so the engine's auto-injection picks up the saved
+      // credential — avoids exposing the token to the browser at all.
+      const context: Record<string, unknown> = {
+        workflowFile: `workflows/${workflow.id}.yaml`,
+        projectSlug,
+        serviceName,
+        anthropicKey: '', // Will use server's key
+      };
+      if (!lmConnected) {
+        context.lmToken = lmToken;
+      }
+
       // Execute the self-deploy-launchmatic workflow
       const res = await fetch('/api/workflows/self-deploy-launchmatic/execute', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          context: {
-            workflowFile: `workflows/${workflow.id}.yaml`,
-            projectSlug,
-            serviceName,
-            lmToken,
-            anthropicKey: '', // Will use server's key
-          },
-        }),
+        body: JSON.stringify({ context }),
       });
 
       if (!res.ok) {
@@ -133,18 +158,47 @@ export function DeployPanel({ workflow, onClose }: Props) {
 
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: tokens.text.muted, display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Launchmatic API Token *
+                  Launchmatic API Token {lmConnected ? '' : '*'}
                 </label>
-                <input
-                  type="password"
-                  style={inputBase}
-                  value={lmToken}
-                  onChange={(e) => setLmToken(e.target.value)}
-                  placeholder="lm_..."
-                />
-                <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 2 }}>
-                  Get a token from your Launchmatic dashboard
-                </div>
+                {lmConnected === null ? (
+                  // Still checking saved credential status — brief skeleton
+                  <div style={{
+                    padding: '7px 10px', fontSize: 11, borderRadius: 6,
+                    backgroundColor: tokens.bg.raised,
+                    border: `1px solid ${tokens.border.subtle}`,
+                    color: tokens.text.muted,
+                  }}>
+                    Checking saved credentials…
+                  </div>
+                ) : lmConnected ? (
+                  // Already connected via Connections panel — show green card
+                  <div style={{
+                    padding: '8px 10px', fontSize: 11, borderRadius: 6,
+                    backgroundColor: `${tokens.status.completed}10`,
+                    border: `1px solid ${tokens.status.completed}30`,
+                    color: tokens.status.completed,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
+                  }}>
+                    <span>✓ Using saved Launchmatic credential{lmUserName ? ` (${lmUserName})` : ''}</span>
+                    <span style={{ fontSize: 10, color: tokens.text.muted, fontWeight: 500 }}>
+                      injected at execute time
+                    </span>
+                  </div>
+                ) : (
+                  // Not connected — fall back to manual paste
+                  <>
+                    <input
+                      type="password"
+                      style={inputBase}
+                      value={lmToken}
+                      onChange={(e) => setLmToken(e.target.value)}
+                      placeholder="lm_..."
+                    />
+                    <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 2 }}>
+                      Get a token from your Launchmatic dashboard, or connect Launchmatic in the Connections panel to skip this field.
+                    </div>
+                  </>
+                )}
               </div>
 
               <div style={{
@@ -183,12 +237,12 @@ export function DeployPanel({ workflow, onClose }: Props) {
             }}>Cancel</button>
             <button
               onClick={handleDeploy}
-              disabled={!projectSlug || !serviceName || !lmToken || deploying}
+              disabled={!canDeploy || deploying}
               style={{
                 padding: '7px 20px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none',
-                background: projectSlug && serviceName && lmToken && !deploying
+                background: canDeploy && !deploying
                   ? 'linear-gradient(135deg, #06b6d4, #3b82f6)' : tokens.border.default,
-                color: '#fff', cursor: projectSlug && serviceName && lmToken && !deploying ? 'pointer' : 'default',
+                color: '#fff', cursor: canDeploy && !deploying ? 'pointer' : 'default',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}
             >
