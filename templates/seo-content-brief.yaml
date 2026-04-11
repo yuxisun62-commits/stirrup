@@ -1,0 +1,150 @@
+id: seo-content-brief
+name: SEO Content Brief Generator
+version: "1.0"
+description: Take a target keyword, fetch the top SERP results from a search API (Serper, SerpAPI, Brave, etc.), have Claude analyze what's already ranking, then produce a content brief with target word count, header outline, semantic keywords, and angle recommendations.
+
+params:
+  - name: keyword
+    type: string
+    required: true
+    description: "The target search keyword (e.g. 'open source workflow engine')"
+  - name: audience
+    type: string
+    required: false
+    default: "developers and technical decision-makers"
+    description: "Who the eventual article is written for"
+  - name: searchApiUrl
+    type: string
+    required: false
+    default: "https://google.serper.dev/search"
+    description: "SERP API endpoint. Defaults to Serper. Replace with SerpAPI/Brave if you prefer."
+  - name: searchApiKey
+    type: string
+    required: true
+    description: "API key for the SERP service"
+  - name: brandPerspective
+    type: string
+    required: false
+    default: ""
+    description: "Optional: your unique angle or contrarian POV that should anchor the brief"
+
+context:
+  keyword: ""
+  audience: "developers and technical decision-makers"
+  searchApiUrl: "https://google.serper.dev/search"
+  brandPerspective: ""
+
+nodes:
+  - id: search
+    type: http
+    name: Fetch SERP Results
+    inputs:
+      - from: context.searchApiUrl
+        to: url
+      - from: context.searchApiKey
+        to: apiKey
+      - from: context.keyword
+        to: keyword
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: POST
+      headers:
+        Content-Type: "application/json"
+        X-API-KEY: "{{apiKey}}"
+      body:
+        q: "{{keyword}}"
+        num: 10
+
+  - id: extract-results
+    type: script
+    name: Extract Titles & Snippets
+    inputs:
+      - from: nodes.search.outputs.body
+        to: serp
+    outputs: [results, count]
+    config:
+      script: |
+        const raw = inputs.serp;
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+
+        // Serper format: { organic: [{ title, link, snippet, position }] }
+        // SerpAPI format: { organic_results: [...] }
+        // Be tolerant of both shapes.
+        const list = parsed?.organic ?? parsed?.organic_results ?? [];
+
+        const results = list.slice(0, 10).map((r, i) => ({
+          rank: r.position ?? i + 1,
+          title: r.title ?? "",
+          url: r.link ?? r.url ?? "",
+          snippet: (r.snippet ?? r.description ?? "").slice(0, 400)
+        }));
+
+        return { results, count: results.length };
+
+  - id: analyze
+    type: llm-prompt
+    name: Generate Content Brief
+    inputs:
+      - from: nodes.extract-results.outputs.results
+        to: results
+      - from: context.keyword
+        to: keyword
+      - from: context.audience
+        to: audience
+      - from: context.brandPerspective
+        to: brandPerspective
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are an SEO content strategist. Generate a content brief for a new article targeting the keyword: **{{keyword}}**
+
+        Audience: {{audience}}
+
+        Top 10 ranking results for this keyword:
+        {{results}}
+
+        Brand perspective (use this to differentiate, not just match):
+        {{brandPerspective}}
+
+        Produce a brief in this exact markdown structure:
+
+        # Content Brief: {{keyword}}
+
+        ## Search Intent
+        One sentence describing what the searcher actually wants. Be specific — informational, navigational, transactional, or comparative?
+
+        ## Competitive Landscape
+        - 3–5 bullets summarizing what currently ranks (article types, formats, depth, common gaps)
+        - Identify the one weakness shared by most top results — that's our opening
+
+        ## Recommended Angle
+        2–3 sentences on the unique POV this article should take. Should DIFFERENTIATE from what's ranking, not match it.
+
+        ## Target Specs
+        - Word count: [recommend a number based on what's ranking]
+        - Format: [listicle / deep-dive / comparison / tutorial / opinion]
+        - Tone: [match audience]
+        - Must include: [specific elements — code examples, screenshots, comparison table, etc.]
+
+        ## H2 Outline
+        Numbered list of 6–10 H2 headers in order. Each header should be a real reader question or claim, not "Introduction" or "Conclusion".
+
+        ## Semantic Keywords
+        15–20 related terms and entities to naturally include in the article. Comma-separated.
+
+        ## Internal Link Opportunities
+        3–5 suggested topics to link to from this article (we'll match against existing posts later).
+
+        ## Distribution Hooks
+        One LinkedIn post hook + one Twitter hook + one newsletter subject line, drawn from the angle above.
+
+        Be concrete. No generic SEO advice. The brief should be specific enough that a writer could start drafting immediately.
+      maxTokens: 2500
+      temperature: 0.5
+
+edges:
+  - from: search
+    to: extract-results
+  - from: extract-results
+    to: analyze

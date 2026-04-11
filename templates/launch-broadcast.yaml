@@ -1,0 +1,276 @@
+id: launch-broadcast
+name: Multi-Platform Launch Broadcast
+version: "1.0"
+description: Take a single product announcement and fan out to platform-tailored social posts (LinkedIn, X/Twitter thread, Facebook, TikTok script, YouTube Short script) in parallel, then aggregate into one structured payload ready to schedule.
+
+params:
+  - name: announcement
+    type: string
+    required: true
+    description: "The raw announcement — release notes, feature description, or update summary. Long-form is fine; the AI will tailor it per platform."
+  - name: productName
+    type: string
+    required: true
+    description: "Product or brand name (e.g. Stirrup)"
+  - name: productUrl
+    type: string
+    required: true
+    description: "Canonical link to include in posts (landing page, GitHub repo, etc.)"
+  - name: brandTone
+    type: string
+    required: false
+    default: "confident, technical, slightly playful — never corporate"
+    description: "Voice / style guidance applied to every generated post"
+  - name: targetAudience
+    type: string
+    required: false
+    default: "developers and technical founders"
+    description: "Who the posts are written for"
+
+context:
+  announcement: ""
+  productName: ""
+  productUrl: ""
+  brandTone: "confident, technical, slightly playful — never corporate"
+  targetAudience: "developers and technical founders"
+
+nodes:
+  # ─── 5 parallel platform writers — all run concurrently because none depend on each other ───
+
+  - id: linkedin-post
+    type: llm-prompt
+    name: Write LinkedIn Post
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+      - from: context.targetAudience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are writing a LinkedIn post for {{productName}}.
+
+        Audience: {{audience}}
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Write a LinkedIn post that:
+        - Opens with a hook in the first line (no "Excited to announce")
+        - Uses 3–4 short paragraphs separated by line breaks
+        - Includes specifics from the announcement, not vague claims
+        - Ends with the product URL: {{productUrl}}
+        - Closes with 3–5 relevant hashtags on a single line
+        - Total length: 900–1300 characters
+
+        Output ONLY the post text, ready to paste. No preamble, no explanation.
+      maxTokens: 1000
+      temperature: 0.7
+
+  - id: twitter-thread
+    type: llm-prompt
+    name: Write X/Twitter Thread
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+      - from: context.targetAudience
+        to: audience
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are writing an X (Twitter) thread for {{productName}}.
+
+        Audience: {{audience}}
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Write a 5–7 tweet thread:
+        - Tweet 1: a strong hook, no thread emoji, no "🧵". Make people want to read tweet 2.
+        - Tweets 2–N: one specific point per tweet, concrete details, no fluff
+        - Final tweet: include the product URL ({{productUrl}}) and a clear call to action
+        - Each tweet must be ≤ 280 characters
+        - Number them as 1/, 2/, 3/, etc.
+
+        Output ONLY the thread, one tweet per paragraph separated by blank lines.
+      maxTokens: 1200
+      temperature: 0.7
+
+  - id: facebook-post
+    type: llm-prompt
+    name: Write Facebook Post
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a Facebook post for {{productName}}.
+
+        Voice: {{tone}}, but slightly more conversational than LinkedIn — Facebook readers want story, not bullet points.
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Constraints:
+        - 2–3 paragraphs, narrative tone
+        - One clear "what's new" claim, one tangible benefit, one CTA
+        - End with the link: {{productUrl}}
+        - 400–700 characters total
+
+        Output ONLY the post text.
+      maxTokens: 600
+      temperature: 0.7
+
+  - id: tiktok-script
+    type: llm-prompt
+    name: Write TikTok Script
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a 45–60 second TikTok script for {{productName}}.
+
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Format the output as a table with three columns:
+        | Time | On Screen | Voiceover |
+
+        Rules:
+        - Hook in the first 3 seconds — no "Hey everyone"
+        - 5–8 rows total covering 0–60 seconds
+        - "On Screen" describes what the viewer sees (visuals, b-roll, text overlays)
+        - "Voiceover" is the spoken line (≤ 12 words per row)
+        - Final row is a clear call to action
+
+        Below the table, output a one-line caption (≤ 200 chars) with 4–5 hashtags.
+      maxTokens: 800
+      temperature: 0.8
+
+  - id: youtube-short-script
+    type: llm-prompt
+    name: Write YouTube Short Script
+    inputs:
+      - from: context.announcement
+        to: announcement
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a 60-second YouTube Short for {{productName}}.
+
+        Voice: {{tone}}
+
+        Source announcement:
+        ---
+        {{announcement}}
+        ---
+
+        Output three sections:
+
+        ## Script
+        Beat-by-beat script with timestamps (0:00, 0:05, 0:15, 0:30, 0:45, 0:55). Each beat has a visual cue and a voiceover line. Hook in the first 3 seconds.
+
+        ## Title (≤ 60 characters)
+        SEO-friendly, hook-driven, no clickbait.
+
+        ## Description
+        2–3 sentences, then the link: {{productUrl}}, then 5–8 hashtags.
+
+        Output ONLY those three sections.
+      maxTokens: 1000
+      temperature: 0.7
+
+  # ─── Aggregator: combines all 5 outputs into one structured payload ───
+
+  - id: bundle
+    type: transform
+    name: Bundle All Posts
+    inputs:
+      - from: nodes.linkedin-post.outputs.response
+        to: linkedin
+      - from: nodes.twitter-thread.outputs.response
+        to: twitter
+      - from: nodes.facebook-post.outputs.response
+        to: facebook
+      - from: nodes.tiktok-script.outputs.response
+        to: tiktok
+      - from: nodes.youtube-short-script.outputs.response
+        to: youtubeShort
+      - from: context.productName
+        to: productName
+      - from: context.productUrl
+        to: productUrl
+    outputs: [bundle]
+    config:
+      expression: |
+        ({
+          bundle: {
+            product: inputs.productName,
+            url: inputs.productUrl,
+            generatedAt: new Date().toISOString(),
+            posts: {
+              linkedin: inputs.linkedin,
+              twitter: inputs.twitter,
+              facebook: inputs.facebook,
+              tiktok: inputs.tiktok,
+              youtubeShort: inputs.youtubeShort
+            }
+          }
+        })
+
+edges:
+  # All 5 writers fan into the bundler. They have no edges between each other,
+  # so the scheduler runs them concurrently.
+  - from: linkedin-post
+    to: bundle
+  - from: twitter-thread
+    to: bundle
+  - from: facebook-post
+    to: bundle
+  - from: tiktok-script
+    to: bundle
+  - from: youtube-short-script
+    to: bundle

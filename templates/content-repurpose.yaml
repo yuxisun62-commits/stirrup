@@ -1,0 +1,257 @@
+id: content-repurpose
+name: Blog Post → Multi-Channel Repurposer
+version: "1.0"
+description: Take any published blog post URL, fetch the article, extract the body, then atomize it in parallel into a Twitter thread, LinkedIn post, newsletter blurb, and YouTube Short script. One long-form piece becomes a week of content.
+
+params:
+  - name: blogUrl
+    type: string
+    required: true
+    description: "Public URL of the blog post to repurpose"
+  - name: brandTone
+    type: string
+    required: false
+    default: "clear, opinionated, no buzzwords"
+    description: "Voice / style guidance applied to every output"
+  - name: ctaUrl
+    type: string
+    required: false
+    description: "Optional canonical URL to drop into each post (defaults to the blog URL)"
+
+context:
+  blogUrl: ""
+  brandTone: "clear, opinionated, no buzzwords"
+  ctaUrl: ""
+
+nodes:
+  # ─── 1. Fetch the article ───
+
+  - id: fetch
+    type: http
+    name: Fetch Blog HTML
+    inputs:
+      - from: context.blogUrl
+        to: url
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: GET
+      headers:
+        Accept: "text/html"
+        User-Agent: "Stirrup-ContentRepurposer/1.0"
+
+  # ─── 2. Strip HTML to plaintext (rough but reliable) ───
+
+  - id: extract
+    type: script
+    name: Extract Plain Text
+    inputs:
+      - from: nodes.fetch.outputs.body
+        to: html
+    outputs: [text, wordCount]
+    config:
+      script: |
+        const html = String(inputs.html ?? "");
+        // Strip script/style blocks first
+        const cleaned = html
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+        // Drop tags, collapse whitespace, decode common entities
+        const text = cleaned
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\s+/g, " ")
+          .trim();
+        // Truncate to a sane size for LLM input — keep first ~12k chars
+        const truncated = text.length > 12000 ? text.slice(0, 12000) + " …[truncated]" : text;
+        return {
+          text: truncated,
+          wordCount: text.split(/\s+/).length
+        };
+
+  # ─── 3. Four parallel atomizers ───
+
+  - id: twitter-thread
+    type: llm-prompt
+    name: Twitter Thread
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.brandTone
+        to: tone
+      - from: context.ctaUrl
+        to: ctaUrl
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Source article:
+        ---
+        {{article}}
+        ---
+
+        Voice: {{tone}}
+
+        Turn this into a 6–9 tweet thread:
+        - Tweet 1 is a hook — concrete claim, no thread emoji
+        - Each subsequent tweet covers one key idea from the article
+        - Use specific numbers, names, and examples from the source
+        - Final tweet links to: {{ctaUrl}}
+        - Max 280 characters per tweet
+        - Number them 1/, 2/, …
+
+        Output ONLY the thread, separated by blank lines.
+      maxTokens: 1500
+      temperature: 0.6
+
+  - id: linkedin-post
+    type: llm-prompt
+    name: LinkedIn Post
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.brandTone
+        to: tone
+      - from: context.ctaUrl
+        to: ctaUrl
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Source article:
+        ---
+        {{article}}
+        ---
+
+        Voice: {{tone}}
+
+        Write a LinkedIn post (1100–1400 chars) that:
+        - Opens with a contrarian or surprising claim from the article
+        - Has 3–4 short paragraphs with line breaks between
+        - Uses one concrete example pulled from the source
+        - Ends with the link: {{ctaUrl}}
+        - Closes with 3–5 hashtags
+
+        Output ONLY the post text.
+      maxTokens: 1000
+      temperature: 0.6
+
+  - id: newsletter
+    type: llm-prompt
+    name: Newsletter Blurb
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.brandTone
+        to: tone
+      - from: context.ctaUrl
+        to: ctaUrl
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Source article:
+        ---
+        {{article}}
+        ---
+
+        Voice: {{tone}}
+
+        Write a newsletter section that includes:
+        - A subject line (≤ 60 chars) — curiosity-driven, not clickbait
+        - A 250–350 word body that summarizes the core insight and gives the reader something to take away even if they don't click through
+        - A "Read the full post →" line linking to {{ctaUrl}}
+
+        Format with clear markdown headers (## Subject, ## Body, ## CTA).
+      maxTokens: 1000
+      temperature: 0.6
+
+  - id: youtube-short
+    type: llm-prompt
+    name: YouTube Short Script
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.brandTone
+        to: tone
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Source article:
+        ---
+        {{article}}
+        ---
+
+        Voice: {{tone}}
+
+        Distill this into a 60-second YouTube Short script:
+        - Hook in the first 3 seconds — pull a surprising line from the article
+        - 5–7 beats with timestamps (0:00, 0:08, 0:18, 0:30, 0:45, 0:55)
+        - Each beat: visual cue + voiceover line
+        - End with a clear CTA
+
+        Below the script, output:
+        - A title (≤ 60 chars)
+        - 5–8 hashtags
+      maxTokens: 1000
+      temperature: 0.7
+
+  # ─── 4. Bundle results ───
+
+  - id: bundle
+    type: transform
+    name: Bundle Repurposed Content
+    inputs:
+      - from: nodes.twitter-thread.outputs.response
+        to: twitter
+      - from: nodes.linkedin-post.outputs.response
+        to: linkedin
+      - from: nodes.newsletter.outputs.response
+        to: newsletter
+      - from: nodes.youtube-short.outputs.response
+        to: youtubeShort
+      - from: nodes.extract.outputs.wordCount
+        to: sourceWordCount
+      - from: context.blogUrl
+        to: source
+    outputs: [bundle]
+    config:
+      expression: |
+        ({
+          bundle: {
+            source: inputs.source,
+            sourceWordCount: inputs.sourceWordCount,
+            generatedAt: new Date().toISOString(),
+            channels: {
+              twitter: inputs.twitter,
+              linkedin: inputs.linkedin,
+              newsletter: inputs.newsletter,
+              youtubeShort: inputs.youtubeShort
+            }
+          }
+        })
+
+edges:
+  - from: fetch
+    to: extract
+  # 4-way fan-out — all atomizers run in parallel after extract
+  - from: extract
+    to: twitter-thread
+  - from: extract
+    to: linkedin-post
+  - from: extract
+    to: newsletter
+  - from: extract
+    to: youtube-short
+  # Fan-in to the bundler
+  - from: twitter-thread
+    to: bundle
+  - from: linkedin-post
+    to: bundle
+  - from: newsletter
+    to: bundle
+  - from: youtube-short
+    to: bundle

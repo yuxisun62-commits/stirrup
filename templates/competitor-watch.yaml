@@ -1,0 +1,170 @@
+id: competitor-watch
+name: Competitor Changelog Watcher
+version: "1.0"
+description: Fetch a competitor's RSS/Atom feed (changelog, blog, release notes), parse the recent entries, ask Claude to summarize what they shipped and what it means for your positioning, then post the digest to a Slack channel. Designed to run on a schedule.
+
+params:
+  - name: feedUrl
+    type: string
+    required: true
+    description: "Competitor's RSS/Atom feed URL (changelog, blog, /feed.xml, /feed.atom)"
+  - name: competitorName
+    type: string
+    required: true
+    description: "Display name of the competitor (used in the Slack message)"
+  - name: maxEntries
+    type: number
+    required: false
+    default: 5
+    description: "How many recent entries to summarize"
+  - name: yourProductName
+    type: string
+    required: true
+    description: "Your product name — Claude uses this to frame the competitive analysis"
+  - name: slackChannel
+    type: string
+    required: true
+    description: "Slack channel to post the digest to (e.g. #competitive-intel)"
+  - name: slackToken
+    type: string
+    required: true
+    description: "Slack bot token"
+    service: slack
+
+context:
+  feedUrl: ""
+  competitorName: ""
+  maxEntries: 5
+  yourProductName: ""
+  slackChannel: ""
+
+nodes:
+  - id: fetch-feed
+    type: http
+    name: Fetch RSS Feed
+    inputs:
+      - from: context.feedUrl
+        to: url
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: GET
+      headers:
+        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml"
+        User-Agent: "Stirrup-CompetitorWatch/1.0"
+
+  - id: parse-feed
+    type: script
+    name: Parse Feed Entries
+    inputs:
+      - from: nodes.fetch-feed.outputs.body
+        to: xml
+      - from: context.maxEntries
+        to: maxEntries
+    outputs: [entries, count]
+    config:
+      script: |
+        const xml = String(inputs.xml ?? "");
+        const limit = Number(inputs.maxEntries ?? 5);
+
+        // Try Atom <entry> first, fall back to RSS <item>
+        const atomMatches = xml.match(/<entry[\s\S]*?<\/entry>/g) ?? [];
+        const rssMatches = xml.match(/<item[\s\S]*?<\/item>/g) ?? [];
+        const blocks = atomMatches.length > 0 ? atomMatches : rssMatches;
+
+        const stripTags = (s) => String(s ?? "")
+          .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&#39;/g, "'")
+          .replace(/\s+/g, " ")
+          .trim();
+
+        const pick = (block, tag) => {
+          const m = block.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">"));
+          return m ? stripTags(m[1]) : "";
+        };
+
+        const entries = blocks.slice(0, limit).map((block) => ({
+          title: pick(block, "title"),
+          published: pick(block, "published") || pick(block, "pubDate") || pick(block, "updated"),
+          summary: (pick(block, "summary") || pick(block, "description") || pick(block, "content")).slice(0, 1500),
+          link: (block.match(/<link[^>]*href="([^"]+)"/) ?? block.match(/<link[^>]*>([^<]+)<\/link>/) ?? [])[1] ?? ""
+        }));
+
+        return { entries, count: entries.length };
+
+  - id: summarize
+    type: llm-prompt
+    name: Summarize Competitor Activity
+    inputs:
+      - from: nodes.parse-feed.outputs.entries
+        to: entries
+      - from: context.competitorName
+        to: competitor
+      - from: context.yourProductName
+        to: yourProduct
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are a competitive intelligence analyst. {{competitor}} just published the following entries on their changelog/blog. Our product is {{yourProduct}}.
+
+        Recent entries (newest first):
+        {{entries}}
+
+        Write a Slack-ready brief that includes:
+
+        1. **TL;DR** — one sentence on what {{competitor}} is signaling strategically
+        2. **What shipped** — bullet list, one per entry, ≤ 15 words each
+        3. **Why it matters for {{yourProduct}}** — 2–4 bullets analyzing positioning, threats, and opportunities. Be specific. Don't hedge.
+        4. **Suggested response** — one concrete action {{yourProduct}} could take this week
+
+        Use Slack mrkdwn (single asterisks for bold, no markdown headers). Keep total length under 1500 characters.
+      maxTokens: 1200
+      temperature: 0.4
+
+  - id: format-message
+    type: transform
+    name: Format Slack Message
+    inputs:
+      - from: nodes.summarize.outputs.response
+        to: brief
+      - from: context.competitorName
+        to: competitor
+      - from: nodes.parse-feed.outputs.count
+        to: count
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':eyes: *' + inputs.competitor + ' Activity Digest* (' + inputs.count + ' new entries)\n\n' + inputs.brief
+        })
+
+  - id: notify
+    type: slack-send
+    name: Post to Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.format-message.outputs.text
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: fetch-feed
+    to: parse-feed
+  - from: parse-feed
+    to: summarize
+  - from: summarize
+    to: format-message
+  - from: format-message
+    to: notify
