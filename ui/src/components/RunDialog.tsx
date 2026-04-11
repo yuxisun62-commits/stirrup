@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { tokens, inputBase, monoInput } from './ui/styles';
-import { getAuthStatus, startAuthFlow, pollAuthFlow, type AuthStatus } from '../api/client';
+import {
+  getAuthStatus, startAuthFlow, pollAuthFlow, getServiceInfo, saveServiceToken,
+  type AuthStatus, type ServiceInfo,
+} from '../api/client';
 
 interface WorkflowParam {
   name: string;
@@ -58,11 +61,33 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
   const [authStatus, setAuthStatus] = useState<Record<string, AuthStatus>>({});
   const [authingService, setAuthingService] = useState<string | null>(null);
   const [authPrompt, setAuthPrompt] = useState<{ service: string; userCode: string; verificationUri: string } | null>(null);
+  const [serviceInfo, setServiceInfo] = useState<Record<string, ServiceInfo>>({});
+  const [pasteTokenFor, setPasteTokenFor] = useState<string | null>(null);
+  const [pasteTokenValue, setPasteTokenValue] = useState('');
 
   // Fetch auth status on mount
   useEffect(() => {
     getAuthStatus().then((res) => setAuthStatus(res.services)).catch(() => {});
+    // Fetch service info for each service-backed param
+    const services = [...new Set(params.filter((p) => p.service).map((p) => p.service!))];
+    Promise.all(services.map((s) => getServiceInfo(s).catch(() => null))).then((infos) => {
+      const map: Record<string, ServiceInfo> = {};
+      infos.forEach((info, i) => { if (info) map[services[i]] = info; });
+      setServiceInfo(map);
+    });
   }, []);
+
+  const handleSaveToken = async (service: string) => {
+    if (!pasteTokenValue.trim()) return;
+    try {
+      const result = await saveServiceToken(service, pasteTokenValue.trim());
+      setAuthStatus((s) => ({ ...s, [service]: { authenticated: true, userName: result.userName } }));
+      setPasteTokenFor(null);
+      setPasteTokenValue('');
+    } catch (err) {
+      alert(`Failed to save token: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const startAuth = async (service: string) => {
     setAuthingService(service);
@@ -210,7 +235,7 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
                       color: isAuthed ? tokens.status.completed : tokens.text.muted,
                       textTransform: 'uppercase', letterSpacing: '0.5px',
                     }}>
-                      {isAuthed ? `OAUTH ✓ ${userName ?? p.service}` : `${p.service.toUpperCase()} OAUTH`}
+                      {isAuthed ? `✓ ${p.service.toUpperCase()}${userName ? ` ${userName}` : ' SAVED'}` : `${p.service.toUpperCase()}`}
                     </span>
                   )}
                 </div>
@@ -218,38 +243,119 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
                   <div style={{ fontSize: 11, color: tokens.text.muted, marginBottom: 4 }}>{p.description}</div>
                 )}
 
-                {/* Service-backed params: show OAuth status instead of input */}
+                {/* Service-backed params: show stored credential status */}
                 {p.service && isAuthed ? (
                   <div style={{
                     padding: '7px 10px', fontSize: 11, borderRadius: 6,
                     backgroundColor: `${tokens.status.completed}08`,
                     border: `1px solid ${tokens.status.completed}30`,
                     color: tokens.status.completed,
-                    display: 'flex', alignItems: 'center', gap: 6,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
                   }}>
-                    <span>✓ Will use {p.service} OAuth token{userName ? ` (as ${userName})` : ''}</span>
+                    <span>✓ Using saved {p.service} credential{userName ? ` (${userName})` : ''}</span>
+                    <button
+                      onClick={() => { setPasteTokenFor(p.service!); setPasteTokenValue(''); }}
+                      style={{
+                        fontSize: 10, padding: '2px 8px', borderRadius: 3,
+                        background: 'none', border: `1px solid ${tokens.status.completed}30`,
+                        color: tokens.status.completed, cursor: 'pointer',
+                      }}
+                    >Replace</button>
                   </div>
                 ) : p.service ? (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input
-                      style={{ ...inputBase, flex: 1 }}
-                      type="password"
-                      value={values[p.name] ?? ''}
-                      onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
-                      placeholder="Paste a token, or click Connect →"
-                    />
-                    <button
-                      onClick={() => startAuth(p.service!)}
-                      disabled={authingService === p.service}
-                      style={{
-                        padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
-                        background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
-                        color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {authingService === p.service ? '...' : `Connect ${p.service}`}
-                    </button>
-                  </div>
+                  (() => {
+                    const info = serviceInfo[p.service];
+                    const supportsOAuth = info?.oauthSupported ?? false;
+                    const isPasting = pasteTokenFor === p.service;
+
+                    // Token paste form
+                    if (isPasting) {
+                      return (
+                        <div style={{
+                          padding: 10, borderRadius: 6,
+                          backgroundColor: `${tokens.nodeColors['llm-prompt']}08`,
+                          border: `1px solid ${tokens.nodeColors['llm-prompt']}30`,
+                        }}>
+                          {info?.tokenInstructions && (
+                            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 6, lineHeight: 1.4 }}>
+                              {info.tokenInstructions}
+                              {info.tokenDocsUrl && (
+                                <> <a href={info.tokenDocsUrl} target="_blank" rel="noopener" style={{ color: tokens.text.accent, textDecoration: 'underline' }}>Open docs →</a></>
+                              )}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              style={{ ...inputBase, flex: 1, fontFamily: tokens.font.mono }}
+                              type="password"
+                              autoFocus
+                              value={pasteTokenValue}
+                              onChange={(e) => setPasteTokenValue(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleSaveToken(p.service!)}
+                              placeholder={`Paste your ${p.service} token...`}
+                            />
+                            <button
+                              onClick={() => handleSaveToken(p.service!)}
+                              disabled={!pasteTokenValue.trim()}
+                              style={{
+                                padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                                backgroundColor: pasteTokenValue.trim() ? tokens.status.completed : tokens.border.default,
+                                color: '#fff', cursor: pasteTokenValue.trim() ? 'pointer' : 'default',
+                              }}
+                            >Save</button>
+                            <button
+                              onClick={() => { setPasteTokenFor(null); setPasteTokenValue(''); }}
+                              style={{
+                                padding: '6px 10px', fontSize: 11, borderRadius: 6,
+                                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                                color: tokens.text.muted, cursor: 'pointer',
+                              }}
+                            >Cancel</button>
+                          </div>
+                          <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 6 }}>
+                            Token will be saved to ~/.stirrup/tokens.json (0600 permissions) and reused automatically.
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    // OAuth or paste-to-save buttons
+                    return (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          style={{ ...inputBase, flex: 1 }}
+                          type="password"
+                          value={values[p.name] ?? ''}
+                          onChange={(e) => setValues((v) => ({ ...v, [p.name]: e.target.value }))}
+                          placeholder={supportsOAuth ? 'Paste a token, or click Connect →' : 'Paste a one-time token, or save it for reuse →'}
+                        />
+                        {supportsOAuth ? (
+                          <button
+                            onClick={() => startAuth(p.service!)}
+                            disabled={authingService === p.service}
+                            style={{
+                              padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                              background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
+                              color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {authingService === p.service ? '...' : `Connect ${p.service}`}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => { setPasteTokenFor(p.service!); setPasteTokenValue(values[p.name] ?? ''); }}
+                            style={{
+                              padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none',
+                              background: `linear-gradient(135deg, #06b6d4, #3b82f6)`,
+                              color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Save & Reuse
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()
                 ) : p.type === 'boolean' ? (
                   <select
                     style={{ ...inputBase, width: 120 }}

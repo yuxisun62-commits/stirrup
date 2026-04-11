@@ -12,8 +12,59 @@ interface DeviceFlowSession {
 
 const activeFlows = new Map<string, DeviceFlowSession>();
 
+// Services that support full OAuth device flow (no manual token needed)
+const OAUTH_CAPABLE_SERVICES = new Set(["github"]);
+
+// Documentation links for services that need a manual token
+const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
+  slack: {
+    url: "https://api.slack.com/authentication/token-types",
+    instructions: "Create a Slack app at api.slack.com/apps and install it to your workspace to get a bot token (xoxb-...).",
+  },
+  launchmatic: {
+    url: "https://app.launchmatic.io/account/tokens",
+    instructions: "Generate an API token from your LaunchMatic dashboard.",
+  },
+  jira: {
+    url: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    instructions: "Create an API token from your Atlassian account settings.",
+  },
+  stripe: {
+    url: "https://dashboard.stripe.com/apikeys",
+    instructions: "Get a secret API key from your Stripe dashboard.",
+  },
+  hubspot: {
+    url: "https://app.hubspot.com/private-apps",
+    instructions: "Create a private app in HubSpot to generate an access token.",
+  },
+};
+
 export function authRoutes(): Router {
   const router = Router();
+
+  // Get info about a service's auth capabilities
+  router.get("/services/:service", (req, res) => {
+    const service = req.params.service;
+    res.json({
+      service,
+      oauthSupported: OAUTH_CAPABLE_SERVICES.has(service),
+      tokenDocsUrl: TOKEN_DOCS[service]?.url,
+      tokenInstructions: TOKEN_DOCS[service]?.instructions,
+    });
+  });
+
+  // List all known services and their capabilities
+  router.get("/services", (_req, res) => {
+    const services = [...new Set([...OAUTH_CAPABLE_SERVICES, ...Object.keys(TOKEN_DOCS)])];
+    res.json({
+      services: services.map((service) => ({
+        service,
+        oauthSupported: OAUTH_CAPABLE_SERVICES.has(service),
+        tokenDocsUrl: TOKEN_DOCS[service]?.url,
+        tokenInstructions: TOKEN_DOCS[service]?.instructions,
+      })),
+    });
+  });
 
   // List authenticated services
   router.get("/status", (_req, res) => {
@@ -142,6 +193,21 @@ export function authRoutes(): Router {
     } catch (err) {
       res.status(500).json({ error: { code: "POLL_FAILED", message: (err as Error).message } });
     }
+  });
+
+  // Save a manual token (for services without OAuth, or BYO tokens)
+  router.post("/token/:service", (req, res) => {
+    const service = req.params.service;
+    const { token, userName } = req.body as { token?: string; userName?: string };
+    if (!token || token.length < 8) {
+      res.status(400).json({ error: { code: "INVALID_TOKEN", message: "Token is required and must be at least 8 characters" } });
+      return;
+    }
+    setToken(service, {
+      accessToken: token,
+      userName: userName ?? undefined,
+    });
+    res.json({ saved: true, service, userName });
   });
 
   // Logout

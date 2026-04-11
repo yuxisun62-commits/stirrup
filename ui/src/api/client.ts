@@ -35,6 +35,14 @@ export interface DeviceFlowStart {
   expiresIn: number;
   interval: number;
 }
+export interface ServiceInfo {
+  service: string;
+  oauthSupported: boolean;
+  tokenDocsUrl?: string;
+  tokenInstructions?: string;
+}
+export const getServiceInfo = (service: string) =>
+  request<ServiceInfo>(`/auth/services/${service}`);
 export const getAuthStatus = () =>
   request<{ services: Record<string, AuthStatus> }>('/auth/status');
 export const getServiceAuthStatus = (service: string) =>
@@ -49,6 +57,11 @@ export const pollAuthFlow = (service: string, deviceCode: string) =>
     `/auth/login/${service}/poll`,
     { method: 'POST', body: JSON.stringify({ deviceCode }) }
   );
+export const saveServiceToken = (service: string, token: string, userName?: string) =>
+  request<{ saved: boolean; service: string; userName?: string }>(`/auth/token/${service}`, {
+    method: 'POST',
+    body: JSON.stringify({ token, userName }),
+  });
 export const logoutService = (service: string) =>
   request<{ removed: boolean }>(`/auth/logout/${service}`, { method: 'DELETE' });
 
