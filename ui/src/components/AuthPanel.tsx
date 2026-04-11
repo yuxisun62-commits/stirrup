@@ -115,6 +115,14 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenDocsUrl: 'https://www.linkedin.com/developers/apps',
     tokenInstructions: 'Create a LinkedIn Developer App at linkedin.com/developers/apps, run the OAuth flow with scopes `w_member_social r_liteprofile`, and paste the resulting access token here. Tokens are long-lived (~60 days).',
   },
+  {
+    service: 'anthropic',
+    label: 'Anthropic',
+    description: 'API key for every AI node — Claude prompts, agentic tool use, decision routing, code generation',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://console.anthropic.com/settings/keys',
+    tokenInstructions: 'Open the Anthropic Console → API Keys → Create Key. Paste the resulting `sk-ant-...` key here.',
+  },
 ];
 
 export function AuthPanel({ onClose }: Props) {

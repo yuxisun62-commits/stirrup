@@ -25,6 +25,7 @@ params:
     type: string
     required: true
     description: "Anthropic API key for AI nodes in the deployed workflow"
+    service: anthropic
   - name: slackToken
     type: string
     description: "Optional: Slack token to notify on deploy"

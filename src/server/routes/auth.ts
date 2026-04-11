@@ -180,6 +180,10 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://www.linkedin.com/developers/apps",
     instructions: "Create a LinkedIn Developer App at linkedin.com/developers/apps. Request the 'Share on LinkedIn' and 'Sign In with LinkedIn using OpenID Connect' products, then run the OAuth auth code flow (LinkedIn doesn't support device flow) with scopes `w_member_social r_liteprofile` to get an access token. Paste that token here. Tokens are long-lived (~60 days) and can be refreshed via the same flow.",
   },
+  anthropic: {
+    url: "https://console.anthropic.com/settings/keys",
+    instructions: "Open the Anthropic Console → API Keys → Create Key. Paste the resulting `sk-ant-...` key here. Stirrup uses this for every AI node (llm-prompt, agent-tool-use, decision-routing, code-generation) and for deploy workflows that package AI nodes into standalone services.",
+  },
 };
 
 export function authRoutes(): Router {

@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { getServiceAuthStatus, type WorkflowDefinition } from '../api/client';
+import {
+  getServiceAuthStatus, getTemplate, createWorkflow, saveWorkflow,
+  subscribeToExecution,
+  type WorkflowDefinition,
+} from '../api/client';
 import { tokens, inputBase } from './ui/styles';
 
 interface Props {
@@ -35,55 +39,128 @@ export function DeployPanel({ workflow, onClose }: Props) {
   // token OR a saved Launchmatic credential that the engine will inject)
   const canDeploy = !!projectSlug && !!serviceName && (lmConnected === true || !!lmToken);
 
+  const [progress, setProgress] = useState<string | null>(null);
+
   const handleDeploy = async () => {
     if (!canDeploy) return;
     setDeploying(true);
     setError(null);
+    setProgress('Loading deploy template…');
 
     try {
-      // Build the context. If Launchmatic is connected via the store, omit
-      // lmToken entirely so the engine's auto-injection picks up the saved
-      // credential — avoids exposing the token to the browser at all.
+      // Step 1: fetch the self-deploy-launchmatic template. Templates live
+      // separately from registered workflows, so the engine doesn't know
+      // about them until we explicitly register. This is why the previous
+      // version fell through to showing CLI instructions — it was trying
+      // to execute a template directly via /api/workflows/:id/execute.
+      const template = await getTemplate('self-deploy-launchmatic');
+
+      // Step 2: register it as a runnable workflow under its own ID.
+      // createWorkflow fails if the ID already exists; fall back to saveWorkflow.
+      setProgress('Registering deploy workflow…');
+      try {
+        await createWorkflow(template);
+      } catch {
+        await saveWorkflow(template);
+      }
+
+      // Step 3: build the execution context. Omit lmToken entirely when
+      // Launchmatic is connected so the engine's server-side injection
+      // picks up the saved credential from ~/.stirrup/tokens.json. Same
+      // for anthropicKey now that it's service-backed.
       const context: Record<string, unknown> = {
         workflowFile: `workflows/${workflow.id}.yaml`,
         projectSlug,
         serviceName,
-        anthropicKey: '', // Will use server's key
       };
       if (!lmConnected) {
         context.lmToken = lmToken;
       }
+      // anthropicKey is injected server-side if the user has connected
+      // Anthropic via the Connections panel. If not, the deployed workflow
+      // will fail at first AI-node execution, which is the right failure
+      // point — surfacing it here would hide a real config issue.
 
-      // Execute the self-deploy-launchmatic workflow
+      // Step 4: kick off the execution
+      setProgress('Starting deployment…');
       const res = await fetch('/api/workflows/self-deploy-launchmatic/execute', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ context }),
       });
 
       if (!res.ok) {
-        // Fallback: use the export-style deploy
-        throw new Error('Self-deploy workflow not available. Use CLI: stirrup export');
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error?.message ?? `HTTP ${res.status}`);
       }
 
+      // Step 5: subscribe to SSE so we can show real node-by-node progress
+      // instead of waiting silently for the whole thing to finish.
       const state = await res.json();
-      if (state.status === 'completed') {
-        const deployResult = state.steps?.['build-result']?.outputs?.result ?? state;
-        setResult(deployResult as Record<string, unknown>);
-      } else {
-        setError(`Deployment ${state.status}. Check execution: ${state.executionId}`);
+      if (!state.executionId) {
+        throw new Error('No executionId returned from execute endpoint');
       }
-    } catch (err) {
-      // Fallback: show manual deploy instructions
-      setError(null);
-      setResult({
-        manual: true,
-        instructions: `Run from CLI:\n\nstirrup export workflows/${workflow.id}.yaml -o ./deploy --format docker\ncd deploy/${workflow.id}\nnpm install && npm start`,
+
+      setProgress('Running deploy steps…');
+      await new Promise<void>((resolvePromise, rejectPromise) => {
+        const unsub = subscribeToExecution(state.executionId, (type, data) => {
+          const d = data as { nodeId?: string; outputs?: Record<string, unknown>; error?: string };
+
+          if (type === 'node:start' && d.nodeId) {
+            setProgress(`Running: ${d.nodeId}`);
+          }
+
+          if (type === 'execution:complete') {
+            unsub();
+            // Try to extract a useful result payload from the known
+            // self-deploy-launchmatic step names. Fall back to the whole
+            // state if the shape is unfamiliar.
+            fetch(`/api/executions/${state.executionId}`)
+              .then((r) => r.json())
+              .then((finalState) => {
+                const steps = finalState.steps ?? {};
+                const deployStep = steps['deploy-to-launchmatic'] ?? steps['deploy'] ?? null;
+                const url =
+                  deployStep?.outputs?.url ??
+                  steps['create-service']?.outputs?.url ??
+                  null;
+                setResult({
+                  url,
+                  serviceName,
+                  projectSlug,
+                  executionId: state.executionId,
+                  steps: Object.keys(steps).length,
+                });
+                resolvePromise();
+              })
+              .catch(() => {
+                setResult({
+                  executionId: state.executionId,
+                  serviceName,
+                  projectSlug,
+                });
+                resolvePromise();
+              });
+          }
+
+          if (type === 'execution:fail' || type === 'node:fail') {
+            unsub();
+            const msg = d.error ?? (d.nodeId ? `Node ${d.nodeId} failed` : 'Deployment failed');
+            rejectPromise(new Error(msg));
+          }
+        });
+
+        // Hard timeout so a stuck deploy doesn't hang the UI forever
+        setTimeout(() => {
+          unsub();
+          rejectPromise(new Error('Deployment timed out after 10 minutes'));
+        }, 10 * 60 * 1000);
       });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeploying(false);
+      setProgress(null);
     }
   };
 
@@ -215,6 +292,22 @@ export function DeployPanel({ workflow, onClose }: Props) {
                 </ol>
               </div>
 
+              {progress && deploying && (
+                <div style={{
+                  marginTop: 10, padding: 10, borderRadius: 6,
+                  backgroundColor: `${tokens.status.running}10`,
+                  border: `1px solid ${tokens.status.running}30`,
+                  fontSize: 11, color: tokens.status.running,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{
+                    width: 12, height: 12, borderRadius: '50%',
+                    border: `2px solid ${tokens.status.running}`, borderTopColor: 'transparent',
+                    animation: 'spin 0.8s linear infinite', display: 'inline-block',
+                  }} />
+                  {progress}
+                </div>
+              )}
               {error && (
                 <div style={{ marginTop: 10, padding: 8, borderRadius: 4, backgroundColor: `${tokens.status.failed}10`, fontSize: 11, color: tokens.status.failed }}>
                   {error}
