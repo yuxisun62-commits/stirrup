@@ -1,4 +1,4 @@
-import { useCallback, useRef, useMemo, useEffect, type DragEvent } from 'react';
+import { useCallback, useRef, useMemo, useEffect, useState, type DragEvent } from 'react';
 import {
   ReactFlow,
   Background,
@@ -116,10 +116,13 @@ interface Props {
   stepStatuses: Record<string, string>;
   onAddNode: (type: string, position: { x: number; y: number }) => string;
   onAddEdge: (from: string, to: string) => void;
+  onRemoveNode: (nodeId: string) => void;
+  onRemoveEdge: (from: string, to: string) => void;
+  onUpdateEdgeCondition: (from: string, to: string, condition: string | undefined) => void;
   onSelectNode: (nodeId: string | null) => void;
 }
 
-export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, onSelectNode }: Props) {
+export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, onRemoveNode, onRemoveEdge, onUpdateEdgeCondition, onSelectNode }: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   const initialNodes: Node[] = useMemo(
@@ -219,6 +222,71 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
     event.dataTransfer.dropEffect = 'move';
   }, []);
 
+  // Delete key support — removes selected nodes and edges
+  const handleNodesDelete = useCallback(
+    (deleted: Node[]) => {
+      for (const n of deleted) onRemoveNode(n.id);
+    },
+    [onRemoveNode]
+  );
+
+  const handleEdgesDelete = useCallback(
+    (deleted: Edge[]) => {
+      for (const e of deleted) {
+        // Edge IDs are `e-${from}-${to}-${index}` — extract source/target
+        onRemoveEdge(e.source, e.target);
+      }
+    },
+    [onRemoveEdge]
+  );
+
+  // Edge condition editing — click an edge to open a small inline editor
+  const [editingEdge, setEditingEdge] = useState<{
+    id: string;
+    source: string;
+    target: string;
+    condition: string;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const handleEdgeClick = useCallback(
+    (_event: React.MouseEvent, edge: Edge) => {
+      const wfEdge = workflow.edges.find((e) => e.from === edge.source && e.to === edge.target);
+      const bounds = reactFlowWrapper.current?.getBoundingClientRect();
+      if (!bounds) return;
+      setEditingEdge({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        condition: wfEdge?.condition ?? '',
+        x: _event.clientX - bounds.left,
+        y: _event.clientY - bounds.top,
+      });
+    },
+    [workflow.edges]
+  );
+
+  const saveEdgeCondition = useCallback(() => {
+    if (!editingEdge) return;
+    const cond = editingEdge.condition.trim() || undefined;
+    onUpdateEdgeCondition(editingEdge.source, editingEdge.target, cond);
+    // Update the local edge state to show the label immediately
+    setEdges((eds) =>
+      eds.map((e) =>
+        e.id === editingEdge.id
+          ? {
+              ...e,
+              label: cond ?? undefined,
+              animated: !!cond,
+              style: { stroke: cond ? '#f59e0b80' : '#334155', strokeWidth: 2 },
+            }
+          : e
+      )
+    );
+    setEditingEdge(null);
+  }, [editingEdge, onUpdateEdgeCondition, setEdges]);
+
   return (
     <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
       <style>{`
@@ -236,7 +304,11 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
         onDrop={onDrop}
         onDragOver={onDragOver}
         onNodeClick={(_e, node) => onSelectNode(node.id)}
-        onPaneClick={() => onSelectNode(null)}
+        onPaneClick={() => { onSelectNode(null); setEditingEdge(null); }}
+        onEdgeClick={handleEdgeClick}
+        onNodesDelete={handleNodesDelete}
+        onEdgesDelete={handleEdgesDelete}
+        deleteKeyCode={['Backspace', 'Delete']}
         nodeTypes={nodeTypes}
         fitView
         style={{ backgroundColor: tokens.bg.base }}
@@ -253,6 +325,91 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
           maskColor="rgba(10, 15, 30, 0.8)"
         />
       </ReactFlow>
+
+      {/* Edge condition editor popover — appears near where the user clicked */}
+      {editingEdge && (
+        <div
+          style={{
+            position: 'absolute',
+            top: editingEdge.y - 10,
+            left: editingEdge.x - 100,
+            zIndex: 50,
+            padding: 10,
+            borderRadius: 8,
+            backgroundColor: tokens.bg.surface,
+            border: `1px solid ${tokens.border.default}`,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+            display: 'flex', flexDirection: 'column', gap: 6,
+            width: 240,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ fontSize: 10, fontWeight: 700, color: tokens.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            Edge Condition
+          </div>
+          <div style={{ fontSize: 9, color: tokens.text.muted }}>
+            {editingEdge.source} → {editingEdge.target}
+          </div>
+          <input
+            autoFocus
+            style={{
+              width: '100%', padding: '6px 8px', fontSize: 11,
+              borderRadius: 4, border: `1px solid ${tokens.border.subtle}`,
+              backgroundColor: tokens.bg.input, color: tokens.text.primary,
+              fontFamily: tokens.font.mono, outline: 'none', boxSizing: 'border-box',
+            }}
+            value={editingEdge.condition}
+            onChange={(e) =>
+              setEditingEdge((prev) => prev ? { ...prev, condition: e.target.value } : null)
+            }
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') saveEdgeCondition();
+              if (e.key === 'Escape') setEditingEdge(null);
+            }}
+            placeholder="Branch name (e.g. success, failure, even, odd)"
+          />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              onClick={saveEdgeCondition}
+              style={{
+                flex: 1, padding: '5px 10px', fontSize: 10, fontWeight: 600,
+                borderRadius: 4, border: 'none',
+                backgroundColor: tokens.border.focus, color: '#fff', cursor: 'pointer',
+              }}
+            >Save</button>
+            {editingEdge.condition && (
+              <button
+                onClick={() => {
+                  setEditingEdge((prev) => prev ? { ...prev, condition: '' } : null);
+                  // Immediately save empty = remove condition
+                  onUpdateEdgeCondition(editingEdge.source, editingEdge.target, undefined);
+                  setEdges((eds) =>
+                    eds.map((e) =>
+                      e.id === editingEdge.id
+                        ? { ...e, label: undefined, animated: false, style: { stroke: '#334155', strokeWidth: 2 } }
+                        : e
+                    )
+                  );
+                  setEditingEdge(null);
+                }}
+                style={{
+                  padding: '5px 10px', fontSize: 10, fontWeight: 600,
+                  borderRadius: 4, border: `1px solid ${tokens.border.default}`,
+                  backgroundColor: 'transparent', color: tokens.text.muted, cursor: 'pointer',
+                }}
+              >Clear</button>
+            )}
+            <button
+              onClick={() => setEditingEdge(null)}
+              style={{
+                padding: '5px 10px', fontSize: 10,
+                borderRadius: 4, border: `1px solid ${tokens.border.default}`,
+                backgroundColor: 'transparent', color: tokens.text.muted, cursor: 'pointer',
+              }}
+            >Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

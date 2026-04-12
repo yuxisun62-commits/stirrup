@@ -148,3 +148,5 @@ export function SectionHeader({ title }: { title: string }) {
     </div>
   );
 }
+
+export { inputBase, monoInput, labelStyle, selectStyle, tokens };

@@ -41,6 +41,9 @@ const AuthPanel = lazy(() =>
 const DebugPanel = lazy(() =>
   import('./components/DebugPanel').then((m) => ({ default: m.DebugPanel })),
 );
+const WorkflowParamsEditor = lazy(() =>
+  import('./components/WorkflowParamsEditor').then((m) => ({ default: m.WorkflowParamsEditor })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -55,8 +58,10 @@ function useIsMobile() {
 function App() {
   const {
     workflow, selectedNode, dirty, loadWorkflow, addNode, updateNode,
-    removeNode, addEdge, setSelectedNodeId, setDirty,
+    removeNode, addEdge, removeEdge, updateEdgeCondition, updateParams,
+    setSelectedNodeId, setDirty,
   } = useWorkflow();
+  const [showParams, setShowParams] = useState(false);
 
   const { execution, events, isRunning, run, clear } = useExecution();
   const [showTemplates, setShowTemplates] = useState(false);
@@ -244,6 +249,12 @@ function App() {
               </span>
             )}
             <div style={{ flex: 1 }} />
+            <button onClick={() => setShowParams(true)} style={{
+              padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+              border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+              color: (workflow.params?.length ?? 0) > 0 ? tokens.text.accent : tokens.text.muted,
+              cursor: 'pointer',
+            }}>Params {(workflow.params?.length ?? 0) > 0 ? `(${workflow.params!.length})` : ''}</button>
             <button onClick={() => setShowAuth(true)} style={{
               padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
@@ -280,6 +291,9 @@ function App() {
               stepStatuses={stepStatuses}
               onAddNode={addNode}
               onAddEdge={addEdge}
+              onRemoveNode={removeNode}
+              onRemoveEdge={removeEdge}
+              onUpdateEdgeCondition={updateEdgeCondition}
               onSelectNode={setSelectedNodeId}
             />
           </div>
@@ -374,6 +388,13 @@ function App() {
             />
           )}
           {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
+          {showParams && (
+            <WorkflowParamsEditor
+              params={(workflow.params ?? []) as any[]}
+              onChange={updateParams}
+              onClose={() => setShowParams(false)}
+            />
+          )}
           {showDebug && selectedNode && execution && (
             <DebugPanel
               executionId={execution.executionId}

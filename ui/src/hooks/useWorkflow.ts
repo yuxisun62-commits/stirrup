@@ -72,6 +72,23 @@ export function useWorkflow() {
     setDirty(true);
   }, []);
 
+  const updateEdgeCondition = useCallback((from: string, to: string, condition: string | undefined) => {
+    setWorkflow((prev) => ({
+      ...prev,
+      edges: prev.edges.map((e) =>
+        e.from === from && e.to === to
+          ? { ...e, condition }
+          : e
+      ),
+    }));
+    setDirty(true);
+  }, []);
+
+  const updateParams = useCallback((params: WorkflowDefinition['params']) => {
+    setWorkflow((prev) => ({ ...prev, params }));
+    setDirty(true);
+  }, []);
+
   return {
     workflow,
     selectedNode,
@@ -84,6 +101,8 @@ export function useWorkflow() {
     removeNode,
     addEdge,
     removeEdge,
+    updateEdgeCondition,
+    updateParams,
     setSelectedNodeId,
     setDirty,
   };
