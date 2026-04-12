@@ -131,7 +131,12 @@ export function AuthPanel({ onClose }: Props) {
   const [storeLocation, setStoreLocation] = useState<string>('');
   const [cliDetection, setCliDetection] = useState<Record<string, CliDetection>>({});
   const [authingService, setAuthingService] = useState<string | null>(null);
-  const [authPrompt, setAuthPrompt] = useState<{ service: string; userCode: string } | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<{
+    service: string;
+    userCode: string;
+    verificationUri: string;
+  } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [pasteFor, setPasteFor] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -186,10 +191,21 @@ export function AuthPanel({ onClose }: Props) {
   const startOauth = async (service: string) => {
     setAuthingService(service);
     setError(null);
+    setCodeCopied(false);
     try {
       const flow = await startAuthFlow(service);
-      setAuthPrompt({ service, userCode: flow.userCode });
-      window.open(flow.verificationUri, '_blank');
+
+      // IMPORTANT: do NOT auto-open the verification URL here. We're inside
+      // an async callback that has already awaited startAuthFlow, so any
+      // window.open() call now is considered detached from the user gesture
+      // and gets blocked by Safari (always) and Chrome (sometimes). The UI
+      // instead shows a prominent "Open GitHub" button the user clicks —
+      // that click is a fresh user gesture, so popups always work.
+      setAuthPrompt({
+        service,
+        userCode: flow.userCode,
+        verificationUri: flow.verificationUri,
+      });
 
       const interval = (flow.interval ?? 5) * 1000;
       let pollDelay = interval;
@@ -211,6 +227,24 @@ export function AuthPanel({ onClose }: Props) {
       setAuthPrompt(null);
       setAuthingService(null);
     }
+  };
+
+  /**
+   * Copy the user code to clipboard AND open the verification URL in a new
+   * tab. Both happen inside the direct user click, so the popup always
+   * opens and the clipboard write always succeeds.
+   */
+  const copyCodeAndOpen = async () => {
+    if (!authPrompt) return;
+    try {
+      await navigator.clipboard.writeText(authPrompt.userCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      // Clipboard write can fail in insecure contexts — not fatal, user
+      // can still select and copy manually
+    }
+    window.open(authPrompt.verificationUri, '_blank', 'noopener,noreferrer');
   };
 
   const handleSaveToken = async (service: string) => {
@@ -277,24 +311,49 @@ export function AuthPanel({ onClose }: Props) {
             padding: 16, borderBottom: `1px solid ${tokens.border.subtle}`,
             backgroundColor: `${tokens.nodeColors['llm-prompt']}10`,
           }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, marginBottom: 4 }}>
               Authenticating with {authPrompt.service}
             </div>
-            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 8 }}>
-              A browser tab opened. Enter this code to continue:
+            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 10 }}>
+              Click <b>Open GitHub</b>, then paste this code on the page that opens:
             </div>
             <div style={{
-              fontSize: 22, fontWeight: 800, fontFamily: tokens.font.mono,
+              fontSize: 24, fontWeight: 800, fontFamily: tokens.font.mono,
               color: tokens.nodeColors['llm-prompt'], letterSpacing: 4,
-              textAlign: 'center', padding: 12, borderRadius: 6,
+              textAlign: 'center', padding: 14, borderRadius: 6,
               backgroundColor: tokens.bg.input, border: `1px solid ${tokens.border.subtle}`,
               userSelect: 'all',
+              marginBottom: 10,
             }}>
               {authPrompt.userCode}
             </div>
-            <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 6 }}>
-              Waiting for authorization...
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={copyCodeAndOpen}
+                style={{
+                  flex: 1, padding: '9px 14px', fontSize: 12, fontWeight: 700, borderRadius: 6,
+                  border: 'none',
+                  background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
+                  color: '#fff', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}
+              >
+                {codeCopied ? 'Code copied — opening GitHub…' : 'Copy code & open GitHub'}
+              </button>
             </div>
+            <div style={{
+              fontSize: 10, color: tokens.text.muted, marginTop: 8,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                backgroundColor: tokens.status.running,
+                animation: 'pulse 1.5s ease-in-out infinite',
+                display: 'inline-block',
+              }} />
+              Waiting for you to authorize on GitHub…
+            </div>
+            <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
           </div>
         )}
 

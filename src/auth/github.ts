@@ -5,8 +5,10 @@
  */
 import { setToken } from "./tokenStore.js";
 
-// GitHub CLI's public client ID (Device Flow enabled, no secret required)
-const GH_CLIENT_ID = "178c6fc778ccc68e1d6a";
+// GitHub CLI's public client ID (Device Flow enabled, no secret required).
+// Exported so other modules (e.g., src/server/routes/auth.ts) can reference
+// a single source of truth instead of hardcoding the string.
+export const GH_CLIENT_ID = "178c6fc778ccc68e1d6a";
 
 interface DeviceCodeResponse {
   device_code: string;

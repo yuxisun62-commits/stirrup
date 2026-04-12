@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { listTokens, removeToken, getToken, getTokenStoreLocation } from "../../auth/tokenStore.js";
-import { startGithubDeviceFlow, getGithubUser } from "../../auth/github.js";
+import { startGithubDeviceFlow, getGithubUser, GH_CLIENT_ID } from "../../auth/github.js";
 import { setToken } from "../../auth/tokenStore.js";
 import {
   detectLaunchmaticCli, createLaunchmaticApiKey,
@@ -450,7 +450,7 @@ export function authRoutes(): Router {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         body: JSON.stringify({
-          client_id: "178c6fc778ccc68e1d6a",
+          client_id: GH_CLIENT_ID,
           device_code: deviceCode,
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         }),

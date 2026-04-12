@@ -92,14 +92,20 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
     }
   };
 
+  const [codeCopied, setCodeCopied] = useState(false);
+
   const startAuth = async (service: string) => {
     setAuthingService(service);
+    setCodeCopied(false);
     try {
       const flow = await startAuthFlow(service);
+      // IMPORTANT: do NOT auto-open the verification URL here. This runs
+      // after an async await, so the browser considers the click gesture
+      // stale and popup blockers kick in (Safari always, Chrome sometimes).
+      // The prompt below shows a "Copy code & open GitHub" button the user
+      // clicks themselves — that's a fresh user gesture, so popups always
+      // open and clipboard writes always succeed.
       setAuthPrompt({ service, userCode: flow.userCode, verificationUri: flow.verificationUri });
-
-      // Open browser
-      window.open(flow.verificationUri, '_blank');
 
       // Poll until completed or expired
       const interval = (flow.interval ?? 5) * 1000;
@@ -127,6 +133,20 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
       setAuthPrompt(null);
       setAuthingService(null);
     }
+  };
+
+  /** Copy code + open verification URL inside the user gesture so popup
+      blockers don't fire. See comment in startAuth above. */
+  const copyCodeAndOpen = async () => {
+    if (!authPrompt) return;
+    try {
+      await navigator.clipboard.writeText(authPrompt.userCode);
+      setCodeCopied(true);
+      setTimeout(() => setCodeCopied(false), 2000);
+    } catch {
+      // Clipboard failures in insecure contexts are non-fatal
+    }
+    window.open(authPrompt.verificationUri, '_blank', 'noopener,noreferrer');
   };
 
   const handleRun = () => {
@@ -188,24 +208,46 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
             padding: 16, borderBottom: `1px solid ${tokens.border.subtle}`,
             backgroundColor: `${tokens.nodeColors['llm-prompt']}10`,
           }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, marginBottom: 6 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: tokens.text.primary, marginBottom: 4 }}>
               Authenticating with {authPrompt.service}
             </div>
-            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 8 }}>
-              A browser tab opened. Enter this code to continue:
+            <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 10 }}>
+              Click <b>Open GitHub</b>, then paste this code on the page that opens:
             </div>
             <div style={{
-              fontSize: 22, fontWeight: 800, fontFamily: tokens.font.mono,
+              fontSize: 24, fontWeight: 800, fontFamily: tokens.font.mono,
               color: tokens.nodeColors['llm-prompt'], letterSpacing: 4,
-              textAlign: 'center', padding: 12, borderRadius: 6,
+              textAlign: 'center', padding: 14, borderRadius: 6,
               backgroundColor: tokens.bg.input, border: `1px solid ${tokens.border.subtle}`,
               userSelect: 'all',
+              marginBottom: 10,
             }}>
               {authPrompt.userCode}
             </div>
-            <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 6 }}>
-              Waiting for authorization...
+            <button
+              onClick={copyCodeAndOpen}
+              style={{
+                width: '100%', padding: '9px 14px', fontSize: 12, fontWeight: 700, borderRadius: 6,
+                border: 'none',
+                background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}, ${tokens.nodeColors['decision-routing']})`,
+                color: '#fff', cursor: 'pointer',
+              }}
+            >
+              {codeCopied ? 'Code copied — opening GitHub…' : 'Copy code & open GitHub'}
+            </button>
+            <div style={{
+              fontSize: 10, color: tokens.text.muted, marginTop: 8,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <span style={{
+                width: 8, height: 8, borderRadius: '50%',
+                backgroundColor: tokens.status.running,
+                animation: 'pulse 1.5s ease-in-out infinite',
+                display: 'inline-block',
+              }} />
+              Waiting for you to authorize on GitHub…
             </div>
+            <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
           </div>
         )}
 
