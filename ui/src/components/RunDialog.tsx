@@ -85,6 +85,10 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
     try {
       const result = await saveServiceToken(service, pasteTokenValue.trim());
       setAuthStatus((s) => ({ ...s, [service]: { authenticated: true, userName: result.userName } }));
+      if (result.warning) {
+        // Saved but wrong format — alert so user can fix before running
+        alert(`Warning: ${result.warning}`);
+      }
       setPasteTokenFor(null);
       setPasteTokenValue('');
     } catch (err) {

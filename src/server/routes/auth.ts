@@ -512,6 +512,49 @@ export function authRoutes(): Router {
     }
   });
 
+  /**
+   * Per-service token format hints. Returns a warning string if the token
+   * looks like the wrong type for the service. Does NOT block the save —
+   * unusual formats might still work (e.g., legacy tokens without known
+   * prefixes), and blocking would be frustrating. The UI shows the warning
+   * so the user can correct before wasting time on a failed workflow run.
+   */
+  function validateTokenFormat(service: string, token: string): string | null {
+    switch (service) {
+      case "slack":
+        if (token.startsWith("xoxb-") || token.startsWith("xoxp-")) return null; // correct
+        if (token.startsWith("xapp-")) {
+          return "This looks like a Slack App-Level Token (xapp-...). Stirrup needs a Bot User OAuth Token (xoxb-...) to post messages. Find it under OAuth & Permissions in your Slack app settings.";
+        }
+        if (token.startsWith("xoxe-") || token.startsWith("xoxr-")) {
+          return "This looks like a Slack internal token. Stirrup needs a Bot User OAuth Token (xoxb-...).";
+        }
+        if (!token.startsWith("xox")) {
+          return "Slack tokens usually start with xoxb- (bot) or xoxp- (user). This doesn't look like a standard Slack token.";
+        }
+        return null;
+
+      case "github":
+        if (token.startsWith("ghp_") || token.startsWith("github_pat_") || token.startsWith("gho_") || token.startsWith("ghs_")) return null;
+        if (token.length < 20) return "GitHub tokens are typically 40+ characters. This seems too short.";
+        return null;
+
+      case "anthropic":
+        if (token.startsWith("sk-ant-")) return null;
+        return "Anthropic API keys start with sk-ant-. This doesn't match — double-check the key from console.anthropic.com.";
+
+      case "stripe":
+        if (token.startsWith("sk_live_") || token.startsWith("sk_test_") || token.startsWith("rk_live_") || token.startsWith("rk_test_")) return null;
+        if (token.startsWith("pk_live_") || token.startsWith("pk_test_")) {
+          return "This looks like a Stripe Publishable Key (pk_...). Stirrup needs a Secret Key (sk_...) for server-side API calls.";
+        }
+        return null;
+
+      default:
+        return null;
+    }
+  }
+
   // Save a manual token (for services without OAuth, or BYO tokens)
   router.post("/token/:service", (req, res) => {
     const service = req.params.service;
@@ -520,11 +563,14 @@ export function authRoutes(): Router {
       res.status(400).json({ error: { code: "INVALID_TOKEN", message: "Token is required and must be at least 8 characters" } });
       return;
     }
+
+    const warning = validateTokenFormat(service, token);
+
     setToken(service, {
       accessToken: token,
       userName: userName ?? undefined,
     });
-    res.json({ saved: true, service, userName });
+    res.json({ saved: true, service, userName, warning: warning ?? undefined });
   });
 
   // Logout

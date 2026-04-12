@@ -140,6 +140,7 @@ export function AuthPanel({ onClose }: Props) {
   const [pasteFor, setPasteFor] = useState<string | null>(null);
   const [pasteValue, setPasteValue] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [tokenWarning, setTokenWarning] = useState<string | null>(null);
 
   const refresh = () => {
     getAuthStatus().then((res) => {
@@ -249,11 +250,19 @@ export function AuthPanel({ onClose }: Props) {
 
   const handleSaveToken = async (service: string) => {
     if (!pasteValue.trim()) return;
+    setTokenWarning(null);
     try {
-      await saveServiceToken(service, pasteValue.trim());
-      setPasteFor(null);
-      setPasteValue('');
-      refresh();
+      const result = await saveServiceToken(service, pasteValue.trim());
+      if (result.warning) {
+        // Token was saved but the format looks wrong — show warning
+        // but don't close the paste form so the user can replace it
+        setTokenWarning(result.warning);
+        refresh(); // Still refresh so the card updates to "connected"
+      } else {
+        setPasteFor(null);
+        setPasteValue('');
+        refresh();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -564,6 +573,16 @@ export function AuthPanel({ onClose }: Props) {
                         }}
                       >Cancel</button>
                     </div>
+                    {tokenWarning && (
+                      <div style={{
+                        marginTop: 8, padding: 8, borderRadius: 4,
+                        backgroundColor: `${tokens.status.paused}10`,
+                        border: `1px solid ${tokens.status.paused}30`,
+                        fontSize: 11, color: tokens.status.paused, lineHeight: 1.4,
+                      }}>
+                        {tokenWarning}
+                      </div>
+                    )}
                     <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 6 }}>
                       Saved to ~/.stirrup/tokens.json (0600 permissions)
                     </div>

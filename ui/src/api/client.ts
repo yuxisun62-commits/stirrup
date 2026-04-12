@@ -91,7 +91,7 @@ export const pollAuthFlow = (service: string, deviceCode: string) =>
     { method: 'POST', body: JSON.stringify({ deviceCode }) }
   );
 export const saveServiceToken = (service: string, token: string, userName?: string) =>
-  request<{ saved: boolean; service: string; userName?: string }>(`/auth/token/${service}`, {
+  request<{ saved: boolean; service: string; userName?: string; warning?: string }>(`/auth/token/${service}`, {
     method: 'POST',
     body: JSON.stringify({ token, userName }),
   });
