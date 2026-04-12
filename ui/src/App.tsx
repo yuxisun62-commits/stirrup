@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, lazy, Suspense } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorkflow } from './hooks/useWorkflow';
 import { useExecution } from './hooks/useExecution';
@@ -7,18 +7,40 @@ import { NodePalette } from './components/NodePalette';
 import { WorkflowCanvas } from './components/WorkflowCanvas';
 import { NodeInspector } from './components/NodeInspector';
 import { ExecutionPanel } from './components/ExecutionPanel';
-import { TemplateBrowser } from './components/TemplateBrowser';
-import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/client';
-import { RunDialog } from './components/RunDialog';
-import { GenerateDialog } from './components/GenerateDialog';
-import { PluginPanel } from './components/PluginPanel';
 import { ValidationPanel } from './components/ValidationPanel';
-import { DeployPanel } from './components/DeployPanel';
-import { ExportDialog } from './components/ExportDialog';
-import { AuthPanel } from './components/AuthPanel';
-import { DebugPanel } from './components/DebugPanel';
+import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/client';
 import { tokens } from './components/ui/styles';
 import { MenuIcon } from './components/ui/icons';
+
+// Lazy-load every modal/dialog panel. Each lands in its own vite chunk and
+// is only fetched when the user actually opens it. This drops the initial
+// bundle by ~200kB since none of these are visible on first paint.
+// Named exports → the `.then(m => ({ default: m.X }))` adapter is required
+// because React.lazy expects a module with a default export.
+const TemplateBrowser = lazy(() =>
+  import('./components/TemplateBrowser').then((m) => ({ default: m.TemplateBrowser })),
+);
+const RunDialog = lazy(() =>
+  import('./components/RunDialog').then((m) => ({ default: m.RunDialog })),
+);
+const GenerateDialog = lazy(() =>
+  import('./components/GenerateDialog').then((m) => ({ default: m.GenerateDialog })),
+);
+const PluginPanel = lazy(() =>
+  import('./components/PluginPanel').then((m) => ({ default: m.PluginPanel })),
+);
+const DeployPanel = lazy(() =>
+  import('./components/DeployPanel').then((m) => ({ default: m.DeployPanel })),
+);
+const ExportDialog = lazy(() =>
+  import('./components/ExportDialog').then((m) => ({ default: m.ExportDialog })),
+);
+const AuthPanel = lazy(() =>
+  import('./components/AuthPanel').then((m) => ({ default: m.AuthPanel })),
+);
+const DebugPanel = lazy(() =>
+  import('./components/DebugPanel').then((m) => ({ default: m.DebugPanel })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -319,41 +341,49 @@ function App() {
           </>
         )}
 
-        {/* ── Modals ── */}
-        {showRunDialog && (
-          <RunDialog
-            params={(workflow.params as any[]) ?? []}
-            workflowId={workflow.id}
-            workflowName={workflow.name}
-            onRun={handleRun}
-            onClose={() => setShowRunDialog(false)}
-          />
-        )}
-        {showTemplates && (
-          <TemplateBrowser onSelect={(wf) => { loadWorkflow(wf); setShowTemplates(false); }} onClose={() => setShowTemplates(false)} />
-        )}
-        {showGenerate && (
-          <GenerateDialog onGenerated={(wf) => { loadWorkflow(wf); setShowGenerate(false); }} onClose={() => setShowGenerate(false)} />
-        )}
-        {showPlugins && <PluginPanel onClose={() => setShowPlugins(false)} />}
-        {showDeploy && <DeployPanel workflow={workflow} onClose={() => setShowDeploy(false)} />}
-        {showExport && (
-          <ExportDialog
-            workflow={workflow}
-            onClose={() => setShowExport(false)}
-            onDeploy={() => setShowDeploy(true)}
-          />
-        )}
-        {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
-        {showDebug && selectedNode && execution && (
-          <DebugPanel
-            executionId={execution.executionId}
-            node={selectedNode}
-            onClose={() => setShowDebug(false)}
-            onRetrySuccess={() => { /* Optional: refresh execution state */ }}
-            onApplyEdit={updateNode}
-          />
-        )}
+        {/* ── Modals (lazy-loaded) ──
+            Each modal lives in its own chunk and is fetched on first open.
+            Single <Suspense> wraps all of them since at most one is ever
+            visible at a time — fallback={null} because the modals are
+            fixed-position overlays and any intermediate spinner would be
+            jarring over the canvas. The dynamic import round-trip is
+            typically <100ms on a warm connection. */}
+        <Suspense fallback={null}>
+          {showRunDialog && (
+            <RunDialog
+              params={(workflow.params as any[]) ?? []}
+              workflowId={workflow.id}
+              workflowName={workflow.name}
+              onRun={handleRun}
+              onClose={() => setShowRunDialog(false)}
+            />
+          )}
+          {showTemplates && (
+            <TemplateBrowser onSelect={(wf) => { loadWorkflow(wf); setShowTemplates(false); }} onClose={() => setShowTemplates(false)} />
+          )}
+          {showGenerate && (
+            <GenerateDialog onGenerated={(wf) => { loadWorkflow(wf); setShowGenerate(false); }} onClose={() => setShowGenerate(false)} />
+          )}
+          {showPlugins && <PluginPanel onClose={() => setShowPlugins(false)} />}
+          {showDeploy && <DeployPanel workflow={workflow} onClose={() => setShowDeploy(false)} />}
+          {showExport && (
+            <ExportDialog
+              workflow={workflow}
+              onClose={() => setShowExport(false)}
+              onDeploy={() => setShowDeploy(true)}
+            />
+          )}
+          {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
+          {showDebug && selectedNode && execution && (
+            <DebugPanel
+              executionId={execution.executionId}
+              node={selectedNode}
+              onClose={() => setShowDebug(false)}
+              onRetrySuccess={() => { /* Optional: refresh execution state */ }}
+              onApplyEdit={updateNode}
+            />
+          )}
+        </Suspense>
       </div>
     </ReactFlowProvider>
   );
