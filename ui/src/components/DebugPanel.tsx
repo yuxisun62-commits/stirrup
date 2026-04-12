@@ -21,13 +21,29 @@ interface Props {
 }
 
 /**
+ * Prototype-pollution guards. setAtPath walks a user-specified path and
+ * will happily set `obj.__proto__.polluted = true` if the AI suggests that
+ * path — corrupting the prototype chain and potentially granting false
+ * authorizations downstream. These segment names are never legitimate
+ * targets for a workflow config edit.
+ */
+const FORBIDDEN_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
  * Set a value at a dot-path inside a target object, returning a shallow-
  * cloned copy so React state updates don't mutate through references.
  * Handles paths like 'config.url', 'config.headers.Authorization',
  * 'retry.maxAttempts'.
+ *
+ * Throws if any path segment is a prototype-pollution vector.
  */
 function setAtPath(target: Record<string, unknown>, path: string, value: unknown): Record<string, unknown> {
   const keys = path.split('.');
+  for (const key of keys) {
+    if (FORBIDDEN_PATH_SEGMENTS.has(key)) {
+      throw new Error(`Refusing to set forbidden path segment: ${key}`);
+    }
+  }
   const root: Record<string, unknown> = { ...target };
   let cursor: Record<string, unknown> = root;
   for (let i = 0; i < keys.length - 1; i++) {
@@ -82,8 +98,11 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
       const res = await analyzeFailure(executionId, node.id);
       setAnalysis(res.analysis);
       setSuggestedEdits(res.suggestedEdits ?? []);
-      // Pre-approve all suggested edits by default — user can untick
-      setApprovedEdits(new Set((res.suggestedEdits ?? []).map((_, i) => i)));
+      // Default to UNAPPROVED so the user must consciously tick each edit
+      // before applying. The AI may have been steered by prompt injection
+      // via untrusted content in the workflow's error/output, so auto-
+      // approval is not safe.
+      setApprovedEdits(new Set());
     } catch (err) {
       setAnalysis(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -107,27 +126,35 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
     }
 
     const updates: Partial<WorkflowNode> = {};
-    for (const [root, edits] of Object.entries(byRoot)) {
-      if (root === 'config') {
-        let nextConfig: Record<string, unknown> = { ...(node.config ?? {}) };
-        for (const e of edits) {
-          const subPath = e.field.slice('config.'.length);
-          nextConfig = setAtPath(nextConfig, subPath, e.suggestedValue);
+    try {
+      for (const [root, edits] of Object.entries(byRoot)) {
+        if (root === 'config') {
+          let nextConfig: Record<string, unknown> = { ...(node.config ?? {}) };
+          for (const e of edits) {
+            const subPath = e.field.slice('config.'.length);
+            nextConfig = setAtPath(nextConfig, subPath, e.suggestedValue);
+          }
+          updates.config = nextConfig;
+        } else if (root === 'retry') {
+          let nextRetry: Record<string, unknown> = { ...(node.retry ?? {}) };
+          for (const e of edits) {
+            const subPath = e.field.slice('retry.'.length);
+            nextRetry = setAtPath(nextRetry, subPath, e.suggestedValue);
+          }
+          // Type assertion: the validator rejects retry edits that don't match shape
+          updates.retry = nextRetry as WorkflowNode['retry'];
+        } else if (root === 'description') {
+          updates.description = String(edits[edits.length - 1].suggestedValue ?? '');
+        } else if (root === 'name') {
+          updates.name = String(edits[edits.length - 1].suggestedValue ?? '');
         }
-        updates.config = nextConfig;
-      } else if (root === 'retry') {
-        let nextRetry: Record<string, unknown> = { ...(node.retry ?? {}) };
-        for (const e of edits) {
-          const subPath = e.field.slice('retry.'.length);
-          nextRetry = setAtPath(nextRetry, subPath, e.suggestedValue);
-        }
-        // Type assertion: the validator rejects retry edits that don't match shape
-        updates.retry = nextRetry as WorkflowNode['retry'];
-      } else if (root === 'description') {
-        updates.description = String(edits[edits.length - 1].suggestedValue ?? '');
-      } else if (root === 'name') {
-        updates.name = String(edits[edits.length - 1].suggestedValue ?? '');
       }
+    } catch (err) {
+      // setAtPath throws on forbidden path segments (prototype pollution guard).
+      // Surface the error instead of silently swallowing it — the user has
+      // approved something the AI shouldn't have suggested.
+      setError(`Refused to apply edits: ${err instanceof Error ? err.message : String(err)}`);
+      return;
     }
 
     onApplyEdit(node.id, updates);
@@ -329,6 +356,16 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
                             }}>
                               {approvedEdits.size} / {suggestedEdits.length} approved
                             </span>
+                          </div>
+                          <div style={{
+                            marginBottom: 8, padding: '6px 8px', borderRadius: 4,
+                            backgroundColor: `${tokens.status.paused}10`,
+                            border: `1px solid ${tokens.status.paused}30`,
+                            fontSize: 10, color: tokens.text.secondary, lineHeight: 1.4,
+                          }}>
+                            <b>Review each edit before approving.</b> If your workflow fetches
+                            external content (webhooks, web pages, RSS), a crafted payload could
+                            steer the AI's suggestions. Tick only the edits you understand and trust.
                           </div>
 
                           {suggestedEdits.map((edit, i) => {

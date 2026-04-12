@@ -1,13 +1,59 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
 import type { WorkflowEngine } from "../../engine/Engine.js";
+import type { WorkflowDefinition } from "../../types/workflow.js";
+
+/**
+ * Identify the param names that carry service-backed credentials. Tokens are
+ * injected into context under these names by executions.ts and the engine,
+ * so they show up in resolvedInputs, config (if referenced by a template
+ * string), and state.context. We redact them before:
+ *   - returning the debug inspect payload to the browser (M-4)
+ *   - embedding anything in the AI analyze prompt sent to Anthropic (H-1)
+ */
+function getTokenKeys(workflow: WorkflowDefinition | undefined): Set<string> {
+  const keys = new Set<string>();
+  if (!workflow?.params) return keys;
+  for (const p of workflow.params) {
+    if (p.service) keys.add(p.name);
+    // Also catch conventional token-like param names as a fallback defense
+    // for templates that may not declare `service: X` but still hold secrets.
+    if (/token|secret|password|api[_-]?key|credential/i.test(p.name)) keys.add(p.name);
+  }
+  return keys;
+}
+
+/** Recursively redact token values at any depth in a nested object. */
+function redactTokens(value: unknown, tokenKeys: Set<string>): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => redactTokens(v, tokenKeys));
+  if (typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (tokenKeys.has(k)) {
+        out[k] = "[REDACTED]";
+      } else {
+        out[k] = redactTokens(v, tokenKeys);
+      }
+    }
+    return out;
+  }
+  return value;
+}
 
 export function debugRoutes(engine: WorkflowEngine): Router {
   const router = Router();
 
+  // Helper: look up the workflow definition for a running execution
+  const getWorkflow = (workflowId: string): WorkflowDefinition | undefined => {
+    const workflows = (engine as unknown as { workflows: Map<string, WorkflowDefinition> }).workflows;
+    return workflows.get(workflowId);
+  };
+
   /**
    * Inspect a failed node: returns resolved inputs, current config, and the step result
-   * from the most recent execution.
+   * from the most recent execution. Tokens are redacted server-side so they
+   * never reach the browser.
    */
   router.get("/executions/:executionId/nodes/:nodeId", async (req, res) => {
     const { executionId, nodeId } = req.params;
@@ -17,14 +63,16 @@ export function debugRoutes(engine: WorkflowEngine): Router {
         res.status(404).json({ error: { code: "NOT_FOUND", message: "Execution not found" } });
         return;
       }
+      const workflow = getWorkflow(state.workflowId);
+      const tokenKeys = getTokenKeys(workflow);
       const step = state.steps[nodeId];
       const info = await engine.getNodeInputs(executionId, nodeId);
       res.json({
         step,
-        resolvedInputs: info.resolvedInputs,
+        resolvedInputs: redactTokens(info.resolvedInputs, tokenKeys),
         mappings: info.mappings,
-        config: info.config,
-        context: state.context,
+        config: redactTokens(info.config, tokenKeys),
+        context: redactTokens(state.context, tokenKeys),
       });
     } catch (err) {
       res.status(500).json({ error: { code: "DEBUG_FAILED", message: (err as Error).message } });
@@ -75,9 +123,16 @@ export function debugRoutes(engine: WorkflowEngine): Router {
       }
 
       const info = await engine.getNodeInputs(executionId, nodeId);
-      const workflows = (engine as any).workflows as Map<string, import("../../types/workflow.js").WorkflowDefinition>;
-      const workflow = workflows.get(state.workflowId);
+      const workflow = getWorkflow(state.workflowId);
       const node = workflow?.nodes.find((n) => n.id === nodeId);
+
+      // Redact tokens before embedding in the prompt. This keeps stored
+      // credentials from ever being sent to Anthropic. The analysis quality
+      // is unaffected — Claude can still diagnose auth failures based on
+      // the error message, just can't see the actual token values.
+      const tokenKeys = getTokenKeys(workflow);
+      const redactedConfig = redactTokens(info.config, tokenKeys) as Record<string, unknown>;
+      const redactedInputs = redactTokens(info.resolvedInputs, tokenKeys) as Record<string, unknown>;
 
       const client = new Anthropic();
       const response = await client.messages.create({
@@ -118,7 +173,7 @@ Output ONLY the JSON object. No markdown fences, no preamble, no explanation out
 
 **Config:**
 \`\`\`json
-${JSON.stringify(info.config, null, 2)}
+${JSON.stringify(redactedConfig, null, 2)}
 \`\`\`
 
 **Input mappings:**
@@ -126,9 +181,9 @@ ${JSON.stringify(info.config, null, 2)}
 ${JSON.stringify(info.mappings, null, 2)}
 \`\`\`
 
-**Resolved inputs (what the node actually received):**
+**Resolved inputs (what the node actually received — credentials shown as [REDACTED]):**
 \`\`\`json
-${JSON.stringify(info.resolvedInputs, null, 2)}
+${JSON.stringify(redactedInputs, null, 2)}
 \`\`\`
 
 **Error:**
@@ -165,7 +220,12 @@ Return the JSON response as specified.`,
           const parsed = JSON.parse(cleaned);
           if (typeof parsed.analysis === "string") analysis = parsed.analysis;
           if (Array.isArray(parsed.suggestedEdits)) {
-            // Validate each edit has the required shape and a safe field path
+            // Validate each edit has the required shape and a safe field path.
+            // Prototype-pollution guard: reject any path whose segments
+            // include __proto__, constructor, or prototype. These pass the
+            // "starts with config." check but would poison downstream
+            // property lookups if applied.
+            const FORBIDDEN_PATH_SEGMENTS = new Set(["__proto__", "constructor", "prototype"]);
             suggestedEdits = parsed.suggestedEdits.filter((e: unknown) => {
               if (!e || typeof e !== "object") return false;
               const edit = e as Record<string, unknown>;
@@ -178,6 +238,10 @@ Return the JSON response as specified.`,
                 field !== "description" &&
                 field !== "name"
               ) {
+                return false;
+              }
+              // Reject any dot-path segment that would enable prototype pollution
+              if (field.split(".").some((seg) => FORBIDDEN_PATH_SEGMENTS.has(seg))) {
                 return false;
               }
               if (typeof edit.reason !== "string") return false;

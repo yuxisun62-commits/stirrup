@@ -15,7 +15,7 @@ import { exportRoutes } from "./routes/export.js";
 import { authRoutes } from "./routes/auth.js";
 import { debugRoutes } from "./routes/debug.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { authMiddleware } from "./middleware/auth.js";
+import { authMiddleware, hostCheckMiddleware, csrfMiddleware } from "./middleware/auth.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -36,8 +36,18 @@ export function createServer(options: ServerOptions) {
   app.use(cors({ origin: process.env.STIRRUP_CORS_ORIGIN ?? "http://localhost:3710" }));
   app.use(express.json());
 
+  // DNS rebinding protection — rejects requests with unexpected Host headers.
+  // Runs before authMiddleware so it applies to health check too (except /health).
+  app.use(hostCheckMiddleware);
+
   // Authentication
   app.use("/api", authMiddleware);
+
+  // CSRF protection for state-changing /api/auth routes. Blocks cross-origin
+  // POSTs that a malicious webpage in the user's browser could use to abuse
+  // endpoints like /api/auth/cli-login (which spawns subprocesses) or
+  // /api/auth/token/:service (which persists credentials).
+  app.use("/api/auth", csrfMiddleware);
 
   // API routes
   app.use("/api/workflows", workflowRoutes(engine, workflowsDir));

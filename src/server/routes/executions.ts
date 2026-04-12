@@ -2,6 +2,7 @@ import { Router } from "express";
 import type { WorkflowEngine } from "../../engine/Engine.js";
 import type { WorkflowDefinition, WorkflowParam } from "../../types/workflow.js";
 import { getToken } from "../../auth/tokenStore.js";
+import { assertUuid } from "../../validation/pathSafety.js";
 
 /**
  * Enrich an execution context by injecting stored credentials for any workflow
@@ -161,7 +162,18 @@ export function executionRoutes(engine: WorkflowEngine): Router {
   // Delete execution
   router.delete("/executions/:id", async (req, res, next) => {
     try {
-      const store = (engine as any).stateStore;
+      // Validate the execution ID is a UUID before touching the filesystem.
+      // FileStateStore already validates internally, but it throws a 500 —
+      // checking here returns a cleaner 400 for bad input and fails fast.
+      try {
+        assertUuid(req.params.id);
+      } catch {
+        res.status(400).json({
+          error: { code: "INVALID_ID", message: "Execution ID must be a valid UUID" },
+        });
+        return;
+      }
+      const store = (engine as unknown as { stateStore: { delete: (id: string) => Promise<void> } }).stateStore;
       await store.delete(req.params.id);
       res.json({ ok: true });
     } catch (err) {

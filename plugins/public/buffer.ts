@@ -89,7 +89,11 @@ function bufferApi(token: string) {
     const res = await fetch(url.toString(), init);
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
-      throw new Error(`Buffer API ${res.status}: ${errBody.slice(0, 300)}`);
+      // Scrub the access_token out of the error body before surfacing it.
+      // Buffer's API echoes the query string on some error shapes, which
+      // would otherwise expose the token in logs and UI error messages.
+      const scrubbed = errBody.replace(/access_token=[^&\s"']+/g, "access_token=[REDACTED]");
+      throw new Error(`Buffer API ${res.status}: ${scrubbed.slice(0, 300)}`);
     }
     return (await res.json()) as Record<string, unknown>;
   };

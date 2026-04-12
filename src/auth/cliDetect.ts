@@ -156,6 +156,16 @@ function extractToken(output: string): string | null {
 
 /** Use the local Launchmatic CLI to create a new API key (or reuse existing) */
 export async function createLaunchmaticApiKey(name: string = "stirrup"): Promise<string> {
+  // On Windows we invoke this through cmd.exe (shell:true) so PATHEXT resolves
+  // the .cmd shim. That means ANY characters in `name` go through the shell —
+  // e.g. `&`, `|`, `;`, `>`, or spaces enable command injection. All current
+  // callers pass hardcoded "stirrup", but enforce an allowlist here so any
+  // future caller passing user-controlled input fails loud instead of silent.
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(name)) {
+    throw new Error(
+      `Invalid Launchmatic API key name: ${JSON.stringify(name)}. Must match /^[a-zA-Z0-9_-]{1,64}$/.`
+    );
+  }
   try {
     const { stdout, stderr } = await execFileAsync("lm", ["api-key", "create", name], { timeout: 10000, ...cliExecOpts });
     const output = (stdout + stderr).trim();

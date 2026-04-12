@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { createHash } from "node:crypto";
 import { listTokens, removeToken, getToken, getTokenStoreLocation } from "../../auth/tokenStore.js";
 import { startGithubDeviceFlow, getGithubUser, GH_CLIENT_ID } from "../../auth/github.js";
 import { setToken } from "../../auth/tokenStore.js";
@@ -311,8 +312,12 @@ export function authRoutes(): Router {
       return;
     }
 
-    // Cache key includes the userId so multiple users on the same install don't see each other's repos
-    const cacheKey = stored.userId ?? "default";
+    // Cache key is a hash of the access token itself. Previously this was
+    // `userId ?? "default"` which collapsed all tokens-without-userId to a
+    // single "default" bucket, leaking repo lists across different stored
+    // tokens in multi-user installs. A token hash guarantees each distinct
+    // token gets its own cache entry and never collides.
+    const cacheKey = createHash("sha256").update(stored.accessToken).digest("hex").slice(0, 16);
     const cached = githubRepoCache.get(cacheKey);
     if (cached && Date.now() - cached.fetchedAt < REPO_CACHE_TTL_MS) {
       res.json({ repos: cached.repos, cached: true });
@@ -333,10 +338,18 @@ export function authRoutes(): Router {
       );
       if (!ghRes.ok) {
         const body = await ghRes.text().catch(() => "");
+        // Scrub any accidental token-shaped substrings before forwarding
+        // to the client. GitHub doesn't normally include the token in error
+        // bodies, but defense-in-depth is cheap and the user's token
+        // shouldn't round-trip through the UI under any circumstances.
+        const scrubbed = body
+          .replace(/ghp_[A-Za-z0-9]{30,}/g, "[REDACTED]")
+          .replace(/github_pat_[A-Za-z0-9_]{30,}/g, "[REDACTED]")
+          .replace(/gho_[A-Za-z0-9]{30,}/g, "[REDACTED]");
         res.status(ghRes.status).json({
           error: {
             code: "GITHUB_API_ERROR",
-            message: `GitHub API ${ghRes.status}: ${body.slice(0, 300)}`,
+            message: `GitHub API ${ghRes.status}: ${scrubbed.slice(0, 300)}`,
           },
         });
         return;

@@ -49,9 +49,11 @@ describe("ScriptNode", () => {
     expect(out.incremented).toBe(10);
   });
 
-  it("exposes fetch, URL, URLSearchParams, and Buffer", async () => {
+  it("exposes fetch, URL, URLSearchParams, atob, btoa — but NOT Buffer", async () => {
     // These are the capabilities scripts need for real-world work.
-    // We can't call fetch without network, so just verify the bindings exist.
+    // Buffer is intentionally excluded because its constructor chain
+    // reaches host-realm Function and enables sandbox escape.
+    // See note at the top of ScriptNode.ts.
     const out = await scriptHandler(
       {
         code: `
@@ -59,7 +61,9 @@ describe("ScriptNode", () => {
             hasFetch: typeof fetch === 'function',
             hasURL: typeof URL === 'function',
             hasURLSearchParams: typeof URLSearchParams === 'function',
-            hasBuffer: typeof Buffer === 'function',
+            hasAtob: typeof atob === 'function',
+            hasBtoa: typeof btoa === 'function',
+            hasBuffer: typeof Buffer === 'undefined',
           };
         `,
       },
@@ -68,7 +72,26 @@ describe("ScriptNode", () => {
     expect(out.hasFetch).toBe(true);
     expect(out.hasURL).toBe(true);
     expect(out.hasURLSearchParams).toBe(true);
-    expect(out.hasBuffer).toBe(true);
+    expect(out.hasAtob).toBe(true);
+    expect(out.hasBtoa).toBe(true);
+    expect(out.hasBuffer).toBe(true); // true because Buffer should be undefined
+  });
+
+  it("blocks the Buffer-based sandbox escape", async () => {
+    // Regression test for H-3: ensure Buffer is not reachable and the
+    // known escape pattern throws rather than executing in the host realm.
+    await expect(
+      scriptHandler(
+        {
+          code: `
+            // Classic escape: reach Function constructor via Buffer's prototype
+            const F = Buffer.from([]).constructor;
+            result = { escaped: new F('return process')() };
+          `,
+        },
+        { inputs: {}, context: {}, logger: noop }
+      )
+    ).rejects.toThrow(); // ReferenceError: Buffer is not defined
   });
 
   it("wraps non-object result in { result: value }", async () => {

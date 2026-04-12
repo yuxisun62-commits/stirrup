@@ -11,9 +11,15 @@ import { runInSandbox } from "./sandbox.js";
  *   - `fetch`     — global fetch (for HTTP calls)
  *   - `URL`       — global URL constructor
  *   - `URLSearchParams` — for building query strings
- *   - `Buffer`    — Node Buffer (for base64, binary work)
+ *   - `atob` / `btoa` — for base64 encoding/decoding
  *   - `console`   — wired to the execution logger
  *   - `result`    — assign your output here
+ *
+ * NOTE: `Buffer` is intentionally NOT exposed. Its prototype chain reaches
+ * the host-realm Function constructor, which bypasses the vm's
+ * Object.prototype.constructor freeze and enables sandbox escape:
+ *   `new (Buffer.from([]).constructor)('return process')()` → host process.
+ * Scripts that need binary/base64 should use `atob`/`btoa`.
  *
  * Scripts ASSIGN to `result` (NOT `return`):
  *   result = { foo: 42 };
@@ -44,7 +50,9 @@ export const scriptHandler: NodeHandler = async (config, ctx) => {
     fetch: globalThis.fetch,
     URL: globalThis.URL,
     URLSearchParams: globalThis.URLSearchParams,
-    Buffer,
+    // atob/btoa instead of Buffer — see the top-of-file note on why.
+    atob: globalThis.atob,
+    btoa: globalThis.btoa,
     console: {
       log: (msg: string) => ctx.logger.info(msg),
       warn: (msg: string) => ctx.logger.warn(msg),
