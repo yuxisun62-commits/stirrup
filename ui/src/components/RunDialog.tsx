@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { tokens, inputBase, monoInput } from './ui/styles';
+import { CheckIcon } from './ui/icons';
 import {
   getAuthStatus, startAuthFlow, pollAuthFlow, getServiceInfo, saveServiceToken,
   listGithubRepos,
@@ -236,8 +237,12 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
                       backgroundColor: isAuthed ? `${tokens.status.completed}20` : `${tokens.border.default}`,
                       color: isAuthed ? tokens.status.completed : tokens.text.muted,
                       textTransform: 'uppercase', letterSpacing: '0.5px',
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
                     }}>
-                      {isAuthed ? `✓ ${p.service.toUpperCase()}${userName ? ` ${userName}` : ' SAVED'}` : `${p.service.toUpperCase()}`}
+                      {isAuthed && <CheckIcon size={10} />}
+                      {isAuthed
+                        ? `${p.service.toUpperCase()}${userName ? ` ${userName}` : ' SAVED'}`
+                        : p.service.toUpperCase()}
                     </span>
                   )}
                 </div>
@@ -254,7 +259,10 @@ export function RunDialog({ params, workflowId, workflowName, onRun, onClose }: 
                     color: tokens.status.completed,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
                   }}>
-                    <span>✓ Using saved {p.service} credential{userName ? ` (${userName})` : ''}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <CheckIcon />
+                      Using saved {p.service} credential{userName ? ` (${userName})` : ''}
+                    </span>
                     <button
                       onClick={() => { setPasteTokenFor(p.service!); setPasteTokenValue(''); }}
                       style={{

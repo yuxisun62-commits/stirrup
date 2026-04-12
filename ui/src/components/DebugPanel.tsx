@@ -4,7 +4,7 @@ import {
   type DebugInfo, type StepResult, type WorkflowNode, type SuggestedEdit,
 } from '../api/client';
 import { tokens, monoInput } from './ui/styles';
-import { BotIcon } from './ui/icons';
+import { BotIcon, CheckIcon } from './ui/icons';
 
 interface Props {
   executionId: string;
@@ -432,8 +432,10 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
                               backgroundColor: `${tokens.status.completed}10`,
                               border: `1px solid ${tokens.status.completed}30`,
                               color: tokens.status.completed, fontWeight: 600,
+                              display: 'flex', alignItems: 'center', gap: 6,
                             }}>
-                              ✓ Edits applied to workflow. Close this panel and click Save, then Retry to test the fix.
+                              <CheckIcon />
+                              Edits applied to workflow. Close this panel and click Save, then Retry to test the fix.
                             </div>
                           )}
                           {!onApplyEdit && (
@@ -529,8 +531,12 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
                       backgroundColor: `${tokens.status.completed}08`,
                       border: `1px solid ${tokens.status.completed}30`,
                     }}>
-                      <div style={{ fontSize: 11, color: tokens.status.completed, fontWeight: 600, marginBottom: 6 }}>
-                        ✓ Node ran successfully on retry
+                      <div style={{
+                        fontSize: 11, color: tokens.status.completed, fontWeight: 600, marginBottom: 6,
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}>
+                        <CheckIcon />
+                        Node ran successfully on retry
                       </div>
                       <pre style={{
                         fontSize: 11, fontFamily: tokens.font.mono, color: tokens.text.primary,

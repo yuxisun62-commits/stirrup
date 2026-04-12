@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { validateWorkflowApi, fixWorkflow, type WorkflowDefinition, type EnrichedError } from '../api/client';
 import { tokens } from './ui/styles';
+import { LightbulbIcon } from './ui/icons';
 
 interface Props {
   workflow: WorkflowDefinition;
@@ -188,9 +189,10 @@ export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
                         border: `1px solid ${tokens.nodeColors['llm-prompt']}40`,
                         cursor: 'pointer', fontWeight: 600, flexShrink: 0,
                         fontFamily: tokens.font.sans,
+                        display: 'inline-flex', alignItems: 'center', gap: 3,
                       }}
                     >
-                      {isSuggestionOpen ? 'hide tip' : '💡 tip'}
+                      {isSuggestionOpen ? 'hide tip' : <><LightbulbIcon size={10} /> tip</>}
                     </button>
                   )}
                   {relatedNodeId && (

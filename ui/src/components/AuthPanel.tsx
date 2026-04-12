@@ -8,6 +8,7 @@ import {
 /** Services whose CLI ships an interactive `<cli> login` command we can spawn */
 const CLI_LOGIN_CAPABLE = new Set(['launchmatic', 'github']);
 import { tokens, inputBase } from './ui/styles';
+import { CheckIcon } from './ui/icons';
 
 interface Props {
   onClose: () => void;
@@ -333,8 +334,10 @@ export function AuthPanel({ onClose }: Props) {
                           fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
                           backgroundColor: `${tokens.status.completed}25`, color: tokens.status.completed,
                           textTransform: 'uppercase', letterSpacing: '0.5px',
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
                         }}>
-                          ✓ {status?.userName ?? 'CONNECTED'}
+                          <CheckIcon size={10} />
+                          {status?.userName ?? 'CONNECTED'}
                         </span>
                       )}
                       {!isConnected && (

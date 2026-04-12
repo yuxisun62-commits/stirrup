@@ -18,6 +18,7 @@ import { ExportDialog } from './components/ExportDialog';
 import { AuthPanel } from './components/AuthPanel';
 import { DebugPanel } from './components/DebugPanel';
 import { tokens } from './components/ui/styles';
+import { MenuIcon } from './components/ui/icons';
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -189,12 +190,17 @@ function App() {
           }}>
             {/* Mobile hamburger */}
             {isMobile && (
-              <button onClick={() => setSidebarOpen(true)} style={{
-                padding: '4px 6px', fontSize: 16, background: 'none',
-                border: `1px solid ${tokens.border.default}`, borderRadius: 4,
-                color: tokens.text.secondary, cursor: 'pointer',
-              }}>
-                ☰
+              <button
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open menu"
+                style={{
+                  padding: '6px 8px', background: 'none',
+                  border: `1px solid ${tokens.border.default}`, borderRadius: 4,
+                  color: tokens.text.secondary, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center',
+                }}
+              >
+                <MenuIcon size={16} />
               </button>
             )}
             <span style={{

@@ -5,6 +5,7 @@ import {
   type WorkflowDefinition,
 } from '../api/client';
 import { tokens, inputBase } from './ui/styles';
+import { CheckIcon, RocketIcon, ClipboardIcon } from './ui/icons';
 
 interface Props {
   workflow: WorkflowDefinition;
@@ -256,7 +257,10 @@ export function DeployPanel({ workflow, onClose }: Props) {
                     color: tokens.status.completed,
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
                   }}>
-                    <span>✓ Using saved Launchmatic credential{lmUserName ? ` (${lmUserName})` : ''}</span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <CheckIcon />
+                      Using saved Launchmatic credential{lmUserName ? ` (${lmUserName})` : ''}
+                    </span>
                     <span style={{ fontSize: 10, color: tokens.text.muted, fontWeight: 500 }}>
                       injected at execute time
                     </span>
@@ -364,7 +368,7 @@ function DeployResult({ result, onClose }: { result: Record<string, unknown>; on
           border: `1px solid ${tokens.status.paused}30`, marginBottom: 12,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span style={{ fontSize: 16 }}>📋</span>
+          <ClipboardIcon size={16} style={{ color: tokens.status.paused }} />
           <span style={{ fontSize: 12, color: tokens.status.paused, fontWeight: 600 }}>
             Manual deploy — use the CLI commands below
           </span>
@@ -395,7 +399,7 @@ function DeployResult({ result, onClose }: { result: Record<string, unknown>; on
         border: `1px solid ${tokens.status.completed}30`, marginBottom: 12,
         display: 'flex', alignItems: 'center', gap: 8,
       }}>
-        <span style={{ fontSize: 16 }}>🚀</span>
+        <RocketIcon size={16} style={{ color: tokens.status.completed }} />
         <span style={{ fontSize: 12, color: tokens.status.completed, fontWeight: 600 }}>
           Deployed successfully!
         </span>
