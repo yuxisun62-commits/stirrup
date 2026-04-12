@@ -3,6 +3,7 @@ import type { WorkflowNode, StepResult } from '../api/client';
 import { ConfigEditor } from './config/ConfigEditor';
 import { StatusBadge } from './StatusBadge';
 import { tokens, inputBase, btnSecondary, btnDanger } from './ui/styles';
+import { BugIcon } from './ui/icons';
 
 interface Props {
   node: WorkflowNode;
@@ -387,10 +388,11 @@ function ResultsViewer({ stepResult, onDebug }: { stepResult?: StepResult; onDeb
                 border: 'none',
                 background: `linear-gradient(135deg, ${tokens.status.failed}, #f97316)`,
                 color: '#fff', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 4,
+                display: 'flex', alignItems: 'center', gap: 5,
               }}
             >
-              🐛 Debug Node
+              <BugIcon />
+              Debug Node
             </button>
           )}
         </div>

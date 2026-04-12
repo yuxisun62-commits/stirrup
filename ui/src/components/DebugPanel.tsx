@@ -4,6 +4,7 @@ import {
   type DebugInfo, type StepResult, type WorkflowNode, type SuggestedEdit,
 } from '../api/client';
 import { tokens, monoInput } from './ui/styles';
+import { BotIcon } from './ui/icons';
 
 interface Props {
   executionId: string;
@@ -285,14 +286,16 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApply
                         display: 'flex', alignItems: 'center', gap: 6,
                       }}
                     >
-                      {analyzing && (
+                      {analyzing ? (
                         <span style={{
                           width: 12, height: 12, borderRadius: '50%',
                           border: '2px solid #fff', borderTopColor: 'transparent',
                           animation: 'spin 0.8s linear infinite', display: 'inline-block',
                         }} />
+                      ) : (
+                        <BotIcon />
                       )}
-                      {analyzing ? 'Analyzing with AI...' : '🔍 Analyze with AI'}
+                      {analyzing ? 'Analyzing with AI...' : 'Analyze with AI'}
                     </button>
                   )}
                   {analysis && (
