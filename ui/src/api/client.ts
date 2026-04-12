@@ -126,8 +126,26 @@ export const retryNode = (executionId: string, nodeId: string, inputs?: Record<s
     method: 'POST',
     body: JSON.stringify({ inputs, config }),
   });
+/**
+ * A single edit the AI suggests applying to fix a failed node. The `field`
+ * is a dot-path inside the node (e.g. 'config.url', 'retry.maxAttempts').
+ * The UI's DebugPanel renders these with before/after previews and lets
+ * the user approve them individually before applying.
+ */
+export interface SuggestedEdit {
+  field: string;
+  currentValue: unknown;
+  suggestedValue: unknown;
+  reason: string;
+}
+
 export const analyzeFailure = (executionId: string, nodeId: string) =>
-  request<{ analysis: string; nodeId: string; executionId: string }>(
+  request<{
+    analysis: string;
+    suggestedEdits: SuggestedEdit[];
+    nodeId: string;
+    executionId: string;
+  }>(
     `/debug/executions/${executionId}/nodes/${nodeId}/analyze`,
     { method: 'POST' }
   );

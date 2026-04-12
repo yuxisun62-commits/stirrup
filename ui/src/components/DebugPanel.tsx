@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   getNodeDebugInfo, retryNode, analyzeFailure,
-  type DebugInfo, type StepResult, type WorkflowNode,
+  type DebugInfo, type StepResult, type WorkflowNode, type SuggestedEdit,
 } from '../api/client';
 import { tokens, monoInput } from './ui/styles';
 
@@ -10,14 +10,47 @@ interface Props {
   node: WorkflowNode;
   onClose: () => void;
   onRetrySuccess: (result: StepResult) => void;
+  /**
+   * Called when the user applies an AI-suggested edit. The parent (App.tsx)
+   * wires this to useWorkflow's updateNode so edits land in the workflow
+   * state and flow through to the canvas, save, and execute paths.
+   * If not provided, the apply-edits UI is hidden.
+   */
+  onApplyEdit?: (nodeId: string, updates: Partial<WorkflowNode>) => void;
 }
 
-export function DebugPanel({ executionId, node, onClose, onRetrySuccess }: Props) {
+/**
+ * Set a value at a dot-path inside a target object, returning a shallow-
+ * cloned copy so React state updates don't mutate through references.
+ * Handles paths like 'config.url', 'config.headers.Authorization',
+ * 'retry.maxAttempts'.
+ */
+function setAtPath(target: Record<string, unknown>, path: string, value: unknown): Record<string, unknown> {
+  const keys = path.split('.');
+  const root: Record<string, unknown> = { ...target };
+  let cursor: Record<string, unknown> = root;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    const existing = cursor[key];
+    const next = existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+    cursor[key] = next;
+    cursor = next;
+  }
+  cursor[keys[keys.length - 1]] = value;
+  return root;
+}
+
+export function DebugPanel({ executionId, node, onClose, onRetrySuccess, onApplyEdit }: Props) {
   const [debug, setDebug] = useState<DebugInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [suggestedEdits, setSuggestedEdits] = useState<SuggestedEdit[]>([]);
+  const [approvedEdits, setApprovedEdits] = useState<Set<number>>(new Set());
   const [analyzing, setAnalyzing] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryResult, setRetryResult] = useState<StepResult | null>(null);
 
@@ -41,14 +74,63 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess }: Props
   const handleAnalyze = async () => {
     setAnalyzing(true);
     setAnalysis(null);
+    setSuggestedEdits([]);
+    setApprovedEdits(new Set());
+    setApplied(false);
     try {
       const res = await analyzeFailure(executionId, node.id);
       setAnalysis(res.analysis);
+      setSuggestedEdits(res.suggestedEdits ?? []);
+      // Pre-approve all suggested edits by default — user can untick
+      setApprovedEdits(new Set((res.suggestedEdits ?? []).map((_, i) => i)));
     } catch (err) {
       setAnalysis(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  const handleApplyEdits = () => {
+    if (!onApplyEdit || suggestedEdits.length === 0) return;
+
+    // Group edits by top-level node field so we do ONE updateNode call per
+    // field root (avoids stomping when multiple edits touch the same subtree,
+    // e.g. config.url AND config.headers.Authorization).
+    const byRoot: Record<string, SuggestedEdit[]> = {};
+    for (let i = 0; i < suggestedEdits.length; i++) {
+      if (!approvedEdits.has(i)) continue;
+      const edit = suggestedEdits[i];
+      const root = edit.field.split('.')[0];
+      if (!byRoot[root]) byRoot[root] = [];
+      byRoot[root].push(edit);
+    }
+
+    const updates: Partial<WorkflowNode> = {};
+    for (const [root, edits] of Object.entries(byRoot)) {
+      if (root === 'config') {
+        let nextConfig: Record<string, unknown> = { ...(node.config ?? {}) };
+        for (const e of edits) {
+          const subPath = e.field.slice('config.'.length);
+          nextConfig = setAtPath(nextConfig, subPath, e.suggestedValue);
+        }
+        updates.config = nextConfig;
+      } else if (root === 'retry') {
+        let nextRetry: Record<string, unknown> = { ...(node.retry ?? {}) };
+        for (const e of edits) {
+          const subPath = e.field.slice('retry.'.length);
+          nextRetry = setAtPath(nextRetry, subPath, e.suggestedValue);
+        }
+        // Type assertion: the validator rejects retry edits that don't match shape
+        updates.retry = nextRetry as WorkflowNode['retry'];
+      } else if (root === 'description') {
+        updates.description = String(edits[edits.length - 1].suggestedValue ?? '');
+      } else if (root === 'name') {
+        updates.name = String(edits[edits.length - 1].suggestedValue ?? '');
+      }
+    }
+
+    onApplyEdit(node.id, updates);
+    setApplied(true);
   };
 
   const handleRetry = async () => {
@@ -214,15 +296,154 @@ export function DebugPanel({ executionId, node, onClose, onRetrySuccess }: Props
                     </button>
                   )}
                   {analysis && (
-                    <div style={{
-                      padding: 12, borderRadius: 6,
-                      backgroundColor: `${tokens.nodeColors['llm-prompt']}08`,
-                      border: `1px solid ${tokens.nodeColors['llm-prompt']}30`,
-                      fontSize: 12, color: tokens.text.primary,
-                      lineHeight: 1.5, whiteSpace: 'pre-wrap',
-                    }}>
-                      {analysis}
-                    </div>
+                    <>
+                      <div style={{
+                        padding: 12, borderRadius: 6,
+                        backgroundColor: `${tokens.nodeColors['llm-prompt']}08`,
+                        border: `1px solid ${tokens.nodeColors['llm-prompt']}30`,
+                        fontSize: 12, color: tokens.text.primary,
+                        lineHeight: 1.5, whiteSpace: 'pre-wrap',
+                      }}>
+                        {analysis}
+                      </div>
+
+                      {/* Suggested edits — rendered as a review-and-approve list.
+                          Each edit shows before/after + reason, with a checkbox
+                          to approve it. The Apply button at the end calls
+                          onApplyEdit for all approved edits in one batched
+                          updateNode call so React state updates cleanly. */}
+                      {suggestedEdits.length > 0 && (
+                        <div style={{ marginTop: 10 }}>
+                          <div style={{
+                            fontSize: 10, fontWeight: 700, color: tokens.text.muted,
+                            textTransform: 'uppercase', letterSpacing: '1px',
+                            marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6,
+                          }}>
+                            <span>Suggested Fixes</span>
+                            <span style={{
+                              fontSize: 9, padding: '1px 6px', borderRadius: 3, fontWeight: 700,
+                              backgroundColor: `${tokens.status.completed}20`, color: tokens.status.completed,
+                            }}>
+                              {approvedEdits.size} / {suggestedEdits.length} approved
+                            </span>
+                          </div>
+
+                          {suggestedEdits.map((edit, i) => {
+                            const approved = approvedEdits.has(i);
+                            return (
+                              <div
+                                key={i}
+                                style={{
+                                  marginBottom: 6, padding: 8, borderRadius: 6,
+                                  backgroundColor: approved
+                                    ? `${tokens.status.completed}06`
+                                    : tokens.bg.raised,
+                                  border: `1px solid ${approved ? tokens.status.completed : tokens.border.subtle}30`,
+                                  cursor: applied ? 'default' : 'pointer',
+                                  opacity: applied ? 0.6 : 1,
+                                }}
+                                onClick={() => {
+                                  if (applied) return;
+                                  setApprovedEdits((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(i)) next.delete(i); else next.add(i);
+                                    return next;
+                                  });
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={approved}
+                                    readOnly
+                                    disabled={applied}
+                                    style={{ marginTop: 2, cursor: applied ? 'default' : 'pointer', flexShrink: 0 }}
+                                  />
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{
+                                      fontSize: 11, fontFamily: tokens.font.mono,
+                                      color: tokens.text.accent, fontWeight: 600,
+                                      wordBreak: 'break-all',
+                                    }}>
+                                      {edit.field}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: tokens.text.muted, marginTop: 2, lineHeight: 1.4 }}>
+                                      {edit.reason}
+                                    </div>
+                                    <div style={{ display: 'flex', gap: 6, marginTop: 6, fontSize: 10, fontFamily: tokens.font.mono }}>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ color: tokens.text.muted, marginBottom: 2 }}>— current</div>
+                                        <div style={{
+                                          padding: '4px 6px', borderRadius: 3,
+                                          backgroundColor: `${tokens.status.failed}10`,
+                                          color: '#fca5a5',
+                                          whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                          maxHeight: 80, overflow: 'auto',
+                                        }}>
+                                          {typeof edit.currentValue === 'string'
+                                            ? edit.currentValue
+                                            : JSON.stringify(edit.currentValue, null, 2)}
+                                        </div>
+                                      </div>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ color: tokens.text.muted, marginBottom: 2 }}>+ suggested</div>
+                                        <div style={{
+                                          padding: '4px 6px', borderRadius: 3,
+                                          backgroundColor: `${tokens.status.completed}10`,
+                                          color: '#86efac',
+                                          whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                          maxHeight: 80, overflow: 'auto',
+                                        }}>
+                                          {typeof edit.suggestedValue === 'string'
+                                            ? edit.suggestedValue
+                                            : JSON.stringify(edit.suggestedValue, null, 2)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+
+                          {onApplyEdit && !applied && (
+                            <button
+                              onClick={handleApplyEdits}
+                              disabled={approvedEdits.size === 0}
+                              style={{
+                                marginTop: 4, padding: '7px 14px', fontSize: 11, fontWeight: 600,
+                                borderRadius: 6, border: 'none',
+                                background: approvedEdits.size === 0
+                                  ? tokens.border.default
+                                  : `linear-gradient(135deg, ${tokens.status.completed}, #10b981)`,
+                                color: '#fff',
+                                cursor: approvedEdits.size === 0 ? 'default' : 'pointer',
+                              }}
+                            >
+                              Apply {approvedEdits.size} edit{approvedEdits.size === 1 ? '' : 's'} to workflow
+                            </button>
+                          )}
+                          {applied && (
+                            <div style={{
+                              marginTop: 4, padding: '7px 10px', fontSize: 11, borderRadius: 6,
+                              backgroundColor: `${tokens.status.completed}10`,
+                              border: `1px solid ${tokens.status.completed}30`,
+                              color: tokens.status.completed, fontWeight: 600,
+                            }}>
+                              ✓ Edits applied to workflow. Close this panel and click Save, then Retry to test the fix.
+                            </div>
+                          )}
+                          {!onApplyEdit && (
+                            <div style={{
+                              marginTop: 4, padding: '7px 10px', fontSize: 10, borderRadius: 6,
+                              backgroundColor: tokens.bg.raised, color: tokens.text.muted,
+                            }}>
+                              Open this panel from the Node Inspector to enable one-click fix application.
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
                   )}
                 </Section>
               )}

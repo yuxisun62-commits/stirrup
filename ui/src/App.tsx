@@ -345,6 +345,7 @@ function App() {
             node={selectedNode}
             onClose={() => setShowDebug(false)}
             onRetrySuccess={() => { /* Optional: refresh execution state */ }}
+            onApplyEdit={updateNode}
           />
         )}
       </div>
