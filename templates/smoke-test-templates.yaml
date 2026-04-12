@@ -24,6 +24,7 @@ nodes:
     config:
       url: "{{baseUrl}}/api/templates"
       method: GET
+      allowInternal: true
       headers:
         Accept: "application/json"
 
