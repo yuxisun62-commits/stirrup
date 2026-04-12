@@ -53,14 +53,58 @@ export function setToken(service: string, token: Omit<StoredToken, "service" | "
   saveStore(data);
 }
 
+/**
+ * Well-known environment variable names per service. When the token store
+ * has no entry for a service, we check these as a fallback. This bridges
+ * the gap between "user set ANTHROPIC_API_KEY in their shell profile" and
+ * "workflow param declares service: anthropic" — without the user having
+ * to paste the same key into the Connections panel.
+ *
+ * Add entries here as new services are registered. The order within each
+ * array matters: the first env var that's set wins.
+ */
+const ENV_FALLBACKS: Record<string, string[]> = {
+  anthropic: ["ANTHROPIC_API_KEY"],
+  replicate: ["REPLICATE_API_TOKEN"],
+  github: ["GITHUB_TOKEN", "GH_TOKEN"],
+  slack: ["SLACK_BOT_TOKEN", "SLACK_TOKEN"],
+  stripe: ["STRIPE_SECRET_KEY", "STRIPE_API_KEY"],
+  launchmatic: ["LAUNCHMATIC_TOKEN", "LM_TOKEN"],
+  linkedin: ["LINKEDIN_ACCESS_TOKEN"],
+  typefully: ["TYPEFULLY_API_KEY"],
+  buffer: ["BUFFER_ACCESS_TOKEN"],
+};
+
 export function getToken(service: string): StoredToken | null {
+  // 1. Check the persistent token store (~/.stirrup/tokens.json)
   const data = loadStore();
   const token = data.tokens[service];
-  if (!token) return null;
-  if (token.expiresAt && token.expiresAt < Date.now()) {
-    return null;  // expired
+  if (token) {
+    if (token.expiresAt && token.expiresAt < Date.now()) {
+      return null;  // expired
+    }
+    return token;
   }
-  return token;
+
+  // 2. Fall back to well-known environment variables. This lets users who
+  //    already have ANTHROPIC_API_KEY (or similar) in their shell profile
+  //    skip the Connections panel paste step entirely — the engine's token
+  //    injection will pick this up and forward it to the workflow context.
+  const envNames = ENV_FALLBACKS[service];
+  if (envNames) {
+    for (const envName of envNames) {
+      const value = process.env[envName];
+      if (value) {
+        return {
+          service,
+          accessToken: value,
+          savedAt: 0, // sentinel: not persisted, read from env
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 export function listTokens(): StoredToken[] {
