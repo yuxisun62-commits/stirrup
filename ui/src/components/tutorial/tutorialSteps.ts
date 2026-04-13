@@ -15,6 +15,12 @@ export interface TutorialStep {
    * components so centered steps still have visual context.
    */
   visual?: 'welcome' | 'debug' | 'done';
+  /**
+   * If set, the tutorial asks App.tsx to open this panel when the step
+   * becomes active. The tooltip renders above the modal (z-index 1100)
+   * and the overlay is hidden (the modal has its own backdrop).
+   */
+  openPanel?: 'templates' | 'generate' | 'connections' | 'params' | 'export' | 'plugins';
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -38,15 +44,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'ai-generate',
     target: '[data-tutorial="ai-generate"]',
     title: 'AI Generate',
-    description: 'Describe what you want in plain English and Claude will generate a complete workflow for you — nodes, edges, params, and all.',
+    description: 'Describe what you want in plain English and Claude will generate a complete workflow for you — nodes, edges, params, and all. Try it: type "create a workflow that reviews GitHub PRs" and watch.',
     placement: 'bottom',
+    openPanel: 'generate',
   },
   {
     id: 'templates',
     target: '[data-tutorial="templates"]',
     title: 'Templates',
-    description: 'Start from 20+ pre-built workflow templates: PR reviews, deployment pipelines, marketing broadcasts, LinkedIn posts, and more.',
+    description: 'Start from 20+ pre-built workflow templates. Browse by category, click to preview, and load any template to customize. Templates cover PR reviews, deployments, marketing, LinkedIn, analytics, and more.',
     placement: 'bottom',
+    openPanel: 'templates',
   },
   {
     id: 'node-palette',
@@ -77,15 +85,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'params-button',
     target: '[data-tutorial="params-button"]',
     title: 'Workflow Parameters',
-    description: 'Define the inputs users provide when running this workflow. Add params with types, defaults, descriptions, and service bindings (for auto-injecting credentials). These show up in the Run dialog.',
+    description: 'Define the inputs users provide when running this workflow. Add params with name, type, default value, service binding (for auto-injecting credentials), and picker type (like the GitHub repo selector).',
     placement: 'bottom',
+    openPanel: 'params',
   },
   {
     id: 'connections',
     target: '[data-tutorial="connections-button"]',
     title: 'Service Connections',
-    description: 'Connect third-party services here: GitHub (OAuth), Launchmatic, Slack, Anthropic, LinkedIn, Stripe, and more. Saved credentials are auto-injected into workflows that need them.',
+    description: 'Connect third-party services here. GitHub supports full OAuth login. Others use API keys with guided setup. Saved credentials are auto-injected into workflows that declare a matching service param.',
     placement: 'bottom',
+    openPanel: 'connections',
   },
   {
     id: 'run-button',
@@ -116,6 +126,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Export & Deploy',
     description: 'Export your workflow as a standalone Node.js server or Docker container. Or deploy directly to Launchmatic as a persistent hosted service — your tokens are injected as environment variables.',
     placement: 'bottom',
+    openPanel: 'export',
   },
   {
     id: 'save',

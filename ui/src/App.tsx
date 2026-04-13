@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorkflow } from './hooks/useWorkflow';
 import { useExecution } from './hooks/useExecution';
@@ -108,6 +108,28 @@ function App() {
     loadWorkflow({ id: `workflow-${Date.now()}`, name: 'New Workflow', version: '1.0', nodes: [], edges: [] });
     if (isMobile) setSidebarOpen(false);
   };
+
+  // Tutorial step change handler — opens/closes the relevant panel so the
+  // user sees the REAL UI during each tutorial step, not a mockup.
+  const handleTutorialStepChange = useCallback((stepId: string) => {
+    // Close any panel a previous tutorial step opened
+    setShowTemplates(false);
+    setShowGenerate(false);
+    setShowAuth(false);
+    setShowParams(false);
+    setShowExport(false);
+    setShowPlugins(false);
+
+    // Open the panel for the current step
+    const STEP_TO_PANEL: Record<string, () => void> = {
+      templates: () => setShowTemplates(true),
+      'ai-generate': () => setShowGenerate(true),
+      connections: () => setShowAuth(true),
+      'params-button': () => setShowParams(true),
+      export: () => setShowExport(true),
+    };
+    STEP_TO_PANEL[stepId]?.();
+  }, []);
 
   const handleRunClick = () => {
     // Always show the dialog. Even for workflows without declared params,
@@ -428,7 +450,8 @@ function App() {
               isLast={tutorial.isLast}
               onNext={tutorial.nextStep}
               onPrev={tutorial.prevStep}
-              onSkip={tutorial.endTutorial}
+              onSkip={() => { handleTutorialStepChange('__close__'); tutorial.endTutorial(); }}
+              onStepChange={handleTutorialStepChange}
             />
           )}
         </Suspense>

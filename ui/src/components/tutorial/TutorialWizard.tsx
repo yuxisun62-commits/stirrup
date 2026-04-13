@@ -18,6 +18,8 @@ interface Props {
   onNext: () => void;
   onPrev: () => void;
   onSkip: () => void;
+  /** Called when the step changes so the parent can open/close panels */
+  onStepChange?: (stepId: string) => void;
 }
 
 interface Rect {
@@ -34,8 +36,9 @@ const GAP = 12; // px between spotlight and tooltip
 
 export function TutorialWizard({
   step, currentStep, totalSteps, isFirst, isLast,
-  onNext, onPrev, onSkip,
+  onNext, onPrev, onSkip, onStepChange,
 }: Props) {
+  const isModalStep = !!step.openPanel;
   const tooltipRef = useRef<HTMLDivElement>(null);
   const [targetRect, setTargetRect] = useState<Rect | null>(null);
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -45,12 +48,21 @@ export function TutorialWizard({
   const measure = useCallback(() => {
     if (!step.target) {
       setTargetRect(null);
-      // Center the tooltip
       const tw = Math.min(420, window.innerWidth - 32);
-      setTooltipPos({
-        top: Math.max(80, window.innerHeight / 2 - 120),
-        left: (window.innerWidth - tw) / 2,
-      });
+      if (isModalStep) {
+        // Modal is open — position tooltip in the bottom-right corner
+        // so it doesn't overlap the modal content
+        setTooltipPos({
+          top: window.innerHeight - 280,
+          left: window.innerWidth - tw - 24,
+        });
+      } else {
+        // Center the tooltip
+        setTooltipPos({
+          top: Math.max(80, window.innerHeight / 2 - 120),
+          left: (window.innerWidth - tw) / 2,
+        });
+      }
       setVisible(true);
       return;
     }
@@ -127,12 +139,19 @@ export function TutorialWizard({
     });
   }, [step]);
 
-  // Re-measure on step change
+  // Notify parent of step change (so it can open/close panels)
+  useEffect(() => {
+    onStepChange?.(step.id);
+  }, [step.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-measure on step change (with extra delay for modal steps so the
+  // lazy-loaded panel has time to render)
   useEffect(() => {
     setVisible(false);
-    const timer = setTimeout(measure, 50);
+    const delay = isModalStep ? 300 : 50;
+    const timer = setTimeout(measure, delay);
     return () => clearTimeout(timer);
-  }, [step.id, measure]);
+  }, [step.id, measure, isModalStep]);
 
   // Re-measure on resize
   useEffect(() => {
@@ -152,17 +171,23 @@ export function TutorialWizard({
     return () => window.removeEventListener('keydown', handler);
   }, [onNext, onPrev, onSkip, isFirst, isLast]);
 
+  // When a panel/modal is open, skip the overlay (the modal has its own
+  // backdrop) and raise the tooltip above the modal's z-index (1000).
+  const effectiveOverlayZ = isModalStep ? -1 : OVERLAY_Z; // -1 = hidden
+  const effectiveTooltipZ = isModalStep ? 1100 : TOOLTIP_Z;
+
   const overlayStyle: CSSProperties = {
     position: 'fixed',
     inset: 0,
-    zIndex: OVERLAY_Z,
+    zIndex: effectiveOverlayZ,
     transition: 'opacity 0.2s',
-    opacity: visible ? 1 : 0,
+    opacity: visible && !isModalStep ? 1 : 0,
+    pointerEvents: isModalStep ? 'none' : 'auto',
   };
 
   const tooltipStyle: CSSProperties = {
     position: 'fixed',
-    zIndex: TOOLTIP_Z,
+    zIndex: effectiveTooltipZ,
     top: tooltipPos.top,
     left: tooltipPos.left,
     width: Math.min(420, window.innerWidth - 32),
