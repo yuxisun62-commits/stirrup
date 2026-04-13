@@ -1,16 +1,26 @@
 <p align="center">
+  <img src="./docs/stirrup-infographic.png" alt="Stirrup — AI Workflow Engine" width="680" />
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/npm/v/stirrup-ai?style=flat-square&color=0ea5e9" alt="npm version" />
   <img src="https://img.shields.io/github/license/PrincipalForce/stirrup?style=flat-square&color=22c55e" alt="license" />
   <img src="https://img.shields.io/badge/node-%3E%3D20-417e38?style=flat-square" alt="node version" />
-  <img src="https://img.shields.io/badge/tests-40%20passing-22c55e?style=flat-square" alt="tests" />
+  <img src="https://img.shields.io/badge/tests-48%20passing-22c55e?style=flat-square" alt="tests" />
   <img src="https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square" alt="typescript" />
 </p>
 
-# Stirrup
+<h1 align="center">Stirrup</h1>
+<h3 align="center">AI Workflow Engine</h3>
 
-**The interface between you and AI-powered automation.**
+<p align="center">
+Build, visualize, and execute <b>AI-powered automation pipelines</b> with a visual node editor.<br/>
+Connect LLMs, code generators, APIs, and integrations into production-ready workflows.
+</p>
 
-Stirrup is a workflow engine that lets you define deterministic DAG pipelines with AI-powered nodes. Design workflows visually, run them from the CLI, deploy as services, or let AI agents build and execute them programmatically.
+<p align="center">
+  <b>20+ Templates</b> &nbsp;&bull;&nbsp; <b>8 Node Types</b> &nbsp;&bull;&nbsp; <b>YAML Format</b> &nbsp;&bull;&nbsp; <b>CLI + UI</b>
+</p>
 
 ```bash
 npm install -g stirrup-ai
@@ -18,42 +28,76 @@ npm install -g stirrup-ai
 
 ---
 
-## Why Stirrup
+## Powerful Node Types
 
-Most AI automation tools force a choice: either you get rigid, step-by-step pipelines with no intelligence, or you get unpredictable AI agents with no structure. Stirrup gives you both.
+Mix AI and deterministic nodes to build workflows that think, fetch, branch, and deploy.
 
-- **Deterministic when you need it.** HTTP calls, data transforms, conditional branching, and scripts execute exactly as defined.
-- **Intelligent where it matters.** LLM prompts, autonomous agents, AI-powered routing, and code generation handle the parts that require reasoning.
-- **Visible and controllable.** Every execution is persisted. Pause, inspect, resume, or retry any workflow at any step.
+| | Type | What it does |
+|---|---|---|
+| **AI** | `llm-prompt` | Send a templated prompt to Claude, get text or structured JSON back |
+| **AI** | `code-generation` | AI writes code in JS/TS/Python, optionally executes it in a sandbox |
+| **AI** | `decision-routing` | AI evaluates data and picks the next branch from labeled options |
+| **AI** | `agent-tool-use` | Autonomous agent with access to registered tools in a loop |
+| **Deterministic** | `transform` | Evaluate a JavaScript expression on inputs |
+| **Deterministic** | `condition` | Branch the workflow based on an expression result |
+| **Deterministic** | `http` | Make HTTP requests to any API |
+| **Deterministic** | `script` | Run JavaScript in a sandboxed VM with fetch, URL, and await support |
+
+All node types are extensible through the [plugin system](#plugins).
+
+---
+
+## Why Stirrup?
+
+### Visual Node Editor
+Build workflows by dragging nodes onto a canvas, connecting them, and configuring each one with purpose-built form editors. No code required to get started.
+
+### AI Generate
+Describe what you want in plain English and Claude generates the complete workflow with nodes, connections, and configuration automatically.
+
+### 20+ Templates
+Battle-tested templates for common tasks: PR reviews, deployment pipelines, marketing broadcasts, LinkedIn posting, content repurposing, competitor monitoring, SEO briefs, and more.
+
+### Live Execution Monitor
+Watch your workflow execute with real-time status updates. Nodes light up as they run, show timing, and display output data inline on the canvas.
+
+### Debug & Inspect
+When a node fails, click it to see the exact error, resolved inputs, and stack trace. Click **Analyze with AI** and Claude diagnoses the issue and suggests concrete field edits you can apply with one click.
+
+### Params & Plugins
+Define typed workflow parameters with service bindings for auto-injected credentials. Extend with 16 built-in plugins (GitHub, Slack, LinkedIn, Launchmatic, Stripe, Replicate, Buffer, Typefully, and more) or write your own.
+
+### Interactive Tutorial
+First-time users get a 15-step guided walkthrough that highlights each feature with a spotlight overlay and opens the real panels at each step. Reopenable anytime from the **?** button.
 
 ---
 
 ## Quick Start
 
 ```bash
-# Set your API key
+# Install globally
+npm install -g stirrup-ai
+
+# Set your Anthropic API key
 stirrup config set anthropicApiKey sk-ant-...
-
-# Create a workflow from a template
-stirrup init
-
-# Run it with parameters
-stirrup run workflows/pr-review.yaml \
-  --set repo=myorg/myrepo \
-  --set prNumber=42
 
 # Launch the visual editor
 stirrup ui
 
-# Deploy as a persistent service
-stirrup serve
+# Or create a workflow from a template via CLI
+stirrup init
+
+# Run with parameters
+stirrup run workflows/pr-review.yaml \
+  --set repo=myorg/myrepo \
+  --set prNumber=42
 ```
 
 ---
 
 ## How It Works
 
-Workflows are YAML files that describe a directed acyclic graph. Each node is either deterministic (always produces the same output for the same input) or AI-powered (uses Claude to reason, decide, or generate).
+Workflows are YAML files that describe a directed acyclic graph. Each node is either deterministic or AI-powered. The engine executes them as a parallel DAG — independent nodes run concurrently, conditional branches are evaluated at runtime, and every step's state is persisted.
 
 ```yaml
 id: review-pipeline
@@ -64,15 +108,14 @@ params:
   - name: repo
     type: string
     required: true
-    description: "GitHub repository (owner/repo)"
+    picker: github-repo
   - name: prNumber
     type: number
     required: true
-
-triggers:
-  webhook:
-    source: github
-    events: [pull_request.opened]
+  - name: githubToken
+    type: string
+    required: true
+    service: github
 
 nodes:
   - id: fetch-diff
@@ -81,9 +124,6 @@ nodes:
     inputs:
       - from: context.repo
         to: repo
-      - from: context.prNumber
-        to: pr
-    outputs: [body]
     config:
       url: "https://api.github.com/repos/{{repo}}/pulls/{{pr}}"
       method: GET
@@ -94,15 +134,10 @@ nodes:
     inputs:
       - from: nodes.fetch-diff.outputs.body
         to: diff
-    outputs: [response]
     config:
       promptTemplate: |
-        Review this pull request for bugs, security issues,
-        and code quality problems:
-
+        Review this pull request for bugs and security issues:
         {{diff}}
-      systemPrompt: "You are an expert code reviewer."
-      responseFormat: json
 
   - id: route
     type: decision-routing
@@ -110,12 +145,11 @@ nodes:
     inputs:
       - from: nodes.review.outputs.response
         to: review
-    outputs: [selectedBranch]
     config:
-      promptTemplate: "Are there critical issues? {{review}}"
+      prompt: "Are there critical issues? {{review}}"
       branches:
-        block: "Critical issues that must be fixed"
-        approve: "No critical issues"
+        block: "Critical issues found"
+        approve: "Clean code"
 
 edges:
   - from: fetch-diff
@@ -124,51 +158,60 @@ edges:
     to: route
 ```
 
-The engine executes this as a parallel DAG — independent nodes run concurrently, conditional branches are evaluated at runtime, and every step's state is persisted for inspection or resumption.
+---
+
+## Template Library
+
+Start building in seconds with ready-made workflow templates.
+
+| Template | What it does |
+|----------|-------------|
+| **AI Code Gen & Validation** | Generate code, test it, review quality, produce deployment-ready output |
+| **GitHub Issue Auto-Triage** | Classify issues, add labels, assign priority, notify in Slack |
+| **Blog Multi-Channel Repurposer** | Fetch a blog post, atomize into Twitter thread, LinkedIn, newsletter, YouTube |
+| **Deploy & Notify Team** | Deploy to Launchmatic, run smoke tests, post results to Slack |
+| **PR Review Pipeline** | Fetch diff, AI review, severity routing, post results |
+| **LinkedIn Daily Post** | Topic in, LinkedIn-tailored post out, published directly |
+| **Competitor Changelog Watcher** | Fetch RSS, AI summary, strategic brief to Slack |
+| **SEO Content Brief** | Keyword research via SERP API, AI generates full content brief |
+| **Multi-Platform Launch Broadcast** | Fan out to LinkedIn, X, Facebook, TikTok, YouTube in parallel |
+| **Engine Smoke Test** | Exercises all 8 node types in one workflow to verify the engine |
+
+Plus 14 more. Browse them in the UI or run `stirrup init` from the CLI.
 
 ---
 
-## Node Types
+## Debug & Execution Monitor
 
-Stirrup ships with 8 built-in node types across two categories.
+Full visibility into every execution. Inspect node-by-node results, see exact inputs and outputs, and diagnose failures with AI assistance.
 
-### Deterministic Nodes
-
-| Type | Purpose | Key Config |
-|------|---------|------------|
-| **transform** | Evaluate a JavaScript expression on inputs | `expression` |
-| **condition** | Branch the workflow based on an expression result | `expression` returning a branch name |
-| **http** | Make HTTP requests to external APIs | `url`, `method`, `headers`, `body` |
-| **script** | Execute arbitrary JavaScript in a sandboxed VM | `code`, `timeoutMs` |
-
-### AI-Powered Nodes
-
-| Type | Purpose | Key Config |
-|------|---------|------------|
-| **llm-prompt** | Send a templated prompt to Claude | `promptTemplate`, `systemPrompt`, `responseFormat` |
-| **agent-tool-use** | Autonomous agent with tool access in a loop | `systemPrompt`, `taskTemplate`, `tools[]` |
-| **decision-routing** | AI evaluates data and picks the next branch | `promptTemplate`, `branches` |
-| **code-generation** | AI generates code, optionally executes it | `promptTemplate`, `language`, `execute` |
-
-All node types are extensible through the [plugin system](#plugins).
+- **Real-time progress** — SSE-powered node status updates as the workflow runs
+- **Node inspector** — click any node to see config, inputs, outputs, and timing
+- **AI-powered debugging** — Claude reads the error, config, and inputs, then suggests specific fixes
+- **One-click apply** — review the AI's suggested edits with before/after diffs and apply them directly to the workflow
+- **Isolated retry** — re-run a single failed node with modified inputs without re-executing the entire workflow
 
 ---
 
-## Visual Editor
+## Service Connections
 
-Launch the browser-based workflow designer:
+Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens.json`, 0600 permissions) and auto-injected into any workflow that declares a matching `service` param.
 
-```bash
-stirrup ui
-```
+| Service | Auth method | What it powers |
+|---------|------------|----------------|
+| **GitHub** | OAuth device flow or `gh` CLI | PRs, issues, code search, repo picker |
+| **Launchmatic** | `lm login` browser flow or manual paste | Deploy, databases, domains, browser tests |
+| **Anthropic** | API key (or `ANTHROPIC_API_KEY` env var) | Every AI node |
+| **Slack** | Bot User OAuth Token (`xoxb-`) with guided setup | Messages, files, channels |
+| **LinkedIn** | OAuth token | Post to feed, org pages, engagement stats |
+| **Stripe** | Secret key or `stripe` CLI | Charges, customers, payments |
+| **Replicate** | API token | Image generation (Flux), any hosted model |
+| **Typefully** | API key | Schedule X/Twitter threads + LinkedIn posts |
+| **Buffer** | Access token | Schedule to Facebook, Instagram, Threads |
+| **AWS** | `aws configure` CLI | S3, Lambda, DynamoDB |
+| **Google Cloud** | `gcloud auth login` CLI | GCS, BigQuery, Cloud Run |
 
-The editor provides:
-
-- **Drag-and-drop canvas** — React Flow-based DAG editor with node palette
-- **Type-aware config forms** — each node type has purpose-built form fields, not raw JSON
-- **Live execution** — run workflows and watch node status update in real time via SSE
-- **Template browser** — start from pre-built workflow patterns
-- **Parameter dialog** — prompted for required values before execution
+Environment variables (e.g., `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`) are detected automatically — no need to paste them if they're already set in your shell.
 
 ---
 
@@ -195,32 +238,7 @@ Deployment
 Configuration
   stirrup config set <key> <val>  Set a configuration value
   stirrup config get [key]        Show configuration
-  stirrup config unset <key>      Remove a configuration value
   stirrup plugin <subcommand>     Manage plugins
-
-Global Options
-  -w, --workflows-dir   Workflow definitions directory  [default: "./workflows"]
-  -v, --verbose         Enable verbose output
-      --store           State backend: sqlite | file    [default: "sqlite"]
-      --db              SQLite database path            [default: "./stirrup.db"]
-```
-
-### Running Workflows with Parameters
-
-Workflows declare typed parameters. Supply them at runtime via any combination:
-
-```bash
-# Named parameters
-stirrup run pr-review --set repo=myorg/myrepo --set prNumber=42
-
-# JSON string
-stirrup run pr-review -c '{"repo": "myorg/myrepo", "prNumber": 42}'
-
-# JSON file
-stirrup run pr-review --context-file params.json
-
-# Interactive mode — prompts for missing required params
-stirrup run pr-review -i
 ```
 
 ---
@@ -233,45 +251,10 @@ stirrup run pr-review -i
 stirrup serve --port 3711
 ```
 
-Exposes every workflow as an HTTP endpoint:
-
-```
-POST /run/:workflowId     Execute any workflow by ID
-POST /webhook/:source     Webhook ingress (GitHub, Slack, etc.)
-GET  /workflows           List all available workflow endpoints
-GET  /health              Health check
-```
-
-Workflows can declare triggers in their YAML:
-
-```yaml
-triggers:
-  http:
-    path: /pr-review
-    method: POST
-  webhook:
-    source: github
-    events: [pull_request.opened, pull_request.synchronize]
-  cron:
-    schedule: "0 */6 * * *"
-```
-
 ### As a Standalone Project
 
 ```bash
 stirrup export templates/pr-review.yaml -o ./deploy --format docker
-```
-
-Generates a self-contained project:
-
-```
-deploy/pr-review/
-  package.json      Dependencies and start script
-  server.js         Express server with /run and /status
-  workflows/        Workflow definition
-  Dockerfile        Ready for container deployment
-  README.md         API documentation
-  .env.example      Environment variable template
 ```
 
 ### As an Embedded SDK
@@ -284,22 +267,23 @@ const engine = new WorkflowEngine({
   stateStore: new SqliteStateStore("./data.db"),
 });
 
-// Register node handlers, then execute
 const result = await engine.execute("my-workflow", {
   repo: "myorg/myrepo",
   prNumber: 42,
 });
 ```
 
+### Deploy to Launchmatic
+
+Export and deploy directly from the UI — click Export, choose "Deploy to Launchmatic", and your workflow runs as a persistent hosted service with environment variables auto-configured.
+
 ---
 
 ## Agent Integration
 
-Stirrup is built for AI agents to use. An agent can discover available node types, construct workflow definitions, validate them, execute with parameters, and inspect results — all through structured APIs.
+Stirrup is built for AI agents to use. An agent can discover node types, construct workflows, validate them, execute with parameters, and inspect results — all through structured APIs.
 
 ### MCP Server
-
-For Claude Code, Claude Desktop, and any MCP-compatible client:
 
 ```json
 {
@@ -312,11 +296,7 @@ For Claude Code, Claude Desktop, and any MCP-compatible client:
 }
 ```
 
-**Available tools:** `list_workflows`, `get_workflow`, `create_workflow`, `run_workflow`, `get_execution`, `validate_workflow`, `list_node_types`
-
 ### WorkflowBuilder API
-
-Fluent TypeScript API for constructing workflows in code:
 
 ```typescript
 import { WorkflowBuilder } from "stirrup-ai";
@@ -324,117 +304,44 @@ import { WorkflowBuilder } from "stirrup-ai";
 const workflow = new WorkflowBuilder("etl-pipeline", "Data ETL")
   .param("sourceUrl", "string", { required: true })
   .http("extract", "Fetch Data", {
-    url: "{{sourceUrl}}",
-    method: "GET",
+    url: "{{sourceUrl}}", method: "GET",
     inputs: [{ from: "context.sourceUrl", to: "sourceUrl" }],
   })
   .llmPrompt("enrich", "AI Enrichment", {
     promptTemplate: "Classify this data: {{data}}",
-    responseFormat: "json",
     inputs: [{ from: "nodes.extract.outputs.body", to: "data" }],
   })
   .edge("extract", "enrich")
   .build();
 ```
 
-### REST API
-
-Any HTTP client or agent framework can call the serve endpoints:
-
-```bash
-curl -X POST http://localhost:3711/run/my-workflow \
-  -H "Content-Type: application/json" \
-  -d '{"repo": "myorg/myrepo", "prNumber": 42}'
-```
-
 See [AGENT-USAGE.md](./AGENT-USAGE.md) for the complete integration guide.
-
----
-
-## Templates
-
-Stirrup includes production-ready workflow templates that demonstrate real patterns.
-
-| Template | Nodes | Pattern | Description |
-|----------|-------|---------|-------------|
-| **PR Review** | 6 | HTTP + AI + Branching | Fetch diff, AI review, severity routing, post results |
-| **Content Pipeline** | 6 | Multi-stage AI + Quality Gate | Research, outline, draft, AI quality check, revise/publish |
-| **Data ETL** | 5 | Extract + AI Enrich + Load | API extraction, validation, AI enrichment, aggregation |
-| **Incident Triage** | 6 | Classification + Agent | Alert parsing, severity classification, agent diagnostics |
-| **Code Generation** | 6 | Parallel + Review Gate | Spec analysis, parallel code+test gen, AI review gate |
-| **Customer Support** | 5 | Routing + Agent | Ticket classification, auth investigation, response drafting |
-
-```bash
-# Browse and scaffold from templates
-stirrup init
-
-# Or use in the visual editor
-stirrup ui  # Click "Browse Templates"
-```
 
 ---
 
 ## Plugins
 
-Extend Stirrup with custom node types and tools:
+16 built-in plugins auto-load on server start. Write your own with the PluginContext API:
 
 ```typescript
-// my-plugin/index.ts
 import type { PluginContext } from "stirrup-ai";
 
 export default function register(ctx: PluginContext) {
-  ctx.registerNodeType("slack-notify", async (config, execCtx) => {
-    const { channel, message } = config as { channel: string; message: string };
-    // Send to Slack...
-    return { messageId: "msg_123", channel };
+  ctx.registerNodeType("my-node", async (config, execCtx) => {
+    // Your logic here
+    return { result: "done" };
   });
 
   ctx.registerTool({
-    name: "query-database",
-    description: "Run a SQL query",
+    name: "my-tool",
+    description: "A tool for agent nodes",
     inputSchema: { type: "object", properties: { query: { type: "string" } } },
-    handler: async (input) => {
-      // Execute query...
-      return { rows: [] };
-    },
+    handler: async (input) => ({ rows: [] }),
   });
 }
 ```
 
-```bash
-stirrup plugin add ./my-plugin
-```
-
-Plugins can contribute node types, tools for agent nodes, and validators.
-
----
-
-## Architecture
-
-```
-src/
-  engine/        DAG scheduler, runner with retry, context manager
-  nodes/         Built-in node type handlers (8 types)
-  ai/            Anthropic SDK provider, tool manager, prompt templates
-  persistence/   SQLite and file-based state stores
-  validation/    JSON Schema validation, DAG cycle detection
-  plugins/       Dynamic plugin loader with PluginContext API
-  cli/           12 yargs commands (run, serve, export, config, etc.)
-  server/        Express REST API with SSE for live events
-  serve/         Workflow service (HTTP triggers, webhooks, cron)
-  mcp/           MCP server for AI agent integration
-  agent/         WorkflowBuilder fluent API
-ui/              React + React Flow visual editor
-templates/       6 pre-built workflow templates
-schemas/         JSON Schema for workflow definitions
-```
-
-**Key design decisions:**
-
-- **`Promise.race` scheduling** — nodes are I/O-bound (API calls, LLM requests), not CPU-bound. The scheduler dispatches all ready nodes as concurrent promises and reacts as soon as any completes, maximizing throughput.
-- **Explicit edges + shared context** — edges define execution order and conditional routing as a first-class concern. Input mappings define data flow. Both are available; neither is mandatory.
-- **State after every node** — execution state is persisted after each node completion. Worst case on crash: one node's work is lost.
-- **Plugin types bypass schema** — the JSON Schema validates structure, not type names. Plugin node types are validated at runtime via the registry, not at parse time.
+**Built-in plugins:** GitHub, Slack, LinkedIn, Launchmatic, Typefully, Buffer, Replicate, Webhook, Filesystem, CSV/JSON, HTTP Auth, Scheduler, Logger, PostgreSQL, Redis, Email, S3
 
 ---
 
@@ -446,27 +353,18 @@ cd stirrup
 npm install
 cd ui && npm install && cd ..
 
-npm test              # 40 tests across 8 suites
+npm test              # 48 tests across 9 suites
 npm run build         # Build engine + CLI
 npm run build:ui      # Build React UI
 npm run build:all     # Build everything
 npm run dev:ui        # Vite dev server with hot reload
 ```
 
-### Running Locally
-
-```bash
-npm run build:all
-npm link
-stirrup config set anthropicApiKey sk-ant-...
-stirrup ui
-```
-
 ---
 
 ## Contributing
 
-We welcome contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions and guidelines.
+We welcome contributions. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup instructions.
 
 Good first contributions:
 - New workflow templates in `templates/`
@@ -478,6 +376,8 @@ Good first contributions:
 
 ## License
 
-MIT &mdash; see [LICENSE](./LICENSE)
+MIT — see [LICENSE](./LICENSE)
 
-The engine, CLI, visual editor, and plugin system are fully open source. Premium features for teams and enterprises are developed separately by [PrincipalForce](https://github.com/PrincipalForce).
+Open source. Free forever. Self-hosted.
+
+Built by [PrincipalForce](https://github.com/PrincipalForce).
