@@ -11,6 +11,7 @@ import { ValidationPanel } from './components/ValidationPanel';
 import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/client';
 import { tokens } from './components/ui/styles';
 import { MenuIcon } from './components/ui/icons';
+import { useTutorial } from './components/tutorial/useTutorial';
 
 // Lazy-load every modal/dialog panel. Each lands in its own vite chunk and
 // is only fetched when the user actually opens it. This drops the initial
@@ -44,6 +45,9 @@ const DebugPanel = lazy(() =>
 const WorkflowParamsEditor = lazy(() =>
   import('./components/WorkflowParamsEditor').then((m) => ({ default: m.WorkflowParamsEditor })),
 );
+const TutorialWizard = lazy(() =>
+  import('./components/tutorial/TutorialWizard').then((m) => ({ default: m.TutorialWizard })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -62,6 +66,7 @@ function App() {
     setSelectedNodeId, setDirty,
   } = useWorkflow();
   const [showParams, setShowParams] = useState(false);
+  const tutorial = useTutorial();
 
   const { execution, events, isRunning, run, clear } = useExecution();
   const [showTemplates, setShowTemplates] = useState(false);
@@ -146,7 +151,7 @@ function App() {
 
       {/* Create buttons */}
       <div style={{ padding: '6px 12px', borderBottom: `1px solid ${tokens.border.subtle}`, display: 'flex', gap: 6 }}>
-        <button onClick={() => { setShowGenerate(true); if (isMobile) setSidebarOpen(false); }} style={{
+        <button data-tutorial="ai-generate" onClick={() => { setShowGenerate(true); if (isMobile) setSidebarOpen(false); }} style={{
           flex: 1, padding: '7px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6,
           border: `1px solid ${tokens.nodeColors['llm-prompt']}40`,
           background: `linear-gradient(135deg, ${tokens.nodeColors['llm-prompt']}15, ${tokens.nodeColors['decision-routing']}10)`,
@@ -154,7 +159,7 @@ function App() {
         }}>
           <span style={{ fontSize: 11, fontWeight: 800 }}>AI</span> Generate
         </button>
-        <button onClick={() => { setShowTemplates(true); if (isMobile) setSidebarOpen(false); }} style={{
+        <button data-tutorial="templates" onClick={() => { setShowTemplates(true); if (isMobile) setSidebarOpen(false); }} style={{
           flex: 1, padding: '7px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6,
           border: `1px dashed ${tokens.border.default}`, backgroundColor: 'transparent',
           color: tokens.text.secondary, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
@@ -179,7 +184,7 @@ function App() {
       }}>
         {/* ── Desktop sidebar ── */}
         {!isMobile && (
-          <div style={{
+          <div data-tutorial="sidebar" style={{
             width: 230, borderRight: `1px solid ${tokens.border.subtle}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             backgroundColor: tokens.bg.surface,
@@ -249,13 +254,13 @@ function App() {
               </span>
             )}
             <div style={{ flex: 1 }} />
-            <button onClick={() => setShowParams(true)} style={{
+            <button data-tutorial="params-button" onClick={() => setShowParams(true)} style={{
               padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
               color: (workflow.params?.length ?? 0) > 0 ? tokens.text.accent : tokens.text.muted,
               cursor: 'pointer',
             }}>Params {(workflow.params?.length ?? 0) > 0 ? `(${workflow.params!.length})` : ''}</button>
-            <button onClick={() => setShowAuth(true)} style={{
+            <button data-tutorial="connections-button" onClick={() => setShowAuth(true)} style={{
               padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
               color: tokens.text.muted, cursor: 'pointer',
@@ -268,6 +273,7 @@ function App() {
               }}>Plugins</button>
             )}
             <button
+              data-tutorial="export-button"
               onClick={() => setShowExport(true)}
               disabled={workflow.nodes.length === 0}
               style={{
@@ -277,11 +283,20 @@ function App() {
                 cursor: workflow.nodes.length === 0 ? 'default' : 'pointer',
               }}
             >Export</button>
-            <button onClick={handleSave} disabled={!dirty} style={{
+            <button data-tutorial="save-button" onClick={handleSave} disabled={!dirty} style={{
               padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: 'none',
               backgroundColor: dirty ? tokens.border.focus : tokens.border.default,
               color: '#fff', cursor: dirty ? 'pointer' : 'default',
             }}>Save</button>
+            <button
+              onClick={tutorial.startTutorial}
+              title="Start tutorial"
+              style={{
+                padding: '4px 8px', fontSize: 12, fontWeight: 700, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: tokens.text.muted, cursor: 'pointer', lineHeight: 1,
+              }}
+            >?</button>
           </div>
 
           {/* Canvas */}
@@ -402,6 +417,18 @@ function App() {
               onClose={() => setShowDebug(false)}
               onRetrySuccess={() => { /* Optional: refresh execution state */ }}
               onApplyEdit={updateNode}
+            />
+          )}
+          {tutorial.isActive && (
+            <TutorialWizard
+              step={tutorial.step}
+              currentStep={tutorial.currentStep}
+              totalSteps={tutorial.totalSteps}
+              isFirst={tutorial.isFirst}
+              isLast={tutorial.isLast}
+              onNext={tutorial.nextStep}
+              onPrev={tutorial.prevStep}
+              onSkip={tutorial.endTutorial}
             />
           )}
         </Suspense>

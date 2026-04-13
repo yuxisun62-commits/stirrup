@@ -47,7 +47,7 @@ export function NodePalette() {
   }
 
   return (
-    <div style={{ padding: '10px 12px', flex: 1, overflow: 'auto' }}>
+    <div data-tutorial="node-palette" style={{ padding: '10px 12px', flex: 1, overflow: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{
           fontSize: 10, fontWeight: 700, color: tokens.text.muted,

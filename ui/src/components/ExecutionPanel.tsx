@@ -44,7 +44,7 @@ export function ExecutionPanel({
     .map((s) => s.nodeId);
 
   return (
-    <div style={{ borderTop: `1px solid ${tokens.border.subtle}`, backgroundColor: tokens.bg.surface }}>
+    <div data-tutorial="execution-panel" style={{ borderTop: `1px solid ${tokens.border.subtle}`, backgroundColor: tokens.bg.surface }}>
       {/* Header bar — always visible */}
       <div
         style={{ padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
@@ -83,6 +83,7 @@ export function ExecutionPanel({
         <div style={{ flex: 1 }} />
 
         <button
+          data-tutorial="run-button"
           onClick={(e) => { e.stopPropagation(); onRun(); }}
           disabled={isRunning}
           style={{

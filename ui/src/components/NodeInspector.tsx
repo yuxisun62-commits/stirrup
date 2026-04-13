@@ -32,7 +32,7 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
   const hasResults = !!stepResult;
 
   return (
-    <div style={{
+    <div data-tutorial="node-inspector" style={{
       height: '100%', display: 'flex', flexDirection: 'column',
       borderLeft: `1px solid ${tokens.border.subtle}`, backgroundColor: tokens.bg.surface,
     }}>

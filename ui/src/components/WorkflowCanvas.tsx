@@ -288,7 +288,7 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
   }, [editingEdge, onUpdateEdgeCondition, setEdges]);
 
   return (
-    <div ref={reactFlowWrapper} style={{ width: '100%', height: '100%' }}>
+    <div ref={reactFlowWrapper} data-tutorial="canvas" style={{ width: '100%', height: '100%' }}>
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
