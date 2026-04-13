@@ -119,7 +119,7 @@ nodes:
         to: joke
     outputs: [selectedBranch, reasoning]
     config:
-      prompt: |
+      promptTemplate: |
         Given this joke: "{{joke}}"
 
         Which programming language would appreciate it most? Pick exactly one.
@@ -165,7 +165,7 @@ nodes:
         to: seed
     outputs: [code, language]
     config:
-      prompt: "Write a JavaScript function named 'addSeed' that takes a number `n` and returns `n + {{seed}}`. Output ONLY the function, no markdown fences, no explanation."
+      promptTemplate: "Write a JavaScript function named 'addSeed' that takes a number `n` and returns `n + {{seed}}`. Output ONLY the function, no markdown fences, no explanation."
       language: javascript
       execute: false
 
@@ -181,7 +181,7 @@ nodes:
     outputs: [finalResponse, toolCalls]
     config:
       systemPrompt: "You are a helpful assistant. Use the logger-log tool exactly once to log the provided number, then summarize what you did."
-      userPrompt: "The number to log is {{squared}}. Log it and then confirm."
+      taskTemplate: "The number to log is {{squared}}. Log it and then confirm."
       tools: ["logger-log"]
       maxIterations: 3
 

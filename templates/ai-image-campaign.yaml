@@ -156,7 +156,7 @@ nodes:
         to: img3
     outputs: [selectedBranch, reasoning]
     config:
-      prompt: |
+      promptTemplate: |
         A campaign has 4 concepts with generated images.
 
         Social posts:
