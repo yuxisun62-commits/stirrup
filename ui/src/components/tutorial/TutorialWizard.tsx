@@ -263,6 +263,9 @@ export function TutorialWizard({
           {step.title}
         </div>
 
+        {/* Inline visual illustration for centered steps */}
+        {step.visual && <StepVisual type={step.visual} />}
+
         {/* Description */}
         <div style={{
           fontSize: 13, color: tokens.text.secondary, lineHeight: 1.6,
@@ -320,4 +323,123 @@ export function TutorialWizard({
   );
 
   return createPortal(portal, document.body);
+}
+
+/**
+ * Inline visual mockups for centered tutorial steps that have no spotlight
+ * target. Each renders a small styled illustration inside the tooltip card
+ * so the step isn't just a wall of text.
+ */
+function StepVisual({ type }: { type: 'welcome' | 'debug' | 'done' }) {
+  const box: CSSProperties = {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 8,
+    border: `1px solid ${tokens.border.subtle}`,
+    backgroundColor: tokens.bg.raised,
+    overflow: 'hidden',
+  };
+
+  if (type === 'welcome') {
+    // Mini workflow diagram: 3 connected nodes
+    return (
+      <div style={box}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {[
+            { label: 'HTTP', color: '#06b6d4', icon: 'GET' },
+            { label: 'Claude', color: '#ec4899', icon: 'AI' },
+            { label: 'Slack', color: '#6366f1', icon: 'MSG' },
+          ].map((n, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 60, padding: '6px 0', borderRadius: 6,
+                border: `2px solid ${n.color}60`,
+                backgroundColor: `${n.color}10`,
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 8, fontWeight: 800, color: n.color, fontFamily: tokens.font.mono }}>{n.icon}</div>
+                <div style={{ fontSize: 9, color: tokens.text.secondary, marginTop: 2 }}>{n.label}</div>
+              </div>
+              {i < 2 && <div style={{ width: 20, height: 2, backgroundColor: tokens.border.default }} />}
+            </div>
+          ))}
+        </div>
+        <div style={{ textAlign: 'center', fontSize: 10, color: tokens.text.muted, marginTop: 8 }}>
+          Visual DAG editor with 8 node types and 20+ integrations
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'debug') {
+    // Mini debug panel mockup
+    return (
+      <div style={box}>
+        {/* Error card */}
+        <div style={{
+          padding: 8, borderRadius: 4, marginBottom: 8,
+          backgroundColor: `${tokens.status.failed}10`,
+          border: `1px solid ${tokens.status.failed}30`,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: tokens.status.failed, textTransform: 'uppercase', marginBottom: 3 }}>Error</div>
+          <div style={{ fontSize: 10, color: '#fca5a5', fontFamily: tokens.font.mono }}>HTTP 401: not_authed</div>
+        </div>
+        {/* AI Analysis mockup */}
+        <div style={{
+          padding: 8, borderRadius: 4, marginBottom: 8,
+          backgroundColor: `${tokens.nodeColors['llm-prompt']}08`,
+          border: `1px solid ${tokens.nodeColors['llm-prompt']}30`,
+        }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: tokens.nodeColors['llm-prompt'], marginBottom: 3 }}>AI Analysis</div>
+          <div style={{ fontSize: 10, color: tokens.text.secondary, lineHeight: 1.4 }}>
+            The token prefix xapp- is an App-Level Token. You need a Bot User OAuth Token (xoxb-) for chat.postMessage.
+          </div>
+        </div>
+        {/* Suggested edit mockup */}
+        <div style={{
+          padding: 6, borderRadius: 4,
+          backgroundColor: `${tokens.status.completed}08`,
+          border: `1px solid ${tokens.status.completed}30`,
+          display: 'flex', alignItems: 'center', gap: 6,
+        }}>
+          <input type="checkbox" checked readOnly style={{ margin: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 9, fontFamily: tokens.font.mono, color: tokens.text.accent }}>config.token</div>
+            <div style={{ fontSize: 9, color: tokens.text.muted }}>Replace with xoxb-... bot token</div>
+          </div>
+          <div style={{
+            fontSize: 9, padding: '2px 8px', borderRadius: 3,
+            backgroundColor: tokens.status.completed, color: '#fff', fontWeight: 600,
+          }}>Apply</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (type === 'done') {
+    // Checkmark with node type icons
+    return (
+      <div style={{ ...box, textAlign: 'center' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginBottom: 8 }}>
+          {['f(x)', '?:', 'GET', '{ }', 'AI', 'BOT', 'RTE', '</>'].map((icon, i) => (
+            <div key={i} style={{
+              width: 28, height: 28, borderRadius: 5,
+              backgroundColor: `${Object.values(tokens.nodeColors)[i] ?? '#475569'}15`,
+              border: `1px solid ${Object.values(tokens.nodeColors)[i] ?? '#475569'}30`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 8, fontWeight: 800, color: Object.values(tokens.nodeColors)[i] ?? '#475569',
+              fontFamily: tokens.font.mono,
+            }}>
+              {icon}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10, color: tokens.text.muted }}>
+          8 node types, unlimited combinations
+        </div>
+      </div>
+    );
+  }
+
+  return null;
 }

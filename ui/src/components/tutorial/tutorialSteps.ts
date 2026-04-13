@@ -9,6 +9,12 @@ export interface TutorialStep {
   optional?: boolean;
   /** Extra px around the spotlight cutout */
   spotlightPadding?: number;
+  /**
+   * Key for an inline visual illustration shown inside the tooltip when there's
+   * no spotlight target. The TutorialWizard maps these keys to styled mockup
+   * components so centered steps still have visual context.
+   */
+  visual?: 'welcome' | 'debug' | 'done';
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -16,8 +22,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'welcome',
     target: null,
     title: 'Welcome to Stirrup',
-    description: 'Stirrup is a visual DAG workflow engine with AI-powered nodes. This tutorial will walk you through the key features. You can skip at any time or reopen it from the Help button.',
+    description: 'Stirrup is a visual DAG workflow engine with AI-powered nodes. This tutorial will walk you through the key features. You can skip at any time or reopen it from the ? button in the toolbar.',
     placement: 'center',
+    visual: 'welcome',
   },
   {
     id: 'sidebar',
@@ -101,6 +108,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Debug Failed Nodes',
     description: 'When a node fails, click it to open the Debug Panel. You\'ll see the exact error, resolved inputs, and stack trace. Click "Analyze with AI" and Claude will diagnose the issue and suggest concrete field edits you can apply with one click.',
     placement: 'center',
+    visual: 'debug',
   },
   {
     id: 'export',
@@ -122,5 +130,6 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'You\'re ready!',
     description: 'That covers the essentials. Try loading a template, running it, and exploring the results. You can reopen this tutorial anytime from the ? button in the toolbar. Happy building!',
     placement: 'center',
+    visual: 'done',
   },
 ];
