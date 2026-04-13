@@ -15,10 +15,10 @@ const NODE_TYPES: NodeTypeInfo[] = [
   { type: 'condition', label: 'Condition', description: 'Branch based on an expression', color: '#f59e0b', icon: '?:', category: 'deterministic' },
   { type: 'http', label: 'HTTP Request', description: 'Make HTTP calls to external APIs', color: '#06b6d4', icon: 'GET', category: 'deterministic' },
   { type: 'script', label: 'Script', description: 'Run arbitrary JS in a sandbox', color: '#8b5cf6', icon: '{ }', category: 'deterministic' },
-  { type: 'llm-prompt', label: 'LLM Prompt', description: 'Send a templated prompt to Claude', color: '#ec4899', icon: 'AI', category: 'ai' },
-  { type: 'agent-tool-use', label: 'Agent', description: 'Autonomous AI with tool access', color: '#f43f5e', icon: 'BOT', category: 'ai' },
-  { type: 'decision-routing', label: 'AI Decision', description: 'AI picks the next branch', color: '#e11d48', icon: 'RTE', category: 'ai' },
-  { type: 'code-generation', label: 'Code Gen', description: 'AI generates & runs code', color: '#be185d', icon: '</>',  category: 'ai' },
+  { type: 'llm-prompt', label: 'LLM Prompt', description: 'Send a templated prompt to Claude', color: '#f97316', icon: 'AI', category: 'ai' },
+  { type: 'agent-tool-use', label: 'Agent', description: 'Autonomous AI with tool access', color: '#14b8a6', icon: 'BOT', category: 'ai' },
+  { type: 'decision-routing', label: 'AI Decision', description: 'AI picks the next branch', color: '#a855f7', icon: 'RTE', category: 'ai' },
+  { type: 'code-generation', label: 'Code Gen', description: 'AI generates & runs code', color: '#84cc16', icon: '</>',  category: 'ai' },
 ];
 
 export function NodePalette() {

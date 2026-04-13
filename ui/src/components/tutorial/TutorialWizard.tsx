@@ -372,7 +372,7 @@ function StepVisual({ type }: { type: 'welcome' | 'debug' | 'done' }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {[
             { label: 'HTTP', color: '#06b6d4', icon: 'GET' },
-            { label: 'Claude', color: '#ec4899', icon: 'AI' },
+            { label: 'Claude', color: '#f97316', icon: 'AI' },
             { label: 'Slack', color: '#6366f1', icon: 'MSG' },
           ].map((n, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

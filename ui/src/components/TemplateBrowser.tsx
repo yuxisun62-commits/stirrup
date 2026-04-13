@@ -17,10 +17,10 @@ const NODE_TYPE_COLORS: Record<string, string> = {
   condition: '#f59e0b',
   http: '#06b6d4',
   script: '#8b5cf6',
-  'llm-prompt': '#ec4899',
-  'agent-tool-use': '#f43f5e',
-  'decision-routing': '#e11d48',
-  'code-generation': '#be185d',
+  'llm-prompt': '#f97316',
+  'agent-tool-use': '#14b8a6',
+  'decision-routing': '#a855f7',
+  'code-generation': '#84cc16',
 };
 
 export function TemplateBrowser({ onSelect, onClose }: Props) {
@@ -115,8 +115,8 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                       <span style={{
                         fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 3,
-                        backgroundColor: t.category === 'ai' ? '#ec489920' : '#6366f120',
-                        color: t.category === 'ai' ? '#ec4899' : '#6366f1',
+                        backgroundColor: t.category === 'ai' ? '#f9731620' : '#6366f120',
+                        color: t.category === 'ai' ? '#f97316' : '#6366f1',
                         textTransform: 'uppercase', letterSpacing: '0.5px',
                       }}>
                         {CATEGORY_LABELS[t.category] ?? t.category}
