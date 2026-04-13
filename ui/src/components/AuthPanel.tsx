@@ -14,6 +14,11 @@ interface Props {
   onClose: () => void;
 }
 
+interface SetupStep {
+  text: string;
+  url?: string;
+}
+
 interface ServiceCard {
   service: string;
   label: string;
@@ -21,6 +26,8 @@ interface ServiceCard {
   oauthSupported: boolean;
   tokenDocsUrl?: string;
   tokenInstructions?: string;
+  /** Step-by-step setup guide shown as a collapsible section in the paste form */
+  setupGuide?: SetupStep[];
 }
 
 const KNOWN_SERVICES: ServiceCard[] = [
@@ -66,7 +73,15 @@ const KNOWN_SERVICES: ServiceCard[] = [
     description: 'Send messages, upload files, list channels',
     oauthSupported: false,
     tokenDocsUrl: 'https://api.slack.com/apps',
-    tokenInstructions: 'Create a Slack app at api.slack.com/apps, install it to your workspace, and copy the bot token (xoxb-...).',
+    tokenInstructions: 'Paste your Bot User OAuth Token (starts with xoxb-). See the setup guide below if you don\'t have one yet.',
+    setupGuide: [
+      { text: 'Go to api.slack.com/apps and click "Create New App" → "From Scratch"', url: 'https://api.slack.com/apps?new_app=1' },
+      { text: 'Name it "Stirrup" (or anything), pick your workspace, click Create' },
+      { text: 'In the left sidebar click "OAuth & Permissions"' },
+      { text: 'Scroll to "Bot Token Scopes" and add: chat:write, channels:read, files:write' },
+      { text: 'Scroll up and click "Install to Workspace" → Authorize' },
+      { text: 'Copy the "Bot User OAuth Token" (starts with xoxb-) and paste it above' },
+    ],
   },
   {
     service: 'jira',
@@ -141,6 +156,7 @@ export function AuthPanel({ onClose }: Props) {
   const [pasteValue, setPasteValue] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [tokenWarning, setTokenWarning] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const refresh = () => {
     getAuthStatus().then((res) => {
@@ -540,11 +556,61 @@ export function AuthPanel({ onClose }: Props) {
                     {svc.tokenInstructions && (
                       <div style={{ fontSize: 11, color: tokens.text.secondary, marginBottom: 8, lineHeight: 1.4 }}>
                         {svc.tokenInstructions}
-                        {svc.tokenDocsUrl && (
+                        {svc.tokenDocsUrl && !svc.setupGuide && (
                           <> <a href={svc.tokenDocsUrl} target="_blank" rel="noopener" style={{ color: tokens.text.accent, textDecoration: 'underline' }}>Open docs →</a></>
                         )}
                       </div>
                     )}
+
+                    {/* Collapsible step-by-step setup guide */}
+                    {svc.setupGuide && (
+                      <div style={{ marginBottom: 10 }}>
+                        <button
+                          onClick={() => setGuideOpen(!guideOpen)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            background: 'none', border: 'none', padding: 0,
+                            cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                            color: tokens.text.accent,
+                          }}
+                        >
+                          <span style={{
+                            fontSize: 8, transition: 'transform 0.15s',
+                            transform: guideOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                            display: 'inline-block',
+                          }}>
+                            &#9654;
+                          </span>
+                          {guideOpen ? 'Hide setup guide' : 'Show setup guide — create a Slack app in 2 minutes'}
+                        </button>
+                        {guideOpen && (
+                          <ol style={{
+                            margin: '8px 0 0 0', padding: '0 0 0 20px',
+                            fontSize: 11, color: tokens.text.secondary, lineHeight: 1.8,
+                          }}>
+                            {svc.setupGuide.map((step, si) => (
+                              <li key={si} style={{ marginBottom: 2 }}>
+                                {step.url ? (
+                                  <a
+                                    href={step.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: tokens.text.accent, textDecoration: 'none' }}
+                                    onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+                                    onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+                                  >
+                                    {step.text} ↗
+                                  </a>
+                                ) : (
+                                  step.text
+                                )}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    )}
+
                     <div style={{ display: 'flex', gap: 6 }}>
                       <input
                         style={{ ...inputBase, flex: 1, fontFamily: tokens.font.mono }}
