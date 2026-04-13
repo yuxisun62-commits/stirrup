@@ -1,23 +1,36 @@
 import { useState, useEffect } from 'react';
-import { listWorkflows, type WorkflowDefinition } from '../api/client';
+import { listWorkflows, deleteWorkflow, type WorkflowDefinition } from '../api/client';
 import { tokens } from './ui/styles';
 
 interface Props {
   currentId: string | null;
   onSelect: (wf: WorkflowDefinition) => void;
   onNew: () => void;
+  onDeleted?: (id: string) => void;
 }
 
-export function WorkflowList({ currentId, onSelect, onNew }: Props) {
+export function WorkflowList({ currentId, onSelect, onNew, onDeleted }: Props) {
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  useEffect(() => {
-    listWorkflows()
-      .then(setWorkflows)
-      .catch((err) => setError(err.message));
-  }, []);
+  const refresh = () => {
+    listWorkflows().then(setWorkflows).catch((err) => setError(err.message));
+  };
+
+  useEffect(refresh, []);
+
+  const handleDelete = async (e: React.MouseEvent, wf: WorkflowDefinition) => {
+    e.stopPropagation();
+    if (!confirm(`Delete workflow "${wf.name}"?\n\nThis removes the YAML file from disk. This cannot be undone.`)) return;
+    try {
+      await deleteWorkflow(wf.id);
+      setWorkflows((prev) => prev.filter((w) => w.id !== wf.id));
+      if (wf.id === currentId) onDeleted?.(wf.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <div style={{ borderBottom: `1px solid ${tokens.border.subtle}` }}>
@@ -75,17 +88,35 @@ export function WorkflowList({ currentId, onSelect, onNew }: Props) {
                   backgroundColor: isActive ? `${tokens.border.focus}15` : 'transparent',
                   border: `1px solid ${isActive ? `${tokens.border.focus}40` : 'transparent'}`,
                   transition: 'background-color 0.15s',
+                  display: 'flex', alignItems: 'center', gap: 6,
                 }}
                 onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = tokens.bg.hover; }}
                 onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent'; }}
               >
-                <div style={{ fontSize: 12, fontWeight: 500, color: isActive ? tokens.text.accent : tokens.text.primary }}>
-                  {wf.name}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: isActive ? tokens.text.accent : tokens.text.primary }}>
+                    {wf.name}
+                  </div>
+                  <div style={{ fontSize: 10, color: tokens.text.muted, display: 'flex', gap: 8, marginTop: 1 }}>
+                    <span style={{ fontFamily: tokens.font.mono, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{wf.id}</span>
+                    <span>{wf.nodes.length} nodes</span>
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: tokens.text.muted, display: 'flex', gap: 8, marginTop: 1 }}>
-                  <span style={{ fontFamily: tokens.font.mono }}>{wf.id}</span>
-                  <span>{wf.nodes.length} nodes</span>
-                </div>
+                <button
+                  onClick={(e) => handleDelete(e, wf)}
+                  title={`Delete ${wf.name}`}
+                  style={{
+                    padding: '2px 5px', fontSize: 10, lineHeight: 1,
+                    background: 'none', border: 'none',
+                    color: tokens.text.muted, cursor: 'pointer',
+                    borderRadius: 3, flexShrink: 0,
+                    opacity: 0.4, transition: 'opacity 0.15s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.4'; (e.currentTarget as HTMLElement).style.color = tokens.text.muted; }}
+                >
+                  x
+                </button>
               </div>
             );
           })}

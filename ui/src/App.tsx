@@ -191,7 +191,7 @@ function App() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
-        <WorkflowList currentId={workflow.id} onSelect={handleSelectWorkflow} onNew={handleNew} />
+        <WorkflowList currentId={workflow.id} onSelect={handleSelectWorkflow} onNew={handleNew} onDeleted={handleNew} />
         <NodePalette />
       </div>
     </>
