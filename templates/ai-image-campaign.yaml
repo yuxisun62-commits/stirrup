@@ -1,0 +1,302 @@
+id: ai-image-campaign
+name: AI Image Campaign Generator
+version: "1.0"
+description: Take a campaign topic, have Claude write 4 different image prompts optimized for different platforms, generate all 4 images in parallel via Replicate, then have Claude pick the best combination and schedule the winning posts to LinkedIn and X via Typefully.
+
+params:
+  - name: topic
+    type: string
+    required: true
+    description: "Campaign topic or product feature to promote (e.g. 'New dark mode feature launch')"
+  - name: brandVoice
+    type: string
+    required: false
+    default: "bold, technical, slightly playful"
+  - name: replicateToken
+    type: string
+    required: true
+    service: replicate
+  - name: typefullyApiKey
+    type: string
+    required: true
+    service: typefully
+
+context:
+  topic: ""
+  brandVoice: "bold, technical, slightly playful"
+
+nodes:
+  - id: write-prompts
+    type: llm-prompt
+    name: Design 4 Image Concepts
+    inputs:
+      - from: context.topic
+        to: topic
+      - from: context.brandVoice
+        to: voice
+    outputs: [response]
+    config:
+      promptTemplate: |
+        You are an art director designing a social media campaign about: {{topic}}
+
+        Brand voice: {{voice}}
+
+        Create 4 distinct image concepts. Each should take a different creative angle:
+        1. Abstract/conceptual — visual metaphor for the topic
+        2. Product-focused — showing the feature or outcome in action
+        3. Human-centered — people interacting with the result
+        4. Data/infographic style — charts, numbers, or structured visual
+
+        For each, write an AI image generation prompt (for Flux). 1-2 sentences each.
+        Also write a matching social post (150-250 chars, for X/Twitter).
+
+        Output as JSON:
+        {
+          "concepts": [
+            { "angle": "abstract", "imagePrompt": "...", "postText": "..." },
+            { "angle": "product", "imagePrompt": "...", "postText": "..." },
+            { "angle": "human", "imagePrompt": "...", "postText": "..." },
+            { "angle": "data", "imagePrompt": "...", "postText": "..." }
+          ]
+        }
+      responseFormat: json
+      maxTokens: 2000
+      temperature: 0.8
+
+  - id: parse-concepts
+    type: script
+    name: Parse Concepts
+    inputs:
+      - from: nodes.write-prompts.outputs.response
+        to: response
+    outputs: [concept0, concept1, concept2, concept3, prompts, posts]
+    config:
+      code: |
+        let p = inputs.response;
+        if (typeof p === "string") p = JSON.parse(p.replace(/^```json?\s*/i,"").replace(/\s*```$/,""));
+        const c = p.concepts || [];
+        result = {
+          concept0: c[0] || {},
+          concept1: c[1] || {},
+          concept2: c[2] || {},
+          concept3: c[3] || {},
+          prompts: c.map(x => x.imagePrompt).join("\n---\n"),
+          posts: c.map(x => x.postText).join("\n---\n")
+        };
+
+  # ─── 4 parallel image generations ───
+
+  - id: gen-abstract
+    type: replicate-image
+    name: Generate Abstract
+    inputs:
+      - from: nodes.parse-concepts.outputs.concept0
+        to: concept
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "1:1"
+      prompt: "abstract"
+
+  - id: gen-product
+    type: replicate-image
+    name: Generate Product
+    inputs:
+      - from: nodes.parse-concepts.outputs.concept1
+        to: concept
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "1:1"
+      prompt: "product"
+
+  - id: gen-human
+    type: replicate-image
+    name: Generate Human
+    inputs:
+      - from: nodes.parse-concepts.outputs.concept2
+        to: concept
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "1:1"
+      prompt: "human"
+
+  - id: gen-data
+    type: replicate-image
+    name: Generate Data Visual
+    inputs:
+      - from: nodes.parse-concepts.outputs.concept3
+        to: concept
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "1:1"
+      prompt: "data"
+
+  # ─── AI selects the best ───
+
+  - id: pick-winner
+    type: decision-routing
+    name: AI Picks Best Concept
+    inputs:
+      - from: nodes.parse-concepts.outputs.posts
+        to: posts
+      - from: nodes.gen-abstract.outputs.firstImageUrl
+        to: img0
+      - from: nodes.gen-product.outputs.firstImageUrl
+        to: img1
+      - from: nodes.gen-human.outputs.firstImageUrl
+        to: img2
+      - from: nodes.gen-data.outputs.firstImageUrl
+        to: img3
+    outputs: [selectedBranch, reasoning]
+    config:
+      prompt: |
+        A campaign has 4 concepts with generated images.
+
+        Social posts:
+        {{posts}}
+
+        Image URLs (for reference — you cannot view them, judge by the concept alignment):
+        0: {{img0}}
+        1: {{img1}}
+        2: {{img2}}
+        3: {{img3}}
+
+        Which concept will perform best on LinkedIn and X? Pick based on:
+        - Hook quality of the post text
+        - How well the concept angle matches social media engagement patterns
+        - Shareability
+
+        Pick exactly one.
+      branches:
+        concept0: "Abstract/conceptual angle"
+        concept1: "Product-focused angle"
+        concept2: "Human-centered angle"
+        concept3: "Data/infographic angle"
+    branches:
+      concept0: [schedule-winner]
+      concept1: [schedule-winner]
+      concept2: [schedule-winner]
+      concept3: [schedule-winner]
+
+  - id: extract-winner
+    type: script
+    name: Extract Winning Concept
+    inputs:
+      - from: nodes.pick-winner.outputs.selectedBranch
+        to: branch
+      - from: nodes.parse-concepts.outputs.concept0
+        to: c0
+      - from: nodes.parse-concepts.outputs.concept1
+        to: c1
+      - from: nodes.parse-concepts.outputs.concept2
+        to: c2
+      - from: nodes.parse-concepts.outputs.concept3
+        to: c3
+      - from: nodes.gen-abstract.outputs.firstImageUrl
+        to: img0
+      - from: nodes.gen-product.outputs.firstImageUrl
+        to: img1
+      - from: nodes.gen-human.outputs.firstImageUrl
+        to: img2
+      - from: nodes.gen-data.outputs.firstImageUrl
+        to: img3
+      - from: nodes.pick-winner.outputs.reasoning
+        to: reasoning
+    outputs: [postText, imageUrl, angle, reasoning]
+    config:
+      code: |
+        const idx = {'concept0':0,'concept1':1,'concept2':2,'concept3':3}[inputs.branch] ?? 0;
+        const concepts = [inputs.c0, inputs.c1, inputs.c2, inputs.c3];
+        const images = [inputs.img0, inputs.img1, inputs.img2, inputs.img3];
+        result = {
+          postText: concepts[idx]?.postText || "",
+          imageUrl: images[idx] || "",
+          angle: concepts[idx]?.angle || inputs.branch,
+          reasoning: inputs.reasoning || ""
+        };
+
+  - id: schedule-winner
+    type: typefully-create-draft
+    name: Schedule Winning Post
+    inputs:
+      - from: context.typefullyApiKey
+        to: apiKey
+      - from: nodes.extract-winner.outputs.postText
+        to: content
+    outputs: [draftId, shareUrl]
+    config:
+      share: true
+
+  - id: report
+    type: transform
+    name: Campaign Report
+    inputs:
+      - from: nodes.extract-winner.outputs.angle
+        to: angle
+      - from: nodes.extract-winner.outputs.imageUrl
+        to: imageUrl
+      - from: nodes.extract-winner.outputs.reasoning
+        to: reasoning
+      - from: nodes.schedule-winner.outputs.shareUrl
+        to: shareUrl
+      - from: context.topic
+        to: topic
+    outputs: [report]
+    config:
+      expression: |
+        ({
+          report: {
+            topic: inputs.topic,
+            winningAngle: inputs.angle,
+            aiReasoning: inputs.reasoning,
+            heroImage: inputs.imageUrl,
+            scheduledUrl: inputs.shareUrl,
+            generatedAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  - from: write-prompts
+    to: parse-concepts
+  # 4-way parallel image generation
+  - from: parse-concepts
+    to: gen-abstract
+  - from: parse-concepts
+    to: gen-product
+  - from: parse-concepts
+    to: gen-human
+  - from: parse-concepts
+    to: gen-data
+  # All images → AI picks winner
+  - from: gen-abstract
+    to: pick-winner
+  - from: gen-product
+    to: pick-winner
+  - from: gen-human
+    to: pick-winner
+  - from: gen-data
+    to: pick-winner
+  # Winner → extract → schedule → report
+  - from: pick-winner
+    to: extract-winner
+  - from: extract-winner
+    to: schedule-winner
+    condition: concept0
+  - from: extract-winner
+    to: schedule-winner
+    condition: concept1
+  - from: extract-winner
+    to: schedule-winner
+    condition: concept2
+  - from: extract-winner
+    to: schedule-winner
+    condition: concept3
+  - from: schedule-winner
+    to: report

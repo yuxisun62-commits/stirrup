@@ -1,0 +1,170 @@
+id: visual-pr-summary
+name: Visual PR Summary with AI Diagram
+version: "1.0"
+description: Fetch a GitHub pull request diff, have Claude write a concise summary, generate a visual architecture diagram of the changes via Replicate, then post both to Slack. Turns every PR into a visual story the whole team can understand at a glance.
+
+params:
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repository (owner/repo)"
+    picker: github-repo
+  - name: prNumber
+    type: number
+    required: true
+    description: "Pull request number"
+  - name: githubToken
+    type: string
+    required: true
+    service: github
+  - name: replicateToken
+    type: string
+    required: true
+    service: replicate
+  - name: slackToken
+    type: string
+    required: true
+    service: slack
+  - name: slackChannel
+    type: string
+    required: true
+    description: "Slack channel for the summary (e.g. #engineering)"
+
+context:
+  slackChannel: "#engineering"
+
+nodes:
+  - id: fetch-pr
+    type: http
+    name: Fetch PR Details
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.prNumber
+        to: pr
+      - from: context.githubToken
+        to: token
+    outputs: [status, body]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/pulls/{{pr}}"
+      method: GET
+      headers:
+        Authorization: "Bearer {{token}}"
+        Accept: "application/vnd.github.v3.diff"
+
+  - id: summarize
+    type: llm-prompt
+    name: Summarize PR Changes
+    inputs:
+      - from: nodes.fetch-pr.outputs.body
+        to: diff
+      - from: context.repo
+        to: repo
+      - from: context.prNumber
+        to: pr
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Summarize this pull request diff for a Slack post.
+
+        Repository: {{repo}} PR #{{pr}}
+
+        Diff:
+        {{diff}}
+
+        Write:
+        1. A one-line title (what this PR does)
+        2. 3-5 bullet points of the key changes
+        3. A one-sentence "image prompt" that describes a simple architecture diagram showing the components this PR touches and how they connect. The prompt should work for an AI image generator — be specific about layout, labels, and style (dark background, clean lines, labeled boxes).
+
+        Output as JSON:
+        { "title": "...", "bullets": ["..."], "imagePrompt": "..." }
+      maxTokens: 1500
+      responseFormat: json
+
+  - id: parse-summary
+    type: script
+    name: Parse Summary JSON
+    inputs:
+      - from: nodes.summarize.outputs.response
+        to: response
+    outputs: [title, bullets, imagePrompt]
+    config:
+      code: |
+        let parsed = inputs.response;
+        if (typeof parsed === "string") {
+          parsed = JSON.parse(parsed.replace(/^```json?\s*/i, "").replace(/\s*```$/, ""));
+        }
+        result = {
+          title: parsed.title || "PR Summary",
+          bullets: Array.isArray(parsed.bullets) ? parsed.bullets.join("\n• ") : String(parsed.bullets),
+          imagePrompt: parsed.imagePrompt || "software architecture diagram"
+        };
+
+  # Generate diagram and format message in parallel
+  - id: generate-diagram
+    type: replicate-image
+    name: Generate Architecture Diagram
+    inputs:
+      - from: nodes.parse-summary.outputs.imagePrompt
+        to: prompt
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [imageUrls, firstImageUrl]
+    config:
+      aspectRatio: "16:9"
+      numOutputs: 1
+
+  - id: format-message
+    type: transform
+    name: Format Slack Message
+    inputs:
+      - from: nodes.parse-summary.outputs.title
+        to: title
+      - from: nodes.parse-summary.outputs.bullets
+        to: bullets
+      - from: context.repo
+        to: repo
+      - from: context.prNumber
+        to: pr
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: '*' + inputs.title + '*\n' +
+            '_' + inputs.repo + ' #' + inputs.pr + '_\n\n' +
+            '• ' + inputs.bullets + '\n\n' +
+            ':frame_with_picture: AI-generated architecture diagram attached below.'
+        })
+
+  - id: post-to-slack
+    type: slack-send
+    name: Post Summary to Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.format-message.outputs.text
+        to: text
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: fetch-pr
+    to: summarize
+  - from: summarize
+    to: parse-summary
+  # Parallel fan-out from parsed summary
+  - from: parse-summary
+    to: generate-diagram
+  - from: parse-summary
+    to: format-message
+  # Both feed into the Slack post
+  - from: format-message
+    to: post-to-slack
+  - from: generate-diagram
+    to: post-to-slack

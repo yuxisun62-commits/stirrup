@@ -1,0 +1,305 @@
+id: blog-to-social-images
+name: Blog Post to Social + Hero Images
+version: "1.0"
+description: Fetch a blog post, extract the content, generate platform-tailored social posts AND matching hero images in parallel, then schedule everything via Typefully (X/LinkedIn) and Buffer (Facebook). End-to-end content distribution with zero manual image work.
+
+params:
+  - name: blogUrl
+    type: string
+    required: true
+    description: "URL of the published blog post"
+  - name: brandStyle
+    type: string
+    required: false
+    default: "modern, minimalist, dark background with accent color gradients, clean sans-serif typography"
+    description: "Visual style for generated hero images"
+  - name: scheduleAt
+    type: string
+    required: false
+    description: "ISO 8601 datetime for scheduled publish, or 'next-free-slot'. Omit for immediate."
+  - name: replicateToken
+    type: string
+    required: true
+    service: replicate
+  - name: typefullyApiKey
+    type: string
+    required: true
+    service: typefully
+  - name: bufferAccessToken
+    type: string
+    required: true
+    service: buffer
+  - name: bufferFacebookProfileId
+    type: string
+    required: true
+    description: "Buffer profile ID for Facebook (run buffer-list-profiles to find)"
+
+context:
+  blogUrl: ""
+  brandStyle: "modern, minimalist, dark background with accent color gradients, clean sans-serif typography"
+  scheduleAt: ""
+
+nodes:
+  - id: fetch
+    type: http
+    name: Fetch Blog HTML
+    inputs:
+      - from: context.blogUrl
+        to: url
+    outputs: [status, body]
+    config:
+      url: "{{url}}"
+      method: GET
+      headers:
+        Accept: "text/html"
+        User-Agent: "Stirrup/1.0"
+
+  - id: extract
+    type: script
+    name: Extract Text + Title
+    inputs:
+      - from: nodes.fetch.outputs.body
+        to: html
+    outputs: [text, title, wordCount]
+    config:
+      code: |
+        const html = String(inputs.html ?? "");
+        // Try to extract <title> or <h1>
+        const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i) || html.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+        const title = titleMatch ? titleMatch[1].replace(/&amp;/g,"&").replace(/&#39;/g,"'").trim() : "Blog Post";
+        // Strip tags for body
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, " ")
+          .replace(/<style[\s\S]*?<\/style>/gi, " ")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 10000);
+        result = { text, title, wordCount: text.split(/\s+/).length };
+
+  # ─── 4-way parallel fan-out: 2 text posts + 2 images ───
+
+  - id: write-linkedin
+    type: llm-prompt
+    name: Write LinkedIn Post
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: nodes.extract.outputs.title
+        to: title
+      - from: context.blogUrl
+        to: url
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a LinkedIn post about this article: "{{title}}"
+
+        Source: {{article}}
+
+        Rules: hook first line, 3 short paragraphs, end with link {{url}}, 3-5 hashtags. 1000-1400 chars. Output ONLY the post.
+      maxTokens: 1000
+      temperature: 0.7
+
+  - id: write-twitter
+    type: llm-prompt
+    name: Write X Thread
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: nodes.extract.outputs.title
+        to: title
+      - from: context.blogUrl
+        to: url
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a 5-tweet X thread about: "{{title}}"
+
+        Source: {{article}}
+
+        Separate tweets with 4 newlines. No numbering. Final tweet links to {{url}}. Max 280 chars each. Output ONLY the thread.
+      maxTokens: 1200
+      temperature: 0.7
+
+  - id: write-facebook
+    type: llm-prompt
+    name: Write Facebook Post
+    inputs:
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.blogUrl
+        to: url
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write a short Facebook post (400-600 chars) about this article. Conversational tone. End with {{url}}. Output ONLY the post.
+
+        Article: {{article}}
+      maxTokens: 600
+      temperature: 0.7
+
+  - id: generate-image-prompt
+    type: llm-prompt
+    name: Design Image Prompt
+    inputs:
+      - from: nodes.extract.outputs.title
+        to: title
+      - from: nodes.extract.outputs.text
+        to: article
+      - from: context.brandStyle
+        to: style
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Write an AI image generation prompt for a hero image for a blog post titled "{{title}}".
+
+        The image should visualize the core concept of the article. Style: {{style}}.
+
+        The prompt should be 1-2 sentences, specific, no text in the image.
+        Output ONLY the prompt.
+
+        Article excerpt: {{article}}
+      maxTokens: 300
+      temperature: 0.6
+
+  - id: generate-hero-square
+    type: replicate-image
+    name: Generate Square Hero (LinkedIn/FB)
+    inputs:
+      - from: nodes.generate-image-prompt.outputs.response
+        to: prompt
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "1:1"
+
+  - id: generate-hero-wide
+    type: replicate-image
+    name: Generate Wide Hero (X/Twitter)
+    inputs:
+      - from: nodes.generate-image-prompt.outputs.response
+        to: prompt
+      - from: context.replicateToken
+        to: apiToken
+    outputs: [firstImageUrl]
+    config:
+      aspectRatio: "16:9"
+
+  # ─── Schedule everything ───
+
+  - id: schedule-linkedin
+    type: typefully-create-draft
+    name: Schedule LinkedIn
+    inputs:
+      - from: context.typefullyApiKey
+        to: apiKey
+      - from: nodes.write-linkedin.outputs.response
+        to: content
+      - from: context.scheduleAt
+        to: scheduleDate
+    outputs: [draftId, shareUrl]
+    config:
+      share: true
+
+  - id: schedule-twitter
+    type: typefully-create-draft
+    name: Schedule X Thread
+    inputs:
+      - from: context.typefullyApiKey
+        to: apiKey
+      - from: nodes.write-twitter.outputs.response
+        to: content
+      - from: context.scheduleAt
+        to: scheduleDate
+    outputs: [draftId, shareUrl]
+    config:
+      threadify: false
+      share: true
+
+  - id: schedule-facebook
+    type: buffer-schedule
+    name: Schedule Facebook
+    inputs:
+      - from: context.bufferAccessToken
+        to: accessToken
+      - from: nodes.write-facebook.outputs.response
+        to: text
+      - from: context.bufferFacebookProfileId
+        to: profileIds
+      - from: context.scheduleAt
+        to: scheduledAt
+    outputs: [updates, bufferCount]
+    config:
+      shorten: true
+
+  - id: bundle
+    type: transform
+    name: Bundle Results
+    inputs:
+      - from: nodes.schedule-linkedin.outputs.shareUrl
+        to: linkedinUrl
+      - from: nodes.schedule-twitter.outputs.shareUrl
+        to: twitterUrl
+      - from: nodes.schedule-facebook.outputs.bufferCount
+        to: fbCount
+      - from: nodes.generate-hero-square.outputs.firstImageUrl
+        to: squareImage
+      - from: nodes.generate-hero-wide.outputs.firstImageUrl
+        to: wideImage
+      - from: nodes.extract.outputs.title
+        to: title
+    outputs: [bundle]
+    config:
+      expression: |
+        ({
+          bundle: {
+            title: inputs.title,
+            scheduled: {
+              linkedin: inputs.linkedinUrl,
+              twitter: inputs.twitterUrl,
+              facebook: inputs.fbCount + ' posts queued'
+            },
+            heroImages: {
+              square: inputs.squareImage,
+              wide: inputs.wideImage
+            },
+            generatedAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  - from: fetch
+    to: extract
+  # 4-way fan-out from extract (text posts + image prompt)
+  - from: extract
+    to: write-linkedin
+  - from: extract
+    to: write-twitter
+  - from: extract
+    to: write-facebook
+  - from: extract
+    to: generate-image-prompt
+  # Image prompt → 2 parallel image generations
+  - from: generate-image-prompt
+    to: generate-hero-square
+  - from: generate-image-prompt
+    to: generate-hero-wide
+  # Text → scheduling
+  - from: write-linkedin
+    to: schedule-linkedin
+  - from: write-twitter
+    to: schedule-twitter
+  - from: write-facebook
+    to: schedule-facebook
+  # All terminal → bundle
+  - from: schedule-linkedin
+    to: bundle
+  - from: schedule-twitter
+    to: bundle
+  - from: schedule-facebook
+    to: bundle
+  - from: generate-hero-square
+    to: bundle
+  - from: generate-hero-wide
+    to: bundle

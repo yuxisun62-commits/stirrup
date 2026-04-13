@@ -1,0 +1,281 @@
+id: customer-feedback-router
+name: Customer Feedback → Classify → Route
+version: "1.0"
+description: Receive customer feedback (from a form, webhook, or manual input), have Claude classify it by sentiment and category, then route it — negative/urgent feedback creates a GitHub issue and alerts Slack, positive feedback gets turned into a LinkedIn testimonial draft.
+
+params:
+  - name: feedback
+    type: string
+    required: true
+    description: "The customer feedback text"
+  - name: customerName
+    type: string
+    required: false
+    default: "Anonymous"
+    description: "Customer name (for the GitHub issue and testimonial)"
+  - name: customerEmail
+    type: string
+    required: false
+    description: "Customer email (included in the GitHub issue if provided)"
+  - name: productName
+    type: string
+    required: false
+    default: "our product"
+    description: "Product name for context"
+  - name: issueRepo
+    type: string
+    required: true
+    description: "GitHub repo for bug reports / feature requests"
+    picker: github-repo
+  - name: githubToken
+    type: string
+    required: true
+    service: github
+  - name: slackToken
+    type: string
+    required: true
+    service: slack
+  - name: slackChannel
+    type: string
+    required: true
+    default: "#customer-feedback"
+  - name: linkedinToken
+    type: string
+    required: false
+    service: linkedin
+
+context:
+  customerName: "Anonymous"
+  productName: "our product"
+  slackChannel: "#customer-feedback"
+
+nodes:
+  - id: classify
+    type: llm-prompt
+    name: Classify Feedback
+    inputs:
+      - from: context.feedback
+        to: feedback
+      - from: context.customerName
+        to: customer
+      - from: context.productName
+        to: product
+    outputs: [response]
+    config:
+      promptTemplate: |
+        Classify this customer feedback about {{product}} from {{customer}}.
+
+        Feedback: "{{feedback}}"
+
+        Return JSON:
+        {
+          "sentiment": "positive" | "negative" | "neutral",
+          "category": "bug" | "feature-request" | "praise" | "question" | "complaint",
+          "urgency": "high" | "medium" | "low",
+          "summary": "one sentence summary",
+          "suggestedLabel": "a GitHub issue label like 'bug', 'enhancement', 'question'"
+        }
+      responseFormat: json
+      maxTokens: 500
+      temperature: 0.2
+
+  - id: parse
+    type: script
+    name: Parse Classification
+    inputs:
+      - from: nodes.classify.outputs.response
+        to: response
+    outputs: [sentiment, category, urgency, summary, label]
+    config:
+      code: |
+        let p = inputs.response;
+        if (typeof p === "string") p = JSON.parse(p.replace(/^```json?\s*/i,"").replace(/\s*```$/,""));
+        result = {
+          sentiment: p.sentiment || "neutral",
+          category: p.category || "question",
+          urgency: p.urgency || "low",
+          summary: p.summary || "",
+          label: p.suggestedLabel || "feedback"
+        };
+
+  - id: route
+    type: condition
+    name: Route by Sentiment
+    inputs:
+      - from: nodes.parse.outputs.sentiment
+        to: sentiment
+      - from: nodes.parse.outputs.urgency
+        to: urgency
+    outputs: [selectedBranch]
+    config:
+      expression: |
+        inputs.sentiment === 'negative' || inputs.urgency === 'high'
+          ? 'escalate'
+          : inputs.sentiment === 'positive'
+            ? 'testimonial'
+            : 'log'
+    branches:
+      escalate: [create-issue, alert-slack]
+      testimonial: [draft-testimonial]
+      log: [log-slack]
+
+  # ─── ESCALATE branch: GitHub issue + Slack alert ───
+
+  - id: create-issue
+    type: http
+    name: Create GitHub Issue
+    inputs:
+      - from: context.issueRepo
+        to: repo
+      - from: context.githubToken
+        to: token
+      - from: nodes.parse.outputs.summary
+        to: summary
+      - from: nodes.parse.outputs.label
+        to: label
+      - from: context.feedback
+        to: feedback
+      - from: context.customerName
+        to: customer
+      - from: context.customerEmail
+        to: email
+    outputs: [status, body]
+    config:
+      url: "https://api.github.com/repos/{{repo}}/issues"
+      method: POST
+      headers:
+        Authorization: "Bearer {{token}}"
+        Accept: "application/vnd.github+json"
+      body: |
+        {
+          "title": "[Customer Feedback] {{summary}}",
+          "body": "**From:** {{customer}} ({{email}})\n\n**Feedback:**\n> {{feedback}}\n\n**Classification:** {{label}}\n\n_Auto-created by Stirrup customer feedback router._",
+          "labels": ["{{label}}", "customer-feedback"]
+        }
+
+  - id: alert-slack
+    type: slack-send
+    name: Alert Team in Slack
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.parse.outputs.summary
+        to: summary
+      - from: nodes.parse.outputs.urgency
+        to: urgency
+      - from: context.customerName
+        to: customer
+      - from: context.feedback
+        to: feedback
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+  - id: format-alert
+    type: transform
+    name: Format Alert
+    inputs:
+      - from: nodes.parse.outputs.summary
+        to: summary
+      - from: nodes.parse.outputs.urgency
+        to: urgency
+      - from: context.customerName
+        to: customer
+      - from: context.feedback
+        to: feedback
+    outputs: [text]
+    config:
+      expression: |
+        ({
+          text: ':rotating_light: *Customer Feedback — ' + inputs.urgency.toUpperCase() + ' URGENCY*\n' +
+            '*From:* ' + inputs.customer + '\n' +
+            '*Summary:* ' + inputs.summary + '\n' +
+            '> ' + (inputs.feedback || '').slice(0, 300) + '\n\n' +
+            '_GitHub issue created automatically._'
+        })
+
+  # ─── TESTIMONIAL branch: LinkedIn draft ───
+
+  - id: draft-testimonial
+    type: llm-prompt
+    name: Draft Testimonial Post
+    inputs:
+      - from: context.feedback
+        to: feedback
+      - from: context.customerName
+        to: customer
+      - from: context.productName
+        to: product
+    outputs: [response]
+    config:
+      promptTemplate: |
+        A customer named {{customer}} left this positive feedback about {{product}}:
+
+        "{{feedback}}"
+
+        Write a LinkedIn post that shares this testimonial in a professional,
+        authentic way. Don't be sycophantic. Include a brief insight about what
+        the feedback tells us about the product direction. End with 3-4 hashtags.
+        900-1200 characters. Output ONLY the post text.
+      maxTokens: 1000
+      temperature: 0.6
+
+  - id: post-testimonial
+    type: linkedin-create-post
+    name: Post Testimonial to LinkedIn
+    inputs:
+      - from: context.linkedinToken
+        to: accessToken
+      - from: nodes.draft-testimonial.outputs.response
+        to: text
+    outputs: [postId, postUrl]
+    config: {}
+
+  # ─── LOG branch: quiet Slack notification ───
+
+  - id: log-slack
+    type: slack-send
+    name: Log to Slack (Neutral)
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.parse.outputs.summary
+        to: summary
+      - from: context.customerName
+        to: customer
+    outputs: [messageTs]
+    config:
+      text: ""
+      channel: ""
+      token: ""
+
+edges:
+  - from: classify
+    to: parse
+  - from: parse
+    to: route
+  # Escalate branch
+  - from: route
+    to: create-issue
+    condition: escalate
+  - from: route
+    to: format-alert
+    condition: escalate
+  - from: format-alert
+    to: alert-slack
+  # Testimonial branch
+  - from: route
+    to: draft-testimonial
+    condition: testimonial
+  - from: draft-testimonial
+    to: post-testimonial
+  # Log branch
+  - from: route
+    to: log-slack
+    condition: log
