@@ -2,58 +2,53 @@ id: launch-broadcast-publish
 name: Multi-Platform Launch Broadcast (Auto-Publish)
 version: "1.0"
 description: End-to-end launch automation. Generate platform-tailored posts in parallel (LinkedIn, X thread, Facebook, TikTok script, YouTube Short script), then auto-schedule the publishable ones via Typefully (X + LinkedIn) and Buffer (Facebook). TikTok and YouTube outputs are returned as scripts for manual rendering.
-
 params:
   - name: announcement
     type: string
     required: true
-    description: "Raw announcement / release notes / feature description. The AI will tailor it per platform."
+    description: Raw announcement / release notes / feature description. The AI will tailor it per platform.
   - name: productName
     type: string
     required: true
-    description: "Product or brand name"
+    description: Product or brand name
   - name: productUrl
     type: string
     required: true
-    description: "Canonical link to include in posts"
+    description: Canonical link to include in posts
   - name: brandTone
     type: string
     required: false
-    default: "confident, technical, slightly playful — never corporate"
+    default: confident, technical, slightly playful — never corporate
   - name: targetAudience
     type: string
     required: false
-    default: "developers and technical founders"
+    default: developers and technical founders
   - name: scheduleAt
     type: string
     required: false
-    description: "ISO 8601 datetime for scheduled publish, or 'next-free-slot' for Typefully's queue. Omit to add to queues without a fixed time."
+    description: ISO 8601 datetime for scheduled publish, or 'next-free-slot' for Typefully's queue. Omit to add to queues without a fixed time.
   - name: typefullyApiKey
     type: string
     required: true
-    description: "Typefully API key for X thread + LinkedIn publishing"
+    description: Typefully API key for X thread + LinkedIn publishing
     service: typefully
   - name: bufferAccessToken
     type: string
     required: true
-    description: "Buffer access token for Facebook publishing"
+    description: Buffer access token for Facebook publishing
     service: buffer
   - name: bufferFacebookProfileId
     type: string
     required: true
-    description: "Buffer profile ID for the Facebook page (run buffer-list-profiles once to discover)"
-
+    description: Buffer profile ID for the Facebook page (run buffer-list-profiles once to discover)
 context:
   announcement: ""
   productName: ""
   productUrl: ""
-  brandTone: "confident, technical, slightly playful — never corporate"
-  targetAudience: "developers and technical founders"
+  brandTone: confident, technical, slightly playful — never corporate
+  targetAudience: developers and technical founders
   scheduleAt: ""
-
 nodes:
-  # ─── 5 parallel platform writers ───
-
   - id: linkedin-post
     type: llm-prompt
     name: Write LinkedIn Post
@@ -68,7 +63,8 @@ nodes:
         to: tone
       - from: context.targetAudience
         to: audience
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are writing a LinkedIn post for {{productName}}.
@@ -90,9 +86,8 @@ nodes:
         - Total length: 900–1300 characters
 
         Output ONLY the post text. No preamble.
-      maxTokens: 1000
+      maxTokens: 2048
       temperature: 0.7
-
   - id: twitter-thread
     type: llm-prompt
     name: Write X/Twitter Thread
@@ -107,7 +102,8 @@ nodes:
         to: tone
       - from: context.targetAudience
         to: audience
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are writing an X (Twitter) thread for {{productName}}.
@@ -128,9 +124,8 @@ nodes:
         - Do NOT number the tweets (Typefully handles that)
 
         Output ONLY the thread.
-      maxTokens: 1200
+      maxTokens: 2048
       temperature: 0.7
-
   - id: facebook-post
     type: llm-prompt
     name: Write Facebook Post
@@ -143,7 +138,8 @@ nodes:
         to: productUrl
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a Facebook post for {{productName}}.
@@ -162,9 +158,8 @@ nodes:
         - 400–700 characters total
 
         Output ONLY the post text.
-      maxTokens: 600
+      maxTokens: 2048
       temperature: 0.7
-
   - id: tiktok-script
     type: llm-prompt
     name: Write TikTok Script
@@ -175,7 +170,8 @@ nodes:
         to: productName
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a 45–60 second TikTok script for {{productName}}.
@@ -197,9 +193,8 @@ nodes:
         - Final row is a CTA
 
         Below the table, output a one-line caption (≤ 200 chars) with 4–5 hashtags.
-      maxTokens: 800
+      maxTokens: 1024
       temperature: 0.8
-
   - id: youtube-short-script
     type: llm-prompt
     name: Write YouTube Short Script
@@ -212,7 +207,8 @@ nodes:
         to: productUrl
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a 60-second YouTube Short for {{productName}}.
@@ -233,11 +229,8 @@ nodes:
 
         ## Description
         2–3 sentences, then the link: {{productUrl}}, then 5–8 hashtags.
-      maxTokens: 1000
+      maxTokens: 2048
       temperature: 0.7
-
-  # ─── Publish stage: 3 parallel scheduled posts ───
-
   - id: publish-twitter
     type: typefully-create-draft
     name: Schedule X Thread (Typefully)
@@ -248,11 +241,14 @@ nodes:
         to: content
       - from: context.scheduleAt
         to: scheduleDate
-    outputs: [draftId, shareUrl, scheduledDate, status]
+    outputs:
+      - draftId
+      - shareUrl
+      - scheduledDate
+      - status
     config:
       threadify: false
       share: true
-
   - id: publish-linkedin
     type: typefully-create-draft
     name: Schedule LinkedIn Post (Typefully)
@@ -263,10 +259,13 @@ nodes:
         to: content
       - from: context.scheduleAt
         to: scheduleDate
-    outputs: [draftId, shareUrl, scheduledDate, status]
+    outputs:
+      - draftId
+      - shareUrl
+      - scheduledDate
+      - status
     config:
       share: true
-
   - id: publish-facebook
     type: buffer-schedule
     name: Schedule Facebook Post (Buffer)
@@ -279,12 +278,11 @@ nodes:
         to: profileIds
       - from: context.scheduleAt
         to: scheduledAt
-    outputs: [updates, bufferCount]
+    outputs:
+      - updates
+      - bufferCount
     config:
       shorten: true
-
-  # ─── Final bundle with publish receipts + scripts ───
-
   - id: bundle
     type: transform
     name: Bundle Receipts & Scripts
@@ -307,7 +305,8 @@ nodes:
         to: productName
       - from: context.productUrl
         to: productUrl
-    outputs: [bundle]
+    outputs:
+      - bundle
     config:
       expression: |
         ({
@@ -338,16 +337,13 @@ nodes:
             }
           }
         })
-
 edges:
-  # Writers → publish (writers run in parallel; publishers wait on their writer)
   - from: linkedin-post
     to: publish-linkedin
   - from: twitter-thread
     to: publish-twitter
   - from: facebook-post
     to: publish-facebook
-  # All terminal nodes → bundle
   - from: publish-linkedin
     to: bundle
   - from: publish-twitter

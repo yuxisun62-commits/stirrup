@@ -2,33 +2,30 @@ id: daily-standup-report
 name: Daily Standup Report Generator
 version: "1.0"
 description: Gather yesterday's GitHub activity across repos, generate an AI summary, and post a standup report to Slack
-
 params:
   - name: repos
     type: string
     required: true
-    description: "Comma-separated repos to track (e.g. org/api,org/frontend)"
+    description: Comma-separated repos to track (e.g. org/api,org/frontend)
   - name: githubToken
     type: string
     required: true
-    description: "GitHub access token"
+    description: GitHub access token
     service: github
   - name: slackToken
     type: string
     required: true
-    description: "Slack bot token"
+    description: Slack bot token
     service: slack
   - name: slackChannel
     type: string
     required: true
     default: "#standup"
-    description: "Slack channel for the report"
-
+    description: Slack channel for the report
 triggers:
   cron:
-    schedule: "0 9 * * 1-5"
-    timezone: "America/New_York"
-
+    schedule: 0 9 * * 1-5
+    timezone: America/New_York
 nodes:
   - id: parse-repos
     type: transform
@@ -36,14 +33,15 @@ nodes:
     inputs:
       - from: context.repos
         to: repos
-    outputs: [repoList, since]
+    outputs:
+      - repoList
+      - since
     config:
       expression: |
         ({
           repoList: inputs.repos.split(',').map(r => r.trim()),
           since: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
         })
-
   - id: fetch-commits
     type: script
     name: Fetch Commits from All Repos
@@ -54,7 +52,8 @@ nodes:
         to: since
       - from: context.githubToken
         to: token
-    outputs: [result]
+    outputs:
+      - result
     config:
       code: |
         const repos = inputs.repos;
@@ -76,7 +75,6 @@ nodes:
         }
         result = { commits: allCommits, repoCount: repos.length, commitCount: allCommits.length };
       timeoutMs: 30000
-
   - id: fetch-prs
     type: script
     name: Fetch Open PRs
@@ -85,7 +83,8 @@ nodes:
         to: repos
       - from: context.githubToken
         to: token
-    outputs: [result]
+    outputs:
+      - result
     config:
       code: |
         const repos = inputs.repos;
@@ -106,7 +105,6 @@ nodes:
         }
         result = { prs: allPRs, prCount: allPRs.length };
       timeoutMs: 30000
-
   - id: generate-report
     type: llm-prompt
     name: Generate Standup Report
@@ -115,7 +113,8 @@ nodes:
         to: commitData
       - from: nodes.fetch-prs.outputs.result
         to: prData
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Generate a daily standup report for a Slack post based on this activity:
@@ -132,9 +131,8 @@ nodes:
         3. :dart: *Focus Areas* — what the team seems to be working on based on the commits
 
         Keep it concise. Use Slack markdown. No more than 15 lines.
-      systemPrompt: "Write concise team standup reports. Group by theme, not by repo. Highlight what matters."
-      maxTokens: 800
-
+      systemPrompt: Write concise team standup reports. Group by theme, not by repo. Highlight what matters.
+      maxTokens: 4096
   - id: post-report
     type: slack-send
     name: Post to Slack
@@ -145,12 +143,12 @@ nodes:
         to: channel
       - from: nodes.generate-report.outputs.response
         to: text
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: parse-repos
     to: fetch-commits

@@ -2,25 +2,24 @@ id: competitor-watch
 name: Competitor Changelog Watcher
 version: "1.0"
 description: Fetch a competitor's RSS/Atom feed (changelog, blog, release notes), parse the recent entries, ask Claude to summarize what they shipped and what it means for your positioning, then post the digest to a Slack channel. Designed to run on a schedule.
-
 params:
   - name: feedUrl
     type: string
     required: true
-    description: "Competitor's RSS/Atom feed URL (changelog, blog, /feed.xml, /feed.atom)"
+    description: Competitor's RSS/Atom feed URL (changelog, blog, /feed.xml, /feed.atom)
   - name: competitorName
     type: string
     required: true
-    description: "Display name of the competitor (used in the Slack message)"
+    description: Display name of the competitor (used in the Slack message)
   - name: maxEntries
     type: number
     required: false
     default: 5
-    description: "How many recent entries to summarize"
+    description: How many recent entries to summarize
   - name: yourProductName
     type: string
     required: true
-    description: "Your product name — Claude uses this to frame the competitive analysis"
+    description: Your product name — Claude uses this to frame the competitive analysis
   - name: slackChannel
     type: string
     required: true
@@ -28,16 +27,14 @@ params:
   - name: slackToken
     type: string
     required: true
-    description: "Slack bot token"
+    description: Slack bot token
     service: slack
-
 context:
   feedUrl: ""
   competitorName: ""
   maxEntries: 5
   yourProductName: ""
   slackChannel: ""
-
 nodes:
   - id: fetch-feed
     type: http
@@ -45,14 +42,15 @@ nodes:
     inputs:
       - from: context.feedUrl
         to: url
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{url}}"
       method: GET
       headers:
-        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml"
-        User-Agent: "Stirrup-CompetitorWatch/1.0"
-
+        Accept: application/rss+xml, application/atom+xml, application/xml, text/xml
+        User-Agent: Stirrup-CompetitorWatch/1.0
   - id: parse-feed
     type: script
     name: Parse Feed Entries
@@ -61,7 +59,9 @@ nodes:
         to: xml
       - from: context.maxEntries
         to: maxEntries
-    outputs: [entries, count]
+    outputs:
+      - entries
+      - count
     config:
       code: |
         const xml = String(inputs.xml ?? "");
@@ -96,7 +96,6 @@ nodes:
         }));
 
         result = { entries, count: entries.length };
-
   - id: summarize
     type: llm-prompt
     name: Summarize Competitor Activity
@@ -107,7 +106,8 @@ nodes:
         to: competitor
       - from: context.yourProductName
         to: yourProduct
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are a competitive intelligence analyst. {{competitor}} just published the following entries on their changelog/blog. Our product is {{yourProduct}}.
@@ -123,9 +123,8 @@ nodes:
         4. **Suggested response** — one concrete action {{yourProduct}} could take this week
 
         Use Slack mrkdwn (single asterisks for bold, no markdown headers). Keep total length under 1500 characters.
-      maxTokens: 1200
+      maxTokens: 4096
       temperature: 0.4
-
   - id: format-message
     type: transform
     name: Format Slack Message
@@ -136,13 +135,13 @@ nodes:
         to: competitor
       - from: nodes.parse-feed.outputs.count
         to: count
-    outputs: [text]
+    outputs:
+      - text
     config:
       expression: |
         ({
           text: ':eyes: *' + inputs.competitor + ' Activity Digest* (' + inputs.count + ' new entries)\n\n' + inputs.brief
         })
-
   - id: notify
     type: slack-send
     name: Post to Slack
@@ -153,12 +152,12 @@ nodes:
         to: channel
       - from: nodes.format-message.outputs.text
         to: text
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: fetch-feed
     to: parse-feed

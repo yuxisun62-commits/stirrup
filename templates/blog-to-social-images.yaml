@@ -2,21 +2,20 @@ id: blog-to-social-images
 name: Blog Post to Social + Hero Images
 version: "1.0"
 description: Fetch a blog post, extract the content, generate platform-tailored social posts AND matching hero images in parallel, then schedule everything via Typefully (X/LinkedIn) and Buffer (Facebook). End-to-end content distribution with zero manual image work.
-
 params:
   - name: blogUrl
     type: string
     required: true
-    description: "URL of the published blog post"
+    description: URL of the published blog post
   - name: brandStyle
     type: string
     required: false
-    default: "modern, minimalist, dark background with accent color gradients, clean sans-serif typography"
-    description: "Visual style for generated hero images"
+    default: modern, minimalist, dark background with accent color gradients, clean sans-serif typography
+    description: Visual style for generated hero images
   - name: scheduleAt
     type: string
     required: false
-    description: "ISO 8601 datetime for scheduled publish, or 'next-free-slot'. Omit for immediate."
+    description: ISO 8601 datetime for scheduled publish, or 'next-free-slot'. Omit for immediate.
   - name: replicateToken
     type: string
     required: true
@@ -32,13 +31,11 @@ params:
   - name: bufferFacebookProfileId
     type: string
     required: true
-    description: "Buffer profile ID for Facebook (run buffer-list-profiles to find)"
-
+    description: Buffer profile ID for Facebook (run buffer-list-profiles to find)
 context:
   blogUrl: ""
-  brandStyle: "modern, minimalist, dark background with accent color gradients, clean sans-serif typography"
+  brandStyle: modern, minimalist, dark background with accent color gradients, clean sans-serif typography
   scheduleAt: ""
-
 nodes:
   - id: fetch
     type: http
@@ -46,21 +43,25 @@ nodes:
     inputs:
       - from: context.blogUrl
         to: url
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{url}}"
       method: GET
       headers:
-        Accept: "text/html"
-        User-Agent: "Stirrup/1.0"
-
+        Accept: text/html
+        User-Agent: Stirrup/1.0
   - id: extract
     type: script
     name: Extract Text + Title
     inputs:
       - from: nodes.fetch.outputs.body
         to: html
-    outputs: [text, title, wordCount]
+    outputs:
+      - text
+      - title
+      - wordCount
     config:
       code: |
         const html = String(inputs.html ?? "");
@@ -76,9 +77,6 @@ nodes:
           .trim()
           .slice(0, 10000);
         result = { text, title, wordCount: text.split(/\s+/).length };
-
-  # ─── 4-way parallel fan-out: 2 text posts + 2 images ───
-
   - id: write-linkedin
     type: llm-prompt
     name: Write LinkedIn Post
@@ -89,7 +87,8 @@ nodes:
         to: title
       - from: context.blogUrl
         to: url
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a LinkedIn post about this article: "{{title}}"
@@ -97,9 +96,8 @@ nodes:
         Source: {{article}}
 
         Rules: hook first line, 3 short paragraphs, end with link {{url}}, 3-5 hashtags. 1000-1400 chars. Output ONLY the post.
-      maxTokens: 1000
+      maxTokens: 4096
       temperature: 0.7
-
   - id: write-twitter
     type: llm-prompt
     name: Write X Thread
@@ -110,7 +108,8 @@ nodes:
         to: title
       - from: context.blogUrl
         to: url
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a 5-tweet X thread about: "{{title}}"
@@ -118,9 +117,8 @@ nodes:
         Source: {{article}}
 
         Separate tweets with 4 newlines. No numbering. Final tweet links to {{url}}. Max 280 chars each. Output ONLY the thread.
-      maxTokens: 1200
+      maxTokens: 4096
       temperature: 0.7
-
   - id: write-facebook
     type: llm-prompt
     name: Write Facebook Post
@@ -129,15 +127,15 @@ nodes:
         to: article
       - from: context.blogUrl
         to: url
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a short Facebook post (400-600 chars) about this article. Conversational tone. End with {{url}}. Output ONLY the post.
 
         Article: {{article}}
-      maxTokens: 600
+      maxTokens: 4096
       temperature: 0.7
-
   - id: generate-image-prompt
     type: llm-prompt
     name: Design Image Prompt
@@ -148,7 +146,8 @@ nodes:
         to: article
       - from: context.brandStyle
         to: style
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write an AI image generation prompt for a hero image for a blog post titled "{{title}}".
@@ -159,9 +158,8 @@ nodes:
         Output ONLY the prompt.
 
         Article excerpt: {{article}}
-      maxTokens: 300
+      maxTokens: 4096
       temperature: 0.6
-
   - id: generate-hero-square
     type: replicate-image
     name: Generate Square Hero (LinkedIn/FB)
@@ -170,10 +168,10 @@ nodes:
         to: prompt
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "1:1"
-
+      aspectRatio: 1:1
   - id: generate-hero-wide
     type: replicate-image
     name: Generate Wide Hero (X/Twitter)
@@ -182,12 +180,10 @@ nodes:
         to: prompt
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "16:9"
-
-  # ─── Schedule everything ───
-
+      aspectRatio: 16:9
   - id: schedule-linkedin
     type: typefully-create-draft
     name: Schedule LinkedIn
@@ -198,10 +194,11 @@ nodes:
         to: content
       - from: context.scheduleAt
         to: scheduleDate
-    outputs: [draftId, shareUrl]
+    outputs:
+      - draftId
+      - shareUrl
     config:
       share: true
-
   - id: schedule-twitter
     type: typefully-create-draft
     name: Schedule X Thread
@@ -212,11 +209,12 @@ nodes:
         to: content
       - from: context.scheduleAt
         to: scheduleDate
-    outputs: [draftId, shareUrl]
+    outputs:
+      - draftId
+      - shareUrl
     config:
       threadify: false
       share: true
-
   - id: schedule-facebook
     type: buffer-schedule
     name: Schedule Facebook
@@ -229,10 +227,11 @@ nodes:
         to: profileIds
       - from: context.scheduleAt
         to: scheduledAt
-    outputs: [updates, bufferCount]
+    outputs:
+      - updates
+      - bufferCount
     config:
       shorten: true
-
   - id: bundle
     type: transform
     name: Bundle Results
@@ -249,7 +248,8 @@ nodes:
         to: wideImage
       - from: nodes.extract.outputs.title
         to: title
-    outputs: [bundle]
+    outputs:
+      - bundle
     config:
       expression: |
         ({
@@ -267,11 +267,9 @@ nodes:
             generatedAt: new Date().toISOString()
           }
         })
-
 edges:
   - from: fetch
     to: extract
-  # 4-way fan-out from extract (text posts + image prompt)
   - from: extract
     to: write-linkedin
   - from: extract
@@ -280,19 +278,16 @@ edges:
     to: write-facebook
   - from: extract
     to: generate-image-prompt
-  # Image prompt → 2 parallel image generations
   - from: generate-image-prompt
     to: generate-hero-square
   - from: generate-image-prompt
     to: generate-hero-wide
-  # Text → scheduling
   - from: write-linkedin
     to: schedule-linkedin
   - from: write-twitter
     to: schedule-twitter
   - from: write-facebook
     to: schedule-facebook
-  # All terminal → bundle
   - from: schedule-linkedin
     to: bundle
   - from: schedule-twitter

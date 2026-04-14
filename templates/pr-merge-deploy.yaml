@@ -2,38 +2,35 @@ id: pr-merge-deploy
 name: PR Merge → Deploy → Notify Pipeline
 version: "1.0"
 description: When a PR merges, deploy to Launchmatic staging, run tests, and update the GitHub PR with deployment status
-
 params:
   - name: repo
     type: string
     required: true
-    description: "GitHub repository (owner/repo)"
+    description: GitHub repository (owner/repo)
     picker: github-repo
   - name: prNumber
     type: number
     required: true
-    description: "Pull request number"
+    description: Pull request number
   - name: githubToken
     type: string
     required: true
-    description: "GitHub access token"
+    description: GitHub access token
     service: github
   - name: serviceId
     type: string
     required: true
-    description: "Launchmatic service ID"
+    description: Launchmatic service ID
   - name: lmToken
     type: string
     required: true
-    description: "Launchmatic API token"
+    description: Launchmatic API token
     service: launchmatic
-
 triggers:
   webhook:
     source: github
     events:
       - pull_request.closed
-
 nodes:
   - id: get-pr
     type: github-get-pr
@@ -45,9 +42,15 @@ nodes:
         to: prNumber
       - from: context.githubToken
         to: token
-    outputs: [title, author, branch, baseBranch, additions, deletions, url]
+    outputs:
+      - title
+      - author
+      - branch
+      - baseBranch
+      - additions
+      - deletions
+      - url
     config: {}
-
   - id: deploy-staging
     type: lm-deploy
     name: Deploy to Staging
@@ -56,37 +59,44 @@ nodes:
         to: serviceId
       - from: context.lmToken
         to: token
-    outputs: [deploymentId, status, url]
+    outputs:
+      - deploymentId
+      - status
+      - url
     config: {}
-
   - id: wait-live
     type: delay
     name: Wait for Deploy
     inputs: []
-    outputs: [passthrough]
+    outputs:
+      - passthrough
     config:
       seconds: 20
-
   - id: test-deployment
     type: lm-browser-test
     name: Test Staging
     inputs:
       - from: nodes.deploy-staging.outputs.url
         to: url
-    outputs: [passed, loadTimeMs, jsErrors, brokenLinks, status]
+    outputs:
+      - passed
+      - loadTimeMs
+      - jsErrors
+      - brokenLinks
+      - status
     config:
       checkLinks: true
-
   - id: take-screenshot
     type: lm-browser-screenshot
     name: Screenshot Deployment
     inputs:
       - from: nodes.deploy-staging.outputs.url
         to: url
-    outputs: [path, size]
+    outputs:
+      - path
+      - size
     config:
       fullPage: false
-
   - id: build-summary
     type: llm-prompt
     name: Generate Deploy Summary
@@ -105,7 +115,8 @@ nodes:
         to: loadTime
       - from: nodes.deploy-staging.outputs.url
         to: deployUrl
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a concise deployment summary for a GitHub PR comment:
@@ -117,9 +128,8 @@ nodes:
         Load time: {{loadTime}}ms
 
         Format as markdown. Include a status emoji, the deploy URL, test results, and any concerns about the change size.
-      systemPrompt: "Write concise, informative deployment summaries. Use markdown formatting."
-      maxTokens: 500
-
+      systemPrompt: Write concise, informative deployment summaries. Use markdown formatting.
+      maxTokens: 2048
   - id: post-comment
     type: github-post-comment
     name: Comment on PR
@@ -132,9 +142,10 @@ nodes:
         to: token
       - from: nodes.build-summary.outputs.response
         to: body
-    outputs: [commentId, url]
+    outputs:
+      - commentId
+      - url
     config: {}
-
 edges:
   - from: get-pr
     to: deploy-staging

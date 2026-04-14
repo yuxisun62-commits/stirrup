@@ -2,17 +2,14 @@ id: smoke-test-templates
 name: Meta — Validate All Built-In Templates
 version: "1.0"
 description: Calls the local Stirrup API to list all built-in templates, then validates each one against the workflow schema. Reports which templates are healthy vs broken. Does NOT execute templates (that would require real tokens for every integration) — this is a structural health check that catches template regressions, bad edges, and schema violations.
-
 params:
   - name: stirrupBaseUrl
     type: string
     required: false
-    default: "http://localhost:3710"
-    description: "Base URL of the running Stirrup server. Leave as default unless you changed the port."
-
+    default: http://localhost:3710
+    description: Base URL of the running Stirrup server. Leave as default unless you changed the port.
 context:
-  stirrupBaseUrl: "http://localhost:3710"
-
+  stirrupBaseUrl: http://localhost:3710
 nodes:
   - id: list-templates
     type: http
@@ -20,14 +17,15 @@ nodes:
     inputs:
       - from: context.stirrupBaseUrl
         to: baseUrl
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{baseUrl}}/api/templates"
       method: GET
       allowInternal: true
       headers:
-        Accept: "application/json"
-
+        Accept: application/json
   - id: validate-each
     type: script
     name: Fetch & Validate Each Template
@@ -36,7 +34,11 @@ nodes:
         to: templates
       - from: context.stirrupBaseUrl
         to: baseUrl
-    outputs: [results, passed, failed, total]
+    outputs:
+      - results
+      - passed
+      - failed
+      - total
     config:
       timeoutMs: 60000
       code: |
@@ -113,7 +115,6 @@ nodes:
 
           return { results, passed, failed, total: templates.length };
         })();
-
   - id: summarize
     type: llm-prompt
     name: Summarize Health Report
@@ -126,7 +127,8 @@ nodes:
         to: failed
       - from: nodes.validate-each.outputs.total
         to: total
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are reviewing a Stirrup template health report. {{passed}} of {{total}} templates passed structural validation, {{failed}} failed.
@@ -140,9 +142,8 @@ nodes:
         3. If everything passed, suggest ONE improvement: a template category that seems thin based on the list.
 
         Keep it under 500 characters. Be direct.
-      maxTokens: 800
+      maxTokens: 4096
       temperature: 0.3
-
   - id: final
     type: transform
     name: Final Report
@@ -157,7 +158,8 @@ nodes:
         to: total
       - from: nodes.summarize.outputs.response
         to: summary
-    outputs: [report]
+    outputs:
+      - report
     config:
       expression: |
         ({
@@ -172,7 +174,6 @@ nodes:
             results: inputs.results
           }
         })
-
 edges:
   - from: list-templates
     to: validate-each

@@ -2,53 +2,49 @@ id: content-repurpose
 name: Blog Post → Multi-Channel Repurposer
 version: "1.0"
 description: Take any published blog post URL, fetch the article, extract the body, then atomize it in parallel into a Twitter thread, LinkedIn post, newsletter blurb, and YouTube Short script. One long-form piece becomes a week of content.
-
 params:
   - name: blogUrl
     type: string
     required: true
-    description: "Public URL of the blog post to repurpose"
+    description: Public URL of the blog post to repurpose
   - name: brandTone
     type: string
     required: false
-    default: "clear, opinionated, no buzzwords"
-    description: "Voice / style guidance applied to every output"
+    default: clear, opinionated, no buzzwords
+    description: Voice / style guidance applied to every output
   - name: ctaUrl
     type: string
     required: false
-    description: "Optional canonical URL to drop into each post (defaults to the blog URL)"
-
+    description: Optional canonical URL to drop into each post (defaults to the blog URL)
 context:
   blogUrl: ""
-  brandTone: "clear, opinionated, no buzzwords"
+  brandTone: clear, opinionated, no buzzwords
   ctaUrl: ""
-
 nodes:
-  # ─── 1. Fetch the article ───
-
   - id: fetch
     type: http
     name: Fetch Blog HTML
     inputs:
       - from: context.blogUrl
         to: url
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{url}}"
       method: GET
       headers:
-        Accept: "text/html"
-        User-Agent: "Stirrup-ContentRepurposer/1.0"
-
-  # ─── 2. Strip HTML to plaintext (rough but reliable) ───
-
+        Accept: text/html
+        User-Agent: Stirrup-ContentRepurposer/1.0
   - id: extract
     type: script
     name: Extract Plain Text
     inputs:
       - from: nodes.fetch.outputs.body
         to: html
-    outputs: [text, wordCount]
+    outputs:
+      - text
+      - wordCount
     config:
       code: |
         const html = String(inputs.html ?? "");
@@ -74,9 +70,6 @@ nodes:
           text: truncated,
           wordCount: text.split(/\s+/).length
         };
-
-  # ─── 3. Four parallel atomizers ───
-
   - id: twitter-thread
     type: llm-prompt
     name: Twitter Thread
@@ -87,7 +80,8 @@ nodes:
         to: tone
       - from: context.ctaUrl
         to: ctaUrl
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Source article:
@@ -106,9 +100,8 @@ nodes:
         - Number them 1/, 2/, …
 
         Output ONLY the thread, separated by blank lines.
-      maxTokens: 1500
+      maxTokens: 4096
       temperature: 0.6
-
   - id: linkedin-post
     type: llm-prompt
     name: LinkedIn Post
@@ -119,7 +112,8 @@ nodes:
         to: tone
       - from: context.ctaUrl
         to: ctaUrl
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Source article:
@@ -137,9 +131,8 @@ nodes:
         - Closes with 3–5 hashtags
 
         Output ONLY the post text.
-      maxTokens: 1000
+      maxTokens: 4096
       temperature: 0.6
-
   - id: newsletter
     type: llm-prompt
     name: Newsletter Blurb
@@ -150,7 +143,8 @@ nodes:
         to: tone
       - from: context.ctaUrl
         to: ctaUrl
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Source article:
@@ -166,9 +160,8 @@ nodes:
         - A "Read the full post →" line linking to {{ctaUrl}}
 
         Format with clear markdown headers (## Subject, ## Body, ## CTA).
-      maxTokens: 1000
+      maxTokens: 4096
       temperature: 0.6
-
   - id: youtube-short
     type: llm-prompt
     name: YouTube Short Script
@@ -177,7 +170,8 @@ nodes:
         to: article
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Source article:
@@ -196,11 +190,8 @@ nodes:
         Below the script, output:
         - A title (≤ 60 chars)
         - 5–8 hashtags
-      maxTokens: 1000
+      maxTokens: 4096
       temperature: 0.7
-
-  # ─── 4. Bundle results ───
-
   - id: bundle
     type: transform
     name: Bundle Repurposed Content
@@ -217,7 +208,8 @@ nodes:
         to: sourceWordCount
       - from: context.blogUrl
         to: source
-    outputs: [bundle]
+    outputs:
+      - bundle
     config:
       expression: |
         ({
@@ -233,11 +225,9 @@ nodes:
             }
           }
         })
-
 edges:
   - from: fetch
     to: extract
-  # 4-way fan-out — all atomizers run in parallel after extract
   - from: extract
     to: twitter-thread
   - from: extract
@@ -246,7 +236,6 @@ edges:
     to: newsletter
   - from: extract
     to: youtube-short
-  # Fan-in to the bundler
   - from: twitter-thread
     to: bundle
   - from: linkedin-post

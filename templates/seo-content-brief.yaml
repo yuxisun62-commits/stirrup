@@ -2,38 +2,35 @@ id: seo-content-brief
 name: SEO Content Brief Generator
 version: "1.0"
 description: Take a target keyword, fetch the top SERP results from a search API (Serper, SerpAPI, Brave, etc.), have Claude analyze what's already ranking, then produce a content brief with target word count, header outline, semantic keywords, and angle recommendations.
-
 params:
   - name: keyword
     type: string
     required: true
-    description: "The target search keyword (e.g. 'open source workflow engine')"
+    description: The target search keyword (e.g. 'open source workflow engine')
   - name: audience
     type: string
     required: false
-    default: "developers and technical decision-makers"
-    description: "Who the eventual article is written for"
+    default: developers and technical decision-makers
+    description: Who the eventual article is written for
   - name: searchApiUrl
     type: string
     required: false
-    default: "https://google.serper.dev/search"
-    description: "SERP API endpoint. Defaults to Serper. Replace with SerpAPI/Brave if you prefer."
+    default: https://google.serper.dev/search
+    description: SERP API endpoint. Defaults to Serper. Replace with SerpAPI/Brave if you prefer.
   - name: searchApiKey
     type: string
     required: true
-    description: "API key for the SERP service"
+    description: API key for the SERP service
   - name: brandPerspective
     type: string
     required: false
     default: ""
     description: "Optional: your unique angle or contrarian POV that should anchor the brief"
-
 context:
   keyword: ""
-  audience: "developers and technical decision-makers"
-  searchApiUrl: "https://google.serper.dev/search"
+  audience: developers and technical decision-makers
+  searchApiUrl: https://google.serper.dev/search
   brandPerspective: ""
-
 nodes:
   - id: search
     type: http
@@ -45,24 +42,27 @@ nodes:
         to: apiKey
       - from: context.keyword
         to: keyword
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{url}}"
       method: POST
       headers:
-        Content-Type: "application/json"
+        Content-Type: application/json
         X-API-KEY: "{{apiKey}}"
       body:
         q: "{{keyword}}"
         num: 10
-
   - id: extract-results
     type: script
     name: Extract Titles & Snippets
     inputs:
       - from: nodes.search.outputs.body
         to: serp
-    outputs: [results, count]
+    outputs:
+      - results
+      - count
     config:
       code: |
         const raw = inputs.serp;
@@ -81,7 +81,6 @@ nodes:
         }));
 
         result = { results: extracted, count: extracted.length };
-
   - id: analyze
     type: llm-prompt
     name: Generate Content Brief
@@ -94,7 +93,8 @@ nodes:
         to: audience
       - from: context.brandPerspective
         to: brandPerspective
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are an SEO content strategist. Generate a content brief for a new article targeting the keyword: **{{keyword}}**
@@ -140,9 +140,8 @@ nodes:
         One LinkedIn post hook + one Twitter hook + one newsletter subject line, drawn from the angle above.
 
         Be concrete. No generic SEO advice. The brief should be specific enough that a writer could start drafting immediately.
-      maxTokens: 2500
+      maxTokens: 4096
       temperature: 0.5
-
 edges:
   - from: search
     to: extract-results

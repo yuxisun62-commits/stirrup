@@ -2,30 +2,29 @@ id: customer-feedback-router
 name: Customer Feedback → Classify → Route
 version: "1.0"
 description: Receive customer feedback (from a form, webhook, or manual input), have Claude classify it by sentiment and category, then route it — negative/urgent feedback creates a GitHub issue and alerts Slack, positive feedback gets turned into a LinkedIn testimonial draft.
-
 params:
   - name: feedback
     type: string
     required: true
-    description: "The customer feedback text"
+    description: The customer feedback text
   - name: customerName
     type: string
     required: false
-    default: "Anonymous"
-    description: "Customer name (for the GitHub issue and testimonial)"
+    default: Anonymous
+    description: Customer name (for the GitHub issue and testimonial)
   - name: customerEmail
     type: string
     required: false
-    description: "Customer email (included in the GitHub issue if provided)"
+    description: Customer email (included in the GitHub issue if provided)
   - name: productName
     type: string
     required: false
-    default: "our product"
-    description: "Product name for context"
+    default: our product
+    description: Product name for context
   - name: issueRepo
     type: string
     required: true
-    description: "GitHub repo for bug reports / feature requests"
+    description: GitHub repo for bug reports / feature requests
     picker: github-repo
   - name: githubToken
     type: string
@@ -43,12 +42,10 @@ params:
     type: string
     required: false
     service: linkedin
-
 context:
-  customerName: "Anonymous"
-  productName: "our product"
+  customerName: Anonymous
+  productName: our product
   slackChannel: "#customer-feedback"
-
 nodes:
   - id: classify
     type: llm-prompt
@@ -60,7 +57,8 @@ nodes:
         to: customer
       - from: context.productName
         to: product
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Classify this customer feedback about {{product}} from {{customer}}.
@@ -76,16 +74,20 @@ nodes:
           "suggestedLabel": "a GitHub issue label like 'bug', 'enhancement', 'question'"
         }
       responseFormat: json
-      maxTokens: 500
+      maxTokens: 1024
       temperature: 0.2
-
   - id: parse
     type: script
     name: Parse Classification
     inputs:
       - from: nodes.classify.outputs.response
         to: response
-    outputs: [sentiment, category, urgency, summary, label]
+    outputs:
+      - sentiment
+      - category
+      - urgency
+      - summary
+      - label
     config:
       code: |
         let p = inputs.response;
@@ -97,7 +99,6 @@ nodes:
           summary: p.summary || "",
           label: p.suggestedLabel || "feedback"
         };
-
   - id: route
     type: condition
     name: Route by Sentiment
@@ -106,7 +107,8 @@ nodes:
         to: sentiment
       - from: nodes.parse.outputs.urgency
         to: urgency
-    outputs: [selectedBranch]
+    outputs:
+      - selectedBranch
     config:
       expression: |
         inputs.sentiment === 'negative' || inputs.urgency === 'high'
@@ -115,12 +117,13 @@ nodes:
             ? 'testimonial'
             : 'log'
     branches:
-      escalate: [create-issue, alert-slack]
-      testimonial: [draft-testimonial]
-      log: [log-slack]
-
-  # ─── ESCALATE branch: GitHub issue + Slack alert ───
-
+      escalate:
+        - create-issue
+        - alert-slack
+      testimonial:
+        - draft-testimonial
+      log:
+        - log-slack
   - id: create-issue
     type: http
     name: Create GitHub Issue
@@ -139,20 +142,21 @@ nodes:
         to: customer
       - from: context.customerEmail
         to: email
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
-      url: "https://api.github.com/repos/{{repo}}/issues"
+      url: https://api.github.com/repos/{{repo}}/issues
       method: POST
       headers:
-        Authorization: "Bearer {{token}}"
-        Accept: "application/vnd.github+json"
+        Authorization: Bearer {{token}}
+        Accept: application/vnd.github+json
       body: |
         {
           "title": "[Customer Feedback] {{summary}}",
           "body": "**From:** {{customer}} ({{email}})\n\n**Feedback:**\n> {{feedback}}\n\n**Classification:** {{label}}\n\n_Auto-created by Stirrup customer feedback router._",
           "labels": ["{{label}}", "customer-feedback"]
         }
-
   - id: alert-slack
     type: slack-send
     name: Alert Team in Slack
@@ -169,12 +173,12 @@ nodes:
         to: customer
       - from: context.feedback
         to: feedback
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
   - id: format-alert
     type: transform
     name: Format Alert
@@ -187,7 +191,8 @@ nodes:
         to: customer
       - from: context.feedback
         to: feedback
-    outputs: [text]
+    outputs:
+      - text
     config:
       expression: |
         ({
@@ -197,9 +202,6 @@ nodes:
             '> ' + (inputs.feedback || '').slice(0, 300) + '\n\n' +
             '_GitHub issue created automatically._'
         })
-
-  # ─── TESTIMONIAL branch: LinkedIn draft ───
-
   - id: draft-testimonial
     type: llm-prompt
     name: Draft Testimonial Post
@@ -210,7 +212,8 @@ nodes:
         to: customer
       - from: context.productName
         to: product
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         A customer named {{customer}} left this positive feedback about {{product}}:
@@ -221,9 +224,8 @@ nodes:
         authentic way. Don't be sycophantic. Include a brief insight about what
         the feedback tells us about the product direction. End with 3-4 hashtags.
         900-1200 characters. Output ONLY the post text.
-      maxTokens: 1000
+      maxTokens: 4096
       temperature: 0.6
-
   - id: post-testimonial
     type: linkedin-create-post
     name: Post Testimonial to LinkedIn
@@ -232,11 +234,10 @@ nodes:
         to: accessToken
       - from: nodes.draft-testimonial.outputs.response
         to: text
-    outputs: [postId, postUrl]
+    outputs:
+      - postId
+      - postUrl
     config: {}
-
-  # ─── LOG branch: quiet Slack notification ───
-
   - id: log-slack
     type: slack-send
     name: Log to Slack (Neutral)
@@ -249,18 +250,17 @@ nodes:
         to: summary
       - from: context.customerName
         to: customer
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: classify
     to: parse
   - from: parse
     to: route
-  # Escalate branch
   - from: route
     to: create-issue
     condition: escalate
@@ -269,13 +269,11 @@ edges:
     condition: escalate
   - from: format-alert
     to: alert-slack
-  # Testimonial branch
   - from: route
     to: draft-testimonial
     condition: testimonial
   - from: draft-testimonial
     to: post-testimonial
-  # Log branch
   - from: route
     to: log-slack
     condition: log

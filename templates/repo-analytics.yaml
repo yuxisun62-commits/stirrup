@@ -2,40 +2,40 @@ id: repo-analytics
 name: Weekly Repository Analytics Report
 version: "1.0"
 description: Analyze GitHub repo activity weekly — PRs merged, issues closed, top contributors — and post an AI-generated summary to Slack
-
 params:
   - name: repo
     type: string
     required: true
-    description: "GitHub repository (owner/repo)"
+    description: GitHub repository (owner/repo)
     picker: github-repo
   - name: githubToken
     type: string
     required: true
-    description: "GitHub access token"
+    description: GitHub access token
     service: github
   - name: slackToken
     type: string
     required: true
-    description: "Slack bot token"
+    description: Slack bot token
     service: slack
   - name: slackChannel
     type: string
     required: true
     default: "#engineering"
-    description: "Slack channel for the report"
-
+    description: Slack channel for the report
 triggers:
   cron:
-    schedule: "0 10 * * 1"
-    timezone: "America/New_York"
-
+    schedule: 0 10 * * 1
+    timezone: America/New_York
 nodes:
   - id: date-range
     type: transform
     name: Calculate Date Range
     inputs: []
-    outputs: [since, until, weekLabel]
+    outputs:
+      - since
+      - until
+      - weekLabel
     config:
       expression: |
         ({
@@ -43,7 +43,6 @@ nodes:
           until: new Date().toISOString(),
           weekLabel: 'Week of ' + new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString()
         })
-
   - id: fetch-merged-prs
     type: http
     name: Fetch Merged PRs
@@ -54,13 +53,13 @@ nodes:
         to: token
       - from: nodes.date-range.outputs.since
         to: since
-    outputs: [body]
+    outputs:
+      - body
     config:
-      url: "https://api.github.com/repos/{{repo}}/pulls?state=closed&sort=updated&direction=desc&per_page=50"
+      url: https://api.github.com/repos/{{repo}}/pulls?state=closed&sort=updated&direction=desc&per_page=50
       method: GET
       headers:
-        Authorization: "Bearer {{token}}"
-
+        Authorization: Bearer {{token}}
   - id: fetch-issues
     type: http
     name: Fetch Closed Issues
@@ -71,13 +70,13 @@ nodes:
         to: token
       - from: nodes.date-range.outputs.since
         to: since
-    outputs: [body]
+    outputs:
+      - body
     config:
-      url: "https://api.github.com/repos/{{repo}}/issues?state=closed&sort=updated&direction=desc&per_page=50&since={{since}}"
+      url: https://api.github.com/repos/{{repo}}/issues?state=closed&sort=updated&direction=desc&per_page=50&since={{since}}
       method: GET
       headers:
-        Authorization: "Bearer {{token}}"
-
+        Authorization: Bearer {{token}}
   - id: crunch-stats
     type: script
     name: Calculate Statistics
@@ -88,7 +87,8 @@ nodes:
         to: issues
       - from: nodes.date-range.outputs.since
         to: since
-    outputs: [result]
+    outputs:
+      - result
     config:
       code: |
         const since = new Date(inputs.since);
@@ -119,7 +119,6 @@ nodes:
           issueTitles: issues.slice(0, 10).map(i => i.title),
         };
       timeoutMs: 10000
-
   - id: generate-summary
     type: llm-prompt
     name: Generate Weekly Summary
@@ -130,7 +129,8 @@ nodes:
         to: week
       - from: context.repo
         to: repo
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Generate a weekly engineering report for Slack based on this data:
@@ -146,9 +146,8 @@ nodes:
         4. :crystal_ball: Themes — what areas of the codebase saw the most activity
 
         Use Slack markdown. Keep it under 20 lines. Make it engaging.
-      systemPrompt: "Write engaging weekly engineering reports. Highlight achievements and trends."
-      maxTokens: 1000
-
+      systemPrompt: Write engaging weekly engineering reports. Highlight achievements and trends.
+      maxTokens: 4096
   - id: post-report
     type: slack-send
     name: Post Weekly Report
@@ -159,12 +158,12 @@ nodes:
         to: channel
       - from: nodes.generate-summary.outputs.response
         to: text
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: date-range
     to: fetch-merged-prs

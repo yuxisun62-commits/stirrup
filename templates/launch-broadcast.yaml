@@ -2,41 +2,36 @@ id: launch-broadcast
 name: Multi-Platform Launch Broadcast
 version: "1.0"
 description: Take a single product announcement and fan out to platform-tailored social posts (LinkedIn, X/Twitter thread, Facebook, TikTok script, YouTube Short script) in parallel, then aggregate into one structured payload ready to schedule.
-
 params:
   - name: announcement
     type: string
     required: true
-    description: "The raw announcement — release notes, feature description, or update summary. Long-form is fine; the AI will tailor it per platform."
+    description: The raw announcement — release notes, feature description, or update summary. Long-form is fine; the AI will tailor it per platform.
   - name: productName
     type: string
     required: true
-    description: "Product or brand name (e.g. Stirrup)"
+    description: Product or brand name (e.g. Stirrup)
   - name: productUrl
     type: string
     required: true
-    description: "Canonical link to include in posts (landing page, GitHub repo, etc.)"
+    description: Canonical link to include in posts (landing page, GitHub repo, etc.)
   - name: brandTone
     type: string
     required: false
-    default: "confident, technical, slightly playful — never corporate"
-    description: "Voice / style guidance applied to every generated post"
+    default: confident, technical, slightly playful — never corporate
+    description: Voice / style guidance applied to every generated post
   - name: targetAudience
     type: string
     required: false
-    default: "developers and technical founders"
-    description: "Who the posts are written for"
-
+    default: developers and technical founders
+    description: Who the posts are written for
 context:
   announcement: ""
   productName: ""
   productUrl: ""
-  brandTone: "confident, technical, slightly playful — never corporate"
-  targetAudience: "developers and technical founders"
-
+  brandTone: confident, technical, slightly playful — never corporate
+  targetAudience: developers and technical founders
 nodes:
-  # ─── 5 parallel platform writers — all run concurrently because none depend on each other ───
-
   - id: linkedin-post
     type: llm-prompt
     name: Write LinkedIn Post
@@ -51,7 +46,8 @@ nodes:
         to: tone
       - from: context.targetAudience
         to: audience
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are writing a LinkedIn post for {{productName}}.
@@ -73,9 +69,8 @@ nodes:
         - Total length: 900–1300 characters
 
         Output ONLY the post text, ready to paste. No preamble, no explanation.
-      maxTokens: 1000
+      maxTokens: 2048
       temperature: 0.7
-
   - id: twitter-thread
     type: llm-prompt
     name: Write X/Twitter Thread
@@ -90,7 +85,8 @@ nodes:
         to: tone
       - from: context.targetAudience
         to: audience
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are writing an X (Twitter) thread for {{productName}}.
@@ -111,9 +107,8 @@ nodes:
         - Number them as 1/, 2/, 3/, etc.
 
         Output ONLY the thread, one tweet per paragraph separated by blank lines.
-      maxTokens: 1200
+      maxTokens: 2048
       temperature: 0.7
-
   - id: facebook-post
     type: llm-prompt
     name: Write Facebook Post
@@ -126,7 +121,8 @@ nodes:
         to: productUrl
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a Facebook post for {{productName}}.
@@ -145,9 +141,8 @@ nodes:
         - 400–700 characters total
 
         Output ONLY the post text.
-      maxTokens: 600
+      maxTokens: 2048
       temperature: 0.7
-
   - id: tiktok-script
     type: llm-prompt
     name: Write TikTok Script
@@ -158,7 +153,8 @@ nodes:
         to: productName
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a 45–60 second TikTok script for {{productName}}.
@@ -181,9 +177,8 @@ nodes:
         - Final row is a clear call to action
 
         Below the table, output a one-line caption (≤ 200 chars) with 4–5 hashtags.
-      maxTokens: 800
+      maxTokens: 1024
       temperature: 0.8
-
   - id: youtube-short-script
     type: llm-prompt
     name: Write YouTube Short Script
@@ -196,7 +191,8 @@ nodes:
         to: productUrl
       - from: context.brandTone
         to: tone
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Write a 60-second YouTube Short for {{productName}}.
@@ -220,11 +216,8 @@ nodes:
         2–3 sentences, then the link: {{productUrl}}, then 5–8 hashtags.
 
         Output ONLY those three sections.
-      maxTokens: 1000
+      maxTokens: 2048
       temperature: 0.7
-
-  # ─── Aggregator: combines all 5 outputs into one structured payload ───
-
   - id: bundle
     type: transform
     name: Bundle All Posts
@@ -243,7 +236,8 @@ nodes:
         to: productName
       - from: context.productUrl
         to: productUrl
-    outputs: [bundle]
+    outputs:
+      - bundle
     config:
       expression: |
         ({
@@ -260,10 +254,7 @@ nodes:
             }
           }
         })
-
 edges:
-  # All 5 writers fan into the bundler. They have no edges between each other,
-  # so the scheduler runs them concurrently.
   - from: linkedin-post
     to: bundle
   - from: twitter-thread

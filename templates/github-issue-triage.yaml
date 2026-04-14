@@ -2,34 +2,31 @@ id: github-issue-triage
 name: GitHub Issue Auto-Triage
 version: "1.0"
 description: Automatically classify new GitHub issues, add labels, assign priority, and notify the right team in Slack
-
 params:
   - name: repo
     type: string
     required: true
-    description: "GitHub repository (owner/repo)"
+    description: GitHub repository (owner/repo)
     picker: github-repo
   - name: issueNumber
     type: number
     required: true
-    description: "Issue number to triage"
+    description: Issue number to triage
   - name: githubToken
     type: string
     required: true
-    description: "GitHub access token"
+    description: GitHub access token
     service: github
   - name: slackToken
     type: string
     required: true
-    description: "Slack bot token"
+    description: Slack bot token
     service: slack
-
 triggers:
   webhook:
     source: github
     events:
       - issues.opened
-
 nodes:
   - id: fetch-issue
     type: http
@@ -41,36 +38,41 @@ nodes:
         to: number
       - from: context.githubToken
         to: token
-    outputs: [body, status]
+    outputs:
+      - body
+      - status
     config:
-      url: "https://api.github.com/repos/{{repo}}/issues/{{number}}"
+      url: https://api.github.com/repos/{{repo}}/issues/{{number}}
       method: GET
       headers:
-        Authorization: "Bearer {{token}}"
-        Accept: "application/vnd.github.v3+json"
-
+        Authorization: Bearer {{token}}
+        Accept: application/vnd.github.v3+json
   - id: classify
     type: decision-routing
     name: Classify Issue Type
     inputs:
       - from: nodes.fetch-issue.outputs.body
         to: issue
-    outputs: [selectedBranch]
+    outputs:
+      - selectedBranch
     config:
       promptTemplate: |
         Classify this GitHub issue:
         {{issue}}
       branches:
-        bug: "A bug report — something is broken or not working correctly"
-        feature: "A feature request — asking for new functionality"
-        question: "A question — asking for help or clarification"
-        security: "A security vulnerability or concern"
+        bug: A bug report — something is broken or not working correctly
+        feature: A feature request — asking for new functionality
+        question: A question — asking for help or clarification
+        security: A security vulnerability or concern
     branches:
-      bug: [assess-severity]
-      feature: [assess-severity]
-      question: [route-question]
-      security: [route-security]
-
+      bug:
+        - assess-severity
+      feature:
+        - assess-severity
+      question:
+        - route-question
+      security:
+        - route-security
   - id: assess-severity
     type: llm-prompt
     name: Assess Priority
@@ -79,7 +81,8 @@ nodes:
         to: issue
       - from: nodes.classify.outputs.selectedBranch
         to: type
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Assess the priority of this {{type}} issue:
@@ -91,8 +94,7 @@ nodes:
         - assignTeam: suggested team ("frontend", "backend", "infra", "mobile")
         - summary: one-line summary
       responseFormat: json
-      maxTokens: 300
-
+      maxTokens: 1024
   - id: add-labels
     type: http
     name: Add Labels to Issue
@@ -107,14 +109,14 @@ nodes:
         to: assessment
       - from: nodes.classify.outputs.selectedBranch
         to: type
-    outputs: [status]
+    outputs:
+      - status
     config:
-      url: "https://api.github.com/repos/{{repo}}/issues/{{number}}/labels"
+      url: https://api.github.com/repos/{{repo}}/issues/{{number}}/labels
       method: POST
       headers:
-        Authorization: "Bearer {{token}}"
-        Content-Type: "application/json"
-
+        Authorization: Bearer {{token}}
+        Content-Type: application/json
   - id: notify-team
     type: slack-send
     name: Notify Team in Slack
@@ -129,12 +131,12 @@ nodes:
         to: repo
       - from: context.issueNumber
         to: number
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
   - id: format-notification
     type: transform
     name: Format Slack Notification
@@ -147,7 +149,9 @@ nodes:
         to: repo
       - from: context.issueNumber
         to: number
-    outputs: [text, channel]
+    outputs:
+      - text
+      - channel
     config:
       expression: |
         ({
@@ -158,22 +162,21 @@ nodes:
           channel: inputs.assessment.assignTeam === 'frontend' ? '#frontend' :
             inputs.assessment.assignTeam === 'infra' ? '#infrastructure' : '#engineering'
         })
-
   - id: route-question
     type: llm-prompt
     name: Draft Answer
     inputs:
       - from: nodes.fetch-issue.outputs.body
         to: issue
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         A user posted this question as a GitHub issue:
         {{issue}}
 
         Draft a helpful response. Be concise and link to documentation if relevant.
-      maxTokens: 500
-
+      maxTokens: 2048
   - id: post-answer
     type: github-post-comment
     name: Post Draft Answer
@@ -186,9 +189,9 @@ nodes:
         to: token
       - from: nodes.route-question.outputs.response
         to: body
-    outputs: [commentId]
+    outputs:
+      - commentId
     config: {}
-
   - id: route-security
     type: slack-send
     name: Alert Security Team
@@ -199,12 +202,12 @@ nodes:
         to: repo
       - from: context.issueNumber
         to: number
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: "#security"
       token: ""
-
   - id: format-security-alert
     type: transform
     name: Format Security Alert
@@ -213,7 +216,8 @@ nodes:
         to: repo
       - from: context.issueNumber
         to: number
-    outputs: [text]
+    outputs:
+      - text
     config:
       expression: |
         ({
@@ -221,7 +225,6 @@ nodes:
             '> <https://github.com/' + inputs.repo + '/issues/' + inputs.number + '|Issue #' + inputs.number + '>\n' +
             '> Needs immediate review by security team.'
         })
-
 edges:
   - from: fetch-issue
     to: classify

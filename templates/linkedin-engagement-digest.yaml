@@ -2,13 +2,12 @@ id: linkedin-engagement-digest
 name: LinkedIn Weekly Engagement Digest
 version: "1.0"
 description: Pull your recent LinkedIn posts, fetch engagement stats for each in parallel, have Claude analyze what's working and what's not, then post the summary to a Slack channel. Designed for weekly cron execution — Monday morning review of last week's LinkedIn performance.
-
 params:
   - name: postCount
     type: number
     required: false
     default: 10
-    description: "How many recent posts to analyze (max 50)"
+    description: How many recent posts to analyze (max 50)
   - name: slackChannel
     type: string
     required: true
@@ -16,18 +15,16 @@ params:
   - name: linkedinToken
     type: string
     required: true
-    description: "LinkedIn access token with r_member_social scope"
+    description: LinkedIn access token with r_member_social scope
     service: linkedin
   - name: slackToken
     type: string
     required: true
-    description: "Slack bot token"
+    description: Slack bot token
     service: slack
-
 context:
   postCount: 10
   slackChannel: ""
-
 nodes:
   - id: list-posts
     type: linkedin-list-posts
@@ -37,16 +34,10 @@ nodes:
         to: accessToken
       - from: context.postCount
         to: count
-    outputs: [posts, count]
+    outputs:
+      - posts
+      - count
     config: {}
-
-  # ─── NOTE on fan-out ───
-  # Ideally we'd fan out one linkedin-get-post-stats node per post. Stirrup
-  # doesn't yet support dynamic node creation (a node that runs N times based
-  # on an array output), so instead we use a single script node that loops
-  # through the posts and calls the LinkedIn stats endpoint directly. This
-  # gives us the same result in one node.
-
   - id: fetch-all-stats
     type: script
     name: Fetch Stats for All Posts
@@ -55,7 +46,10 @@ nodes:
         to: posts
       - from: context.linkedinToken
         to: token
-    outputs: [enrichedPosts, totalLikes, totalComments]
+    outputs:
+      - enrichedPosts
+      - totalLikes
+      - totalComments
     config:
       timeoutMs: 60000
       code: |
@@ -105,7 +99,6 @@ nodes:
 
           return { enrichedPosts: enriched, totalLikes, totalComments };
         })();
-
   - id: analyze
     type: llm-prompt
     name: Analyze Performance
@@ -116,7 +109,8 @@ nodes:
         to: totalLikes
       - from: nodes.fetch-all-stats.outputs.totalComments
         to: totalComments
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are a social media analyst reviewing the user's recent LinkedIn performance.
@@ -135,9 +129,8 @@ nodes:
         5. *This week's experiment* — one concrete thing to try next week based on the data. Be specific.
 
         No hedging. No "it depends". If the data is too thin to conclude, say that explicitly.
-      maxTokens: 1500
+      maxTokens: 4096
       temperature: 0.4
-
   - id: format-message
     type: transform
     name: Format Slack Message
@@ -146,13 +139,13 @@ nodes:
         to: brief
       - from: nodes.fetch-all-stats.outputs.enrichedPosts
         to: posts
-    outputs: [text]
+    outputs:
+      - text
     config:
       expression: |
         ({
           text: ':chart_with_upwards_trend: *LinkedIn Weekly Digest* (' + (inputs.posts?.length || 0) + ' posts analyzed)\n\n' + inputs.brief
         })
-
   - id: notify
     type: slack-send
     name: Post Digest to Slack
@@ -163,12 +156,12 @@ nodes:
         to: channel
       - from: nodes.format-message.outputs.text
         to: text
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: list-posts
     to: fetch-all-stats

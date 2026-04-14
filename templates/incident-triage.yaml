@@ -2,26 +2,23 @@ id: incident-triage
 name: Incident Triage & Response
 version: "1.0"
 description: Analyze an incident alert, classify severity, run diagnostics, and create a response plan
-
 params:
   - name: alertMessage
     type: string
-    description: "The alert message or description"
+    description: The alert message or description
     required: true
   - name: service
     type: string
-    description: "Affected service name"
+    description: Affected service name
     required: true
   - name: environment
     type: string
-    description: "Environment (production, staging, etc.)"
-    default: "production"
-
+    description: Environment (production, staging, etc.)
+    default: production
 context:
-  alertMessage: "High latency detected on /api/users endpoint"
-  service: "user-service"
-  environment: "production"
-
+  alertMessage: High latency detected on /api/users endpoint
+  service: user-service
+  environment: production
 nodes:
   - id: parse-alert
     type: transform
@@ -33,7 +30,8 @@ nodes:
         to: service
       - from: context.environment
         to: env
-    outputs: [alert]
+    outputs:
+      - alert
     config:
       expression: |
         ({
@@ -44,14 +42,14 @@ nodes:
             receivedAt: new Date().toISOString()
           }
         })
-
   - id: classify-severity
     type: decision-routing
     name: Classify Severity
     inputs:
       - from: nodes.parse-alert.outputs.alert
         to: alert
-    outputs: [selectedBranch]
+    outputs:
+      - selectedBranch
     config:
       promptTemplate: |
         Classify the severity of this production incident:
@@ -64,35 +62,39 @@ nodes:
         - Scope of affected systems
         - Time sensitivity
       branches:
-        p1: "Critical - service down, widespread user impact, data at risk"
-        p2: "High - degraded performance, partial impact, needs prompt attention"
-        p3: "Medium - minor degradation, limited impact, can be scheduled"
+        p1: Critical - service down, widespread user impact, data at risk
+        p2: High - degraded performance, partial impact, needs prompt attention
+        p3: Medium - minor degradation, limited impact, can be scheduled
     branches:
-      p1: [run-diagnostics, page-oncall]
-      p2: [run-diagnostics]
-      p3: [run-diagnostics]
-
+      p1:
+        - run-diagnostics
+        - page-oncall
+      p2:
+        - run-diagnostics
+      p3:
+        - run-diagnostics
   - id: page-oncall
     type: http
     name: Page On-Call Engineer
     inputs:
       - from: nodes.parse-alert.outputs.alert
         to: alert
-    outputs: [status]
+    outputs:
+      - status
     config:
-      url: "https://api.pagerduty.com/incidents"
+      url: https://api.pagerduty.com/incidents
       method: POST
       headers:
-        Authorization: "Token token={{pdToken}}"
-        Content-Type: "application/json"
-
+        Authorization: Token token={{pdToken}}
+        Content-Type: application/json
   - id: run-diagnostics
     type: agent-tool-use
     name: Run Diagnostics
     inputs:
       - from: nodes.parse-alert.outputs.alert
         to: alert
-    outputs: [response]
+    outputs:
+      - response
     config:
       systemPrompt: |
         You are an SRE diagnostic agent. Use the available tools to investigate the incident.
@@ -112,7 +114,6 @@ nodes:
         - list-deployments
       maxIterations: 5
       maxTokens: 4096
-
   - id: create-response-plan
     type: llm-prompt
     name: Create Response Plan
@@ -123,7 +124,8 @@ nodes:
         to: alert
       - from: nodes.classify-severity.outputs.selectedBranch
         to: severity
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Based on the incident diagnosis, create an actionable response plan.
@@ -137,10 +139,9 @@ nodes:
         2. Root cause fix
         3. Validation steps to confirm resolution
         4. Follow-up actions (post-mortem, monitoring improvements)
-      systemPrompt: "You are an experienced SRE. Create clear, prioritized action plans."
+      systemPrompt: You are an experienced SRE. Create clear, prioritized action plans.
       responseFormat: text
-      maxTokens: 2000
-
+      maxTokens: 2048
   - id: format-summary
     type: transform
     name: Format Incident Summary
@@ -153,7 +154,8 @@ nodes:
         to: diagnosis
       - from: nodes.parse-alert.outputs.alert
         to: alert
-    outputs: [result]
+    outputs:
+      - result
     config:
       expression: |
         ({
@@ -166,7 +168,6 @@ nodes:
             createdAt: new Date().toISOString()
           }
         })
-
 edges:
   - from: parse-alert
     to: classify-severity
