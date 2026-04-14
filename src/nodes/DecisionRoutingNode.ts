@@ -34,26 +34,50 @@ export function createDecisionRoutingHandler(provider: AnthropicProvider): NodeH
     const textBlocks = response.content.filter((b) => b.type === "text");
     const rawResponse = textBlocks.map((b) => b.text).join("").trim();
 
-    // Find the branch name in the response. Try exact match first, then
-    // progressively looser matching — Claude sometimes includes reasoning
-    // even when told to output only the branch name.
+    // Extract the branch name from the response. Claude often ignores the
+    // "respond with ONLY the branch name" instruction and outputs reasoning,
+    // quotes, markdown, or a full analysis after the branch name. We need to
+    // handle all of these robustly.
     const branchNames = Object.keys(cfg.branches);
-    const lower = rawResponse.toLowerCase().trim();
 
-    // 1. Exact match
-    let selectedBranch = branchNames.find((n) => lower === n.toLowerCase());
+    // Normalize: strip quotes, extra whitespace, and take just the first
+    // line/word for initial matching attempts.
+    const cleaned = rawResponse
+      .replace(/^["'`\s]+/, "")   // strip leading quotes/whitespace
+      .replace(/["'`\s]+$/, "")   // strip trailing quotes/whitespace
+      .trim();
+    const firstLine = cleaned.split(/[\n\r]/)[0].trim().toLowerCase();
+    const firstWord = firstLine.split(/[\s.,;:!?\-—]+/)[0].trim();
+    const lower = cleaned.toLowerCase();
 
-    // 2. Response starts with the branch name (e.g., "python — because...")
+    let selectedBranch: string | undefined;
+
+    // 1. First word is the branch name (handles "fail", "fail.", "fail — because")
     if (!selectedBranch) {
-      selectedBranch = branchNames.find((n) => lower.startsWith(n.toLowerCase()));
+      selectedBranch = branchNames.find((n) => firstWord === n.toLowerCase());
     }
 
-    // 3. Branch name appears as a standalone word in the response
+    // 2. First line starts with the branch name
+    if (!selectedBranch) {
+      selectedBranch = branchNames.find((n) => firstLine.startsWith(n.toLowerCase()));
+    }
+
+    // 3. Exact match on full response (clean case)
+    if (!selectedBranch) {
+      selectedBranch = branchNames.find((n) => lower === n.toLowerCase());
+    }
+
+    // 4. Branch name appears as a word boundary anywhere in the response
     if (!selectedBranch) {
       selectedBranch = branchNames.find((n) => {
         const re = new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
         return re.test(rawResponse);
       });
+    }
+
+    // 5. Case-insensitive substring match (last resort — "...this should FAIL..." → fail)
+    if (!selectedBranch) {
+      selectedBranch = branchNames.find((n) => lower.includes(n.toLowerCase()));
     }
 
     if (!selectedBranch) {
