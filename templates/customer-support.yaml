@@ -72,9 +72,9 @@ nodes:
         3. Check if the account is locked
         4. Verify MFA settings
       tools:
-        - check-account-status
-        - query-auth-logs
-        - check-mfa-settings
+        - fs-read-file
+        - logger-log
+        - slack-post-message
       maxIterations: 5
   - id: assess-priority
     type: transform

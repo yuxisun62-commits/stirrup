@@ -109,9 +109,9 @@ nodes:
         3. Check for recent deployments or config changes
         4. Identify the most likely root cause
       tools:
-        - check-logs
-        - query-metrics
-        - list-deployments
+        - lm-get-logs
+        - lm-get-status
+        - logger-log
       maxIterations: 5
       maxTokens: 4096
   - id: create-response-plan
