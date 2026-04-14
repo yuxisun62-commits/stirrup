@@ -24,25 +24,44 @@ export function createDecisionRoutingHandler(provider: AnthropicProvider): NodeH
       model: cfg.model,
       system: systemPrompt,
       messages: [{ role: "user", content: prompt }],
-      maxTokens: cfg.maxTokens ?? 100,
+      // Default was 100 which truncated responses — Claude often includes
+      // brief reasoning before the branch name even when told not to.
+      // 1024 gives ample room while still being conservative.
+      maxTokens: cfg.maxTokens ?? 1024,
       temperature: 0,
     });
 
     const textBlocks = response.content.filter((b) => b.type === "text");
     const rawResponse = textBlocks.map((b) => b.text).join("").trim();
 
-    // Find the branch name in the response
+    // Find the branch name in the response. Try exact match first, then
+    // progressively looser matching — Claude sometimes includes reasoning
+    // even when told to output only the branch name.
     const branchNames = Object.keys(cfg.branches);
-    const selectedBranch = branchNames.find(
-      (name) => rawResponse.toLowerCase() === name.toLowerCase()
-    );
+    const lower = rawResponse.toLowerCase().trim();
+
+    // 1. Exact match
+    let selectedBranch = branchNames.find((n) => lower === n.toLowerCase());
+
+    // 2. Response starts with the branch name (e.g., "python — because...")
+    if (!selectedBranch) {
+      selectedBranch = branchNames.find((n) => lower.startsWith(n.toLowerCase()));
+    }
+
+    // 3. Branch name appears as a standalone word in the response
+    if (!selectedBranch) {
+      selectedBranch = branchNames.find((n) => {
+        const re = new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+        return re.test(rawResponse);
+      });
+    }
 
     if (!selectedBranch) {
       throw new Error(
-        `Decision routing returned invalid branch "${rawResponse}". Valid branches: ${branchNames.join(", ")}`
+        `Decision routing returned invalid branch "${rawResponse.slice(0, 100)}". Valid branches: ${branchNames.join(", ")}`
       );
     }
 
-    return { selectedBranch };
+    return { selectedBranch, reasoning: rawResponse };
   };
 }
