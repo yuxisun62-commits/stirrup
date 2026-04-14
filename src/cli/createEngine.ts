@@ -46,9 +46,19 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
   registry.register("http", httpHandler);
   registry.register("script", scriptHandler);
 
-  // AI node handlers (only if ANTHROPIC_API_KEY is available)
-  if (process.env.ANTHROPIC_API_KEY) {
-    const provider = new AnthropicProvider();
+  // AI node handlers — check env var first, then fall back to the token store
+  // (the user may have saved the key via the Connections panel instead of
+  // setting an env var).
+  let anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicApiKey) {
+    try {
+      const { getToken } = await import("../auth/tokenStore.js");
+      const stored = getToken("anthropic");
+      if (stored) anthropicApiKey = stored.accessToken;
+    } catch { /* token store not available */ }
+  }
+  if (anthropicApiKey) {
+    const provider = new AnthropicProvider(anthropicApiKey);
     registry.register("llm-prompt", createLlmPromptHandler(provider));
     registry.register("agent-tool-use", createAgentToolUseHandler(provider, toolManager));
     registry.register("decision-routing", createDecisionRoutingHandler(provider));
