@@ -36,7 +36,7 @@ nodes:
         5. Dependencies needed
       systemPrompt: "You are a senior software architect. Be precise and thorough in requirement analysis."
       responseFormat: json
-      maxTokens: 2000
+      maxTokens: 8192
 
   - id: generate-code
     type: code-generation

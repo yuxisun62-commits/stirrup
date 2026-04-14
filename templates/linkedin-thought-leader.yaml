@@ -2,37 +2,34 @@ id: linkedin-thought-leader
 name: LinkedIn Thought Leader — RSS → Commentary
 version: "1.0"
 description: Fetch an industry RSS feed, have Claude pick the single most interesting recent story and write a thoughtful commentary post in your voice, then publish it to LinkedIn with the original article as a link preview. Build a reputation as someone who has takes, not just reshares.
-
 params:
   - name: feedUrl
     type: string
     required: true
-    description: "RSS/Atom feed URL of an industry publication, blog, or newsletter"
+    description: RSS/Atom feed URL of an industry publication, blog, or newsletter
   - name: expertise
     type: string
     required: true
-    description: "Your domain of expertise — shapes which story the AI picks and how it frames the take (e.g. 'AI infrastructure and developer tools', 'fintech and payments', 'B2B SaaS go-to-market')"
+    description: Your domain of expertise — shapes which story the AI picks and how it frames the take (e.g. 'AI infrastructure and developer tools', 'fintech and payments', 'B2B SaaS go-to-market')
   - name: brandVoice
     type: string
     required: false
-    default: "contrarian when justified, concrete always, never hype. Name specific things."
-    description: "Voice constraints"
+    default: contrarian when justified, concrete always, never hype. Name specific things.
+    description: Voice constraints
   - name: visibility
     type: string
     required: false
-    default: "PUBLIC"
+    default: PUBLIC
   - name: linkedinToken
     type: string
     required: true
-    description: "LinkedIn access token"
+    description: LinkedIn access token
     service: linkedin
-
 context:
   feedUrl: ""
   expertise: ""
-  brandVoice: "contrarian when justified, concrete always, never hype. Name specific things."
-  visibility: "PUBLIC"
-
+  brandVoice: contrarian when justified, concrete always, never hype. Name specific things.
+  visibility: PUBLIC
 nodes:
   - id: fetch-feed
     type: http
@@ -40,21 +37,24 @@ nodes:
     inputs:
       - from: context.feedUrl
         to: url
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
       url: "{{url}}"
       method: GET
       headers:
-        Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml"
-        User-Agent: "Stirrup-ThoughtLeader/1.0"
-
+        Accept: application/rss+xml, application/atom+xml, application/xml, text/xml
+        User-Agent: Stirrup-ThoughtLeader/1.0
   - id: parse-feed
     type: script
     name: Parse Recent Stories
     inputs:
       - from: nodes.fetch-feed.outputs.body
         to: xml
-    outputs: [stories, count]
+    outputs:
+      - stories
+      - count
     config:
       code: |
         const xml = String(inputs.xml ?? "");
@@ -86,7 +86,6 @@ nodes:
         }));
 
         result = { stories, count: stories.length };
-
   - id: pick-and-comment
     type: llm-prompt
     name: Pick Story & Write Commentary
@@ -97,7 +96,8 @@ nodes:
         to: expertise
       - from: context.brandVoice
         to: voice
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are someone with expertise in: {{expertise}}
@@ -118,17 +118,19 @@ nodes:
           "pickedStoryReasoning": "one sentence on why this story and not the others",
           "postText": "the full LinkedIn post — 900 to 1400 chars, strong hook, 3–4 short paragraphs with line breaks, one concrete take, ends with 3–5 hashtags on a single line"
         }
-      maxTokens: 2000
+      maxTokens: 4096
       temperature: 0.6
       responseFormat: json
-
   - id: extract-fields
     type: script
     name: Extract Post Fields
     inputs:
       - from: nodes.pick-and-comment.outputs.response
         to: response
-    outputs: [postText, linkUrl, linkTitle]
+    outputs:
+      - postText
+      - linkUrl
+      - linkTitle
     config:
       code: |
         // The LLM was asked to return JSON. Handle both "already parsed" and "string" cases.
@@ -146,7 +148,6 @@ nodes:
           linkUrl: parsed.pickedStoryUrl || "",
           linkTitle: parsed.pickedStoryTitle || ""
         };
-
   - id: publish
     type: linkedin-create-post
     name: Publish with Link Card
@@ -161,9 +162,11 @@ nodes:
         to: linkTitle
       - from: context.visibility
         to: visibility
-    outputs: [postId, postUrl, author]
+    outputs:
+      - postId
+      - postUrl
+      - author
     config: {}
-
 edges:
   - from: fetch-feed
     to: parse-feed

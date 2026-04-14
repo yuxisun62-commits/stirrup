@@ -2,16 +2,15 @@ id: ai-image-campaign
 name: AI Image Campaign Generator
 version: "1.0"
 description: Take a campaign topic, have Claude write 4 different image prompts optimized for different platforms, generate all 4 images in parallel via Replicate, then have Claude pick the best combination and schedule the winning posts to LinkedIn and X via Typefully.
-
 params:
   - name: topic
     type: string
     required: true
-    description: "Campaign topic or product feature to promote (e.g. 'New dark mode feature launch')"
+    description: Campaign topic or product feature to promote (e.g. 'New dark mode feature launch')
   - name: brandVoice
     type: string
     required: false
-    default: "bold, technical, slightly playful"
+    default: bold, technical, slightly playful
   - name: replicateToken
     type: string
     required: true
@@ -20,11 +19,9 @@ params:
     type: string
     required: true
     service: typefully
-
 context:
   topic: ""
-  brandVoice: "bold, technical, slightly playful"
-
+  brandVoice: bold, technical, slightly playful
 nodes:
   - id: write-prompts
     type: llm-prompt
@@ -34,7 +31,8 @@ nodes:
         to: topic
       - from: context.brandVoice
         to: voice
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         You are an art director designing a social media campaign about: {{topic}}
@@ -60,16 +58,21 @@ nodes:
           ]
         }
       responseFormat: json
-      maxTokens: 2000
+      maxTokens: 4096
       temperature: 0.8
-
   - id: parse-concepts
     type: script
     name: Parse Concepts
     inputs:
       - from: nodes.write-prompts.outputs.response
         to: response
-    outputs: [concept0, concept1, concept2, concept3, prompts, posts]
+    outputs:
+      - concept0
+      - concept1
+      - concept2
+      - concept3
+      - prompts
+      - posts
     config:
       code: |
         let p = inputs.response;
@@ -83,9 +86,6 @@ nodes:
           prompts: c.map(x => x.imagePrompt).join("\n---\n"),
           posts: c.map(x => x.postText).join("\n---\n")
         };
-
-  # ─── 4 parallel image generations ───
-
   - id: gen-abstract
     type: replicate-image
     name: Generate Abstract
@@ -94,11 +94,11 @@ nodes:
         to: concept
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "1:1"
-      prompt: "abstract"
-
+      aspectRatio: 1:1
+      prompt: abstract
   - id: gen-product
     type: replicate-image
     name: Generate Product
@@ -107,11 +107,11 @@ nodes:
         to: concept
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "1:1"
-      prompt: "product"
-
+      aspectRatio: 1:1
+      prompt: product
   - id: gen-human
     type: replicate-image
     name: Generate Human
@@ -120,11 +120,11 @@ nodes:
         to: concept
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "1:1"
-      prompt: "human"
-
+      aspectRatio: 1:1
+      prompt: human
   - id: gen-data
     type: replicate-image
     name: Generate Data Visual
@@ -133,13 +133,11 @@ nodes:
         to: concept
       - from: context.replicateToken
         to: apiToken
-    outputs: [firstImageUrl]
+    outputs:
+      - firstImageUrl
     config:
-      aspectRatio: "1:1"
-      prompt: "data"
-
-  # ─── AI selects the best ───
-
+      aspectRatio: 1:1
+      prompt: data
   - id: pick-winner
     type: decision-routing
     name: AI Picks Best Concept
@@ -154,7 +152,9 @@ nodes:
         to: img2
       - from: nodes.gen-data.outputs.firstImageUrl
         to: img3
-    outputs: [selectedBranch, reasoning]
+    outputs:
+      - selectedBranch
+      - reasoning
     config:
       promptTemplate: |
         A campaign has 4 concepts with generated images.
@@ -175,16 +175,19 @@ nodes:
 
         Pick exactly one.
       branches:
-        concept0: "Abstract/conceptual angle"
-        concept1: "Product-focused angle"
-        concept2: "Human-centered angle"
-        concept3: "Data/infographic angle"
+        concept0: Abstract/conceptual angle
+        concept1: Product-focused angle
+        concept2: Human-centered angle
+        concept3: Data/infographic angle
     branches:
-      concept0: [schedule-winner]
-      concept1: [schedule-winner]
-      concept2: [schedule-winner]
-      concept3: [schedule-winner]
-
+      concept0:
+        - schedule-winner
+      concept1:
+        - schedule-winner
+      concept2:
+        - schedule-winner
+      concept3:
+        - schedule-winner
   - id: extract-winner
     type: script
     name: Extract Winning Concept
@@ -209,7 +212,11 @@ nodes:
         to: img3
       - from: nodes.pick-winner.outputs.reasoning
         to: reasoning
-    outputs: [postText, imageUrl, angle, reasoning]
+    outputs:
+      - postText
+      - imageUrl
+      - angle
+      - reasoning
     config:
       code: |
         const idx = {'concept0':0,'concept1':1,'concept2':2,'concept3':3}[inputs.branch] ?? 0;
@@ -221,7 +228,6 @@ nodes:
           angle: concepts[idx]?.angle || inputs.branch,
           reasoning: inputs.reasoning || ""
         };
-
   - id: schedule-winner
     type: typefully-create-draft
     name: Schedule Winning Post
@@ -230,10 +236,11 @@ nodes:
         to: apiKey
       - from: nodes.extract-winner.outputs.postText
         to: content
-    outputs: [draftId, shareUrl]
+    outputs:
+      - draftId
+      - shareUrl
     config:
       share: true
-
   - id: report
     type: transform
     name: Campaign Report
@@ -248,7 +255,8 @@ nodes:
         to: shareUrl
       - from: context.topic
         to: topic
-    outputs: [report]
+    outputs:
+      - report
     config:
       expression: |
         ({
@@ -261,11 +269,9 @@ nodes:
             generatedAt: new Date().toISOString()
           }
         })
-
 edges:
   - from: write-prompts
     to: parse-concepts
-  # 4-way parallel image generation
   - from: parse-concepts
     to: gen-abstract
   - from: parse-concepts
@@ -274,7 +280,6 @@ edges:
     to: gen-human
   - from: parse-concepts
     to: gen-data
-  # All images → AI picks winner
   - from: gen-abstract
     to: pick-winner
   - from: gen-product
@@ -283,7 +288,6 @@ edges:
     to: pick-winner
   - from: gen-data
     to: pick-winner
-  # Winner → extract → schedule → report
   - from: pick-winner
     to: extract-winner
   - from: extract-winner

@@ -94,7 +94,7 @@ nodes:
         - assignTeam: suggested team ("frontend", "backend", "infra", "mobile")
         - summary: one-line summary
       responseFormat: json
-      maxTokens: 1024
+      maxTokens: 4096
   - id: add-labels
     type: http
     name: Add Labels to Issue

@@ -2,17 +2,16 @@ id: visual-pr-summary
 name: Visual PR Summary with AI Diagram
 version: "1.0"
 description: Fetch a GitHub pull request diff, have Claude write a concise summary, generate a visual architecture diagram of the changes via Replicate, then post both to Slack. Turns every PR into a visual story the whole team can understand at a glance.
-
 params:
   - name: repo
     type: string
     required: true
-    description: "GitHub repository (owner/repo)"
+    description: GitHub repository (owner/repo)
     picker: github-repo
   - name: prNumber
     type: number
     required: true
-    description: "Pull request number"
+    description: Pull request number
   - name: githubToken
     type: string
     required: true
@@ -29,10 +28,8 @@ params:
     type: string
     required: true
     description: "Slack channel for the summary (e.g. #engineering)"
-
 context:
   slackChannel: "#engineering"
-
 nodes:
   - id: fetch-pr
     type: http
@@ -44,14 +41,15 @@ nodes:
         to: pr
       - from: context.githubToken
         to: token
-    outputs: [status, body]
+    outputs:
+      - status
+      - body
     config:
-      url: "https://api.github.com/repos/{{repo}}/pulls/{{pr}}"
+      url: https://api.github.com/repos/{{repo}}/pulls/{{pr}}
       method: GET
       headers:
-        Authorization: "Bearer {{token}}"
-        Accept: "application/vnd.github.v3.diff"
-
+        Authorization: Bearer {{token}}
+        Accept: application/vnd.github.v3.diff
   - id: summarize
     type: llm-prompt
     name: Summarize PR Changes
@@ -62,7 +60,8 @@ nodes:
         to: repo
       - from: context.prNumber
         to: pr
-    outputs: [response]
+    outputs:
+      - response
     config:
       promptTemplate: |
         Summarize this pull request diff for a Slack post.
@@ -79,16 +78,18 @@ nodes:
 
         Output as JSON:
         { "title": "...", "bullets": ["..."], "imagePrompt": "..." }
-      maxTokens: 1500
+      maxTokens: 4096
       responseFormat: json
-
   - id: parse-summary
     type: script
     name: Parse Summary JSON
     inputs:
       - from: nodes.summarize.outputs.response
         to: response
-    outputs: [title, bullets, imagePrompt]
+    outputs:
+      - title
+      - bullets
+      - imagePrompt
     config:
       code: |
         let parsed = inputs.response;
@@ -100,8 +101,6 @@ nodes:
           bullets: Array.isArray(parsed.bullets) ? parsed.bullets.join("\n• ") : String(parsed.bullets),
           imagePrompt: parsed.imagePrompt || "software architecture diagram"
         };
-
-  # Generate diagram and format message in parallel
   - id: generate-diagram
     type: replicate-image
     name: Generate Architecture Diagram
@@ -110,11 +109,12 @@ nodes:
         to: prompt
       - from: context.replicateToken
         to: apiToken
-    outputs: [imageUrls, firstImageUrl]
+    outputs:
+      - imageUrls
+      - firstImageUrl
     config:
-      aspectRatio: "16:9"
+      aspectRatio: 16:9
       numOutputs: 1
-
   - id: format-message
     type: transform
     name: Format Slack Message
@@ -127,7 +127,8 @@ nodes:
         to: repo
       - from: context.prNumber
         to: pr
-    outputs: [text]
+    outputs:
+      - text
     config:
       expression: |
         ({
@@ -136,7 +137,6 @@ nodes:
             '• ' + inputs.bullets + '\n\n' +
             ':frame_with_picture: AI-generated architecture diagram attached below.'
         })
-
   - id: post-to-slack
     type: slack-send
     name: Post Summary to Slack
@@ -147,23 +147,21 @@ nodes:
         to: channel
       - from: nodes.format-message.outputs.text
         to: text
-    outputs: [messageTs]
+    outputs:
+      - messageTs
     config:
       text: ""
       channel: ""
       token: ""
-
 edges:
   - from: fetch-pr
     to: summarize
   - from: summarize
     to: parse-summary
-  # Parallel fan-out from parsed summary
   - from: parse-summary
     to: generate-diagram
   - from: parse-summary
     to: format-message
-  # Both feed into the Slack post
   - from: format-message
     to: post-to-slack
   - from: generate-diagram
