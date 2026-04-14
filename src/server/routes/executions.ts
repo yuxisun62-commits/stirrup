@@ -181,14 +181,49 @@ export function executionRoutes(engine: WorkflowEngine): Router {
     }
   });
 
-  // SSE event stream for a specific execution
-  router.get("/executions/:id/events", (req, res) => {
+  // SSE event stream for a specific execution.
+  // IMPORTANT: replay catch-up events on connect. There's a race between the
+  // 202 execute response and the client opening the EventSource — fast nodes
+  // (sync transforms, already-cached HTTP) can complete in <1ms, firing their
+  // events BEFORE the SSE connection is established. Without catch-up, the
+  // client never sees those events and the UI looks stuck.
+  router.get("/executions/:id/events", async (req, res) => {
     const executionId = req.params.id;
 
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
+
+    // Replay current state as synthetic events so the client catches up with
+    // any nodes that completed during the race window.
+    try {
+      const currentState = await engine.getState(executionId);
+      if (currentState) {
+        for (const [nodeId, step] of Object.entries(currentState.steps)) {
+          if (step.status === "completed") {
+            res.write(`event: node:complete\ndata: ${JSON.stringify({ executionId, nodeId, outputs: step.outputs })}\n\n`);
+          } else if (step.status === "failed") {
+            res.write(`event: node:fail\ndata: ${JSON.stringify({ executionId, nodeId, error: step.error?.message })}\n\n`);
+          } else if (step.status === "running") {
+            res.write(`event: node:start\ndata: ${JSON.stringify({ executionId, nodeId })}\n\n`);
+          } else if (step.status === "skipped") {
+            res.write(`event: node:skip\ndata: ${JSON.stringify({ executionId, nodeId, reason: "Branch not taken" })}\n\n`);
+          }
+        }
+        // If the execution already finished, send the terminal event and close
+        if (currentState.status === "completed") {
+          res.write(`event: execution:complete\ndata: ${JSON.stringify({ executionId })}\n\n`);
+          res.end();
+          return;
+        }
+        if (currentState.status === "failed") {
+          res.write(`event: execution:fail\ndata: ${JSON.stringify({ executionId })}\n\n`);
+          res.end();
+          return;
+        }
+      }
+    } catch { /* state not found yet — that's fine, just listen for live events */ }
 
     const eventTypes = [
       "execution:start",
