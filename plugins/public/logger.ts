@@ -103,4 +103,27 @@ export default function register(ctx: PluginContext) {
 
     return { label, elapsedMs: elapsed, elapsedSeconds: elapsed / 1000 };
   });
+
+  // Tool: logger-log — for agent-tool-use nodes that need a simple logging tool
+  ctx.registerTool({
+    name: "logger-log",
+    description: "Log a message or value. Use this to record information during workflow execution.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        message: { type: "string", description: "The message to log" },
+        level: { type: "string", description: "Log level: info, warn, error", enum: ["info", "warn", "error"] },
+      },
+      required: ["message"],
+    },
+    handler: async (input) => {
+      const level = (input.level as string) ?? "info";
+      const message = String(input.message);
+      const timestamp = new Date().toISOString();
+      console[level === "error" ? "error" : level === "warn" ? "warn" : "log"](
+        `[${timestamp}] [${level.toUpperCase()}] ${message}`
+      );
+      return { logged: true, message, level, timestamp };
+    },
+  });
 }
