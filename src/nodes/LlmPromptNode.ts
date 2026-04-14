@@ -20,11 +20,23 @@ export function createLlmPromptHandler(provider: AnthropicProvider): NodeHandler
     const rawText = textBlocks.map((b) => b.text).join("");
 
     if (cfg.responseFormat === "json") {
+      // Claude often wraps JSON in markdown fences (```json ... ```) even
+      // when the prompt says "output ONLY JSON". Strip them before parsing.
+      const cleaned = rawText
+        .replace(/^```(?:json)?\s*\n?/i, "")
+        .replace(/\n?\s*```\s*$/i, "")
+        .trim();
       try {
-        const parsed = JSON.parse(rawText);
+        const parsed = JSON.parse(cleaned);
         return { response: parsed };
       } catch {
-        throw new Error(`LLM returned invalid JSON: ${rawText.slice(0, 200)}`);
+        // If stripping didn't help, try parsing the original
+        try {
+          const parsed = JSON.parse(rawText);
+          return { response: parsed };
+        } catch {
+          throw new Error(`LLM returned invalid JSON: ${rawText.slice(0, 200)}`);
+        }
       }
     }
 
