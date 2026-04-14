@@ -64,11 +64,54 @@ export class Scheduler {
     }
   }
 
-  /** Recursively skip a node and all its descendants */
+  /**
+   * Skip a node (and potentially its descendants) because a conditional
+   * branch was not taken. But ONLY skip if the node has no other live
+   * incoming paths — if another edge from a non-skipped node still leads
+   * here, the node should wait for that path instead of being killed.
+   *
+   * This is the key fix for fan-in after conditional fan-out: when
+   * `branch-on-even` skips `odd-path`, we must NOT skip `report`
+   * because `even-path` (the taken branch) also leads to `report`.
+   *
+   * The in-degree is reduced for the skipped edge, which lets the
+   * scheduler's normal dispatch handle the rest — when all remaining
+   * live edges complete, in-degree hits 0 and the node fires.
+   */
   private skipSubgraph(nodeId: NodeId): void {
     if (this.state.steps[nodeId]?.status === "completed") return;
     if (this.state.steps[nodeId]?.status === "skipped") return;
 
+    // Check if this node has other incoming edges that are still "live" —
+    // meaning they come from a source that will actually route to this node.
+    // An edge is live if:
+    //   1. Its source is not skipped, AND
+    //   2. Either the edge is unconditional, OR the source's selectedBranch
+    //      matches the edge's condition (meaning the branch was taken).
+    // This distinguishes "odd-path (skipped source)" from "even-path
+    // (completed source via taken branch)" from "low-path (completed source
+    // via NOT-taken branch)".
+    const allIncoming = this.workflow.edges.filter((e) => e.to === nodeId);
+    const liveIncoming = allIncoming.filter((e) => {
+      const srcStep = this.state.steps[e.from];
+      if (!srcStep || srcStep.status === "skipped") return false;
+      // Unconditional edge from a non-skipped source → live
+      if (!e.condition) return true;
+      // Conditional edge → only live if the source took this branch
+      if (srcStep.status === "completed" && srcStep.selectedBranch === e.condition) return true;
+      // Source is pending/running → we don't know yet, assume live
+      if (srcStep.status !== "completed") return true;
+      return false;
+    });
+
+    if (liveIncoming.length > 0) {
+      // Node has other live paths — don't skip, just reduce in-degree
+      // so the scheduler counts one fewer predecessor to wait for.
+      this.inDegree.set(nodeId, Math.max(0, this.inDegree.get(nodeId)! - 1));
+      return;
+    }
+
+    // All incoming edges are from skipped nodes — this node is unreachable.
     this.state.steps[nodeId] = {
       nodeId,
       status: "skipped",
@@ -85,6 +128,8 @@ export class Scheduler {
       reason: "Branch not taken",
     });
 
+    // Recurse into descendants — they may also need to be skipped or
+    // have their in-degree reduced.
     const edges = this.adjacency.get(nodeId) ?? [];
     for (const edge of edges) {
       this.skipSubgraph(edge.to);

@@ -242,6 +242,10 @@ edges:
   - from: http-echo
     to: parse-http
 
+  # Compute → Agent (agent needs compute.squared as input)
+  - from: compute
+    to: agent-log
+
   # LLM → Decision → (3 parallel branches)
   - from: llm-joke
     to: pick-language
