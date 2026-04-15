@@ -19,7 +19,7 @@ Connect LLMs, code generators, APIs, and integrations into production-ready work
 </p>
 
 <p align="center">
-  <b>20+ Templates</b> &nbsp;&bull;&nbsp; <b>8 Node Types</b> &nbsp;&bull;&nbsp; <b>YAML Format</b> &nbsp;&bull;&nbsp; <b>CLI + UI</b>
+  <b>35 Templates</b> &nbsp;&bull;&nbsp; <b>8 Core + 83 Plugin Node Types</b> &nbsp;&bull;&nbsp; <b>18 Plugins</b> &nbsp;&bull;&nbsp; <b>CLI + UI</b>
 </p>
 
 ```bash
@@ -43,7 +43,7 @@ Mix AI and deterministic nodes to build workflows that think, fetch, branch, and
 | **Deterministic** | `http` | Make HTTP requests to any API |
 | **Deterministic** | `script` | Run JavaScript in a sandboxed VM with fetch, URL, and await support |
 
-All node types are extensible through the [plugin system](#plugins).
+Plus 83 plugin node types: GitHub PRs/issues/repos, Slack messages, LinkedIn posts, Launchmatic deploys, Replicate image gen, git clone/branch/push, file scaffold, and more. All extensible through the [plugin system](#plugins).
 
 ---
 
@@ -55,8 +55,13 @@ Build workflows by dragging nodes onto a canvas, connecting them, and configurin
 ### AI Generate
 Describe what you want in plain English and Claude generates the complete workflow with nodes, connections, and configuration automatically.
 
-### 20+ Templates
-Battle-tested templates for common tasks: PR reviews, deployment pipelines, marketing broadcasts, LinkedIn posting, content repurposing, competitor monitoring, SEO briefs, and more.
+### 35 Templates
+Battle-tested templates for software development, DevOps, marketing, content, and operations. Highlights:
+
+- **Dark Factory** — full-lifecycle enterprise software generation with multi-pass code gen, quality gates, and git delivery
+- **Repo Momma** — nurturing repo improvement: measure twice, cut once, PR with care
+- **Brownfield Mode** — analyze existing repos, generate fixes, open PRs, deploy previews
+- Plus: PR reviews, deployment pipelines, LinkedIn posting, content repurposing, competitor monitoring, SEO briefs, and more
 
 ### Live Execution Monitor
 Watch your workflow execute with real-time status updates. Nodes light up as they run, show timing, and display output data inline on the canvas.
@@ -64,8 +69,8 @@ Watch your workflow execute with real-time status updates. Nodes light up as the
 ### Debug & Inspect
 When a node fails, click it to see the exact error, resolved inputs, and stack trace. Click **Analyze with AI** and Claude diagnoses the issue and suggests concrete field edits you can apply with one click.
 
-### Params & Plugins
-Define typed workflow parameters with service bindings for auto-injected credentials. Extend with 16 built-in plugins (GitHub, Slack, LinkedIn, Launchmatic, Stripe, Replicate, Buffer, Typefully, and more) or write your own.
+### Params & Connections
+Define typed workflow parameters with service bindings for auto-injected credentials and smart UI controls like the GitHub repo picker. Connect once, use everywhere.
 
 ### Interactive Tutorial
 First-time users get a 15-step guided walkthrough that highlights each feature with a spotlight overlay and opens the real panels at each step. Reopenable anytime from the **?** button.
@@ -97,7 +102,7 @@ stirrup run workflows/pr-review.yaml \
 
 ## How It Works
 
-Workflows are YAML files that describe a directed acyclic graph. Each node is either deterministic or AI-powered. The engine executes them as a parallel DAG — independent nodes run concurrently, conditional branches are evaluated at runtime, and every step's state is persisted.
+Workflows are YAML files that describe a directed acyclic graph. Each node is either deterministic or AI-powered. The engine executes them as a parallel DAG — independent nodes run concurrently, conditional branches are evaluated at runtime, and every step's state is persisted to SQLite.
 
 ```yaml
 id: review-pipeline
@@ -114,7 +119,6 @@ params:
     required: true
   - name: githubToken
     type: string
-    required: true
     service: github
 
 nodes:
@@ -160,24 +164,98 @@ edges:
 
 ---
 
+## Dark Factory
+
+The **Dark Factory for Enterprise Software** is Stirrup's flagship template — a complete software development lifecycle in a single workflow.
+
+### How it works
+
+```
+Requirements Discovery → Solution Architecture →
+  ┌─ Layer 1: Infrastructure (parallel) ─┐
+  └─ Layer 2: Data Models (parallel) ────┘
+                    ↓
+       Layer 3: Business Logic (sees Layer 2 types)
+                    ↓
+       Layer 4: API Routes (sees Layers 2+3 interfaces)
+                    ↓
+              Merge → Quality Review → Refine (conditional)
+                    ↓
+            Completeness Sweep → Unit Tests + Integration Tests (parallel)
+                    ↓
+       Security Audit → Production Review → Hardening (conditional)
+                    ↓
+         Documentation → Assemble → Final Assessment → Git Push
+```
+
+**23 nodes, 32 edges.** Sequential-aware code generation means each layer sees the actual types and interfaces from prior layers — imports, method signatures, and DTOs are correct by construction. Dual quality gates route to refinement or hardening only when needed. Output is scaffolded to disk, pushed to a new GitHub repo.
+
+**Validated output quality:** Scored A grade (95 requirements, 92 code quality, 93 integration, 90 production readiness) on enterprise REST API generation across multiple test runs.
+
+### Variants
+
+| Template | Nodes | Approach |
+|----------|-------|----------|
+| `dark-factory-enterprise` | 23 | Production — sequential-aware + git delivery |
+| `dark-factory-brownfield` | 16 | Analyze existing repo → fix → PR → deploy |
+| `repo-momma` | 17 | ONE perfect improvement per run, self-review gate |
+| `dark-factory-v2` | 18 | Archive — parallel 4-layer |
+| `dark-factory-v3` | 19 | Archive — sequential-aware baseline |
+| `dark-factory-v4` | 23 | Archive — experimental test-driven feedback |
+
+---
+
 ## Template Library
 
-Start building in seconds with ready-made workflow templates.
+35 ready-made workflow templates across 5 categories.
 
+### Software Development
 | Template | What it does |
 |----------|-------------|
-| **AI Code Gen & Validation** | Generate code, test it, review quality, produce deployment-ready output |
-| **GitHub Issue Auto-Triage** | Classify issues, add labels, assign priority, notify in Slack |
-| **Blog Multi-Channel Repurposer** | Fetch a blog post, atomize into Twitter thread, LinkedIn, newsletter, YouTube |
-| **Deploy & Notify Team** | Deploy to Launchmatic, run smoke tests, post results to Slack |
+| **Dark Factory Enterprise** | Full-lifecycle software generation: requirements → architecture → multi-pass code gen → quality gates → tests → security → hardening → docs → git push |
+| **Dark Factory Brownfield** | Clone repo, analyze codebase, identify improvements, generate fixes, open PR, deploy preview to Launchmatic |
+| **Repo Momma** | Nurturing repo improvement — deep health check, measure gaps, pick ONE improvement, implement with care, self-review, PR |
+| **AI Code Gen & Validation** | Generate code from spec, review quality, produce deployment-ready output |
 | **PR Review Pipeline** | Fetch diff, AI review, severity routing, post results |
-| **LinkedIn Daily Post** | Topic in, LinkedIn-tailored post out, published directly |
-| **Competitor Changelog Watcher** | Fetch RSS, AI summary, strategic brief to Slack |
-| **SEO Content Brief** | Keyword research via SERP API, AI generates full content brief |
-| **Multi-Platform Launch Broadcast** | Fan out to LinkedIn, X, Facebook, TikTok, YouTube in parallel |
-| **Engine Smoke Test** | Exercises all 8 node types in one workflow to verify the engine |
+| **PR Merge Deploy** | On PR merge, deploy to staging, run smoke tests, update PR with status |
 
-Plus 14 more. Browse them in the UI or run `stirrup init` from the CLI.
+### DevOps & Infrastructure
+| Template | What it does |
+|----------|-------------|
+| **Deploy & Notify** | Deploy to Launchmatic, run browser smoke tests, post results to Slack |
+| **Release Pipeline** | GitHub release, deploy to production, screenshot result, announce in Slack |
+| **Self-Deploy to Launchmatic** | Package any Stirrup workflow as a standalone hosted service |
+| **Uptime Monitor** | Check URL on schedule, log metrics, alert in Slack on downtime |
+| **GitHub Issue Auto-Triage** | Classify issues, add labels, assign priority, notify team in Slack |
+
+### Content & Marketing
+| Template | What it does |
+|----------|-------------|
+| **Multi-Platform Launch Broadcast** | Fan out to LinkedIn, X, Facebook, TikTok, YouTube in parallel |
+| **Blog Multi-Channel Repurposer** | Fetch blog post, atomize into Twitter thread, LinkedIn, newsletter, YouTube script |
+| **AI Image Campaign** | Write 4 platform-tailored image prompts, generate via Replicate, pick winners, schedule posts |
+| **LinkedIn Daily Post** | Topic in, LinkedIn-tailored post out, published directly |
+| **LinkedIn Thought Leader** | RSS feed → AI commentary → publish to LinkedIn |
+| **SEO Content Brief** | SERP analysis → AI generates content brief with keyword strategy |
+| **Content Pipeline** | Research → outline → draft → quality review → revision → publish |
+
+### Analytics & Monitoring
+| Template | What it does |
+|----------|-------------|
+| **Weekly Repo Analytics** | PR/issue stats, top contributors, AI summary to Slack |
+| **Repo Health Broadcast** | GitHub stats → AI update → branded image → LinkedIn + Slack |
+| **LinkedIn Engagement Digest** | Pull post stats, analyze what's working, weekly digest to Slack |
+| **Competitor Changelog Watcher** | Fetch RSS, AI strategic summary, post to Slack |
+
+### Operations
+| Template | What it does |
+|----------|-------------|
+| **Customer Support Automation** | Classify tickets, route to team, auto-generate responses |
+| **Incident Triage & Response** | Parse alert, classify severity, run diagnostics, create response plan |
+| **Customer Feedback Router** | Classify sentiment, route negative to GitHub issues + Slack, positive to LinkedIn testimonial |
+| **Data ETL Pipeline** | Extract from API, AI-powered enrichment, load to destination |
+
+Plus smoke tests, meta-validators, and more. Browse all 35 in the UI or run `stirrup init`.
 
 ---
 
@@ -195,11 +273,11 @@ Full visibility into every execution. Inspect node-by-node results, see exact in
 
 ## Service Connections
 
-Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens.json`, 0600 permissions) and auto-injected into any workflow that declares a matching `service` param.
+Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens.json`, 0600 permissions) and auto-injected into any workflow that declares a matching `service` param. Repo params use a smart GitHub picker — no URL typing.
 
 | Service | Auth method | What it powers |
 |---------|------------|----------------|
-| **GitHub** | OAuth device flow or `gh` CLI | PRs, issues, code search, repo picker |
+| **GitHub** | OAuth device flow or `gh` CLI | PRs, issues, code search, repo picker, repo creation |
 | **Launchmatic** | `lm login` browser flow or manual paste | Deploy, databases, domains, browser tests |
 | **Anthropic** | API key (or `ANTHROPIC_API_KEY` env var) | Every AI node |
 | **Slack** | Bot User OAuth Token (`xoxb-`) with guided setup | Messages, files, channels |
@@ -211,7 +289,7 @@ Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens
 | **AWS** | `aws configure` CLI | S3, Lambda, DynamoDB |
 | **Google Cloud** | `gcloud auth login` CLI | GCS, BigQuery, Cloud Run |
 
-Environment variables (e.g., `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`) are detected automatically — no need to paste them if they're already set in your shell.
+Environment variables (e.g., `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`) are detected automatically.
 
 ---
 
@@ -321,14 +399,13 @@ See [AGENT-USAGE.md](./AGENT-USAGE.md) for the complete integration guide.
 
 ## Plugins
 
-16 built-in plugins auto-load on server start. Write your own with the PluginContext API:
+18 built-in plugins with 83 node types and 16 tools auto-load on server start. Write your own with the PluginContext API:
 
 ```typescript
 import type { PluginContext } from "stirrup-ai";
 
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("my-node", async (config, execCtx) => {
-    // Your logic here
     return { result: "done" };
   });
 
@@ -341,7 +418,19 @@ export default function register(ctx: PluginContext) {
 }
 ```
 
-**Built-in plugins:** GitHub, Slack, LinkedIn, Launchmatic, Typefully, Buffer, Replicate, Webhook, Filesystem, CSV/JSON, HTTP Auth, Scheduler, Logger, PostgreSQL, Redis, Email, S3
+**Built-in plugins:** GitHub, Slack, LinkedIn, Launchmatic, Typefully, Buffer, Replicate, Webhook, Filesystem, Git, CSV/JSON, HTTP Auth, Scheduler, Logger, PostgreSQL, Redis, Email, S3
+
+---
+
+## Security
+
+- **Path containment** — all file operations verify paths stay within allowed directories
+- **SSRF protection** — HTTP node and git-clone block private IPs and non-HTTPS protocols
+- **Token safety** — credentials never appear in error messages, logs, or event streams
+- **Sandbox isolation** — script/transform nodes run in V8 vm contexts with hardened prototypes
+- **CSRF protection** — auth routes require matching origin headers
+- **Input normalization** — workflow definitions are sanitized before validation (prototype pollution prevention)
+- **Host verification** — server binds to localhost only, blocks non-local requests
 
 ---
 
