@@ -1,6 +1,6 @@
 /**
  * Stirrup Plugin: GitHub
- * Node types: github-get-pr, github-create-issue, github-post-comment, github-list-files, github-create-repo
+ * Node types: github-get-pr, github-create-issue, github-post-comment, github-list-files, github-create-repo, github-create-pr
  * Tools: github-search-code, github-get-repo
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
@@ -128,6 +128,36 @@ export default function register(ctx: PluginContext) {
       sshUrl: repo.ssh_url,
       htmlUrl: repo.html_url,
       defaultBranch: repo.default_branch ?? "main",
+    };
+  });
+
+  ctx.registerNodeType("github-create-pr", async (config, execCtx) => {
+    const { repo, token, title, body, head, base } = { ...execCtx.inputs, ...config } as {
+      repo: string; token: string; title: string; body?: string;
+      head: string; base?: string;
+    };
+    if (!token) throw new Error("GitHub token required");
+    if (!repo) throw new Error("repo (owner/name) required");
+    if (!head) throw new Error("head branch required");
+
+    const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
+      method: "POST",
+      headers: { ...headers(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        body: body ?? "",
+        head,
+        base: base ?? "main",
+      }),
+    });
+    if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
+    const pr = await res.json() as Record<string, unknown>;
+    return {
+      prNumber: pr.number,
+      url: pr.html_url,
+      state: pr.state,
+      head: (pr.head as any)?.ref,
+      base: (pr.base as any)?.ref,
     };
   });
 

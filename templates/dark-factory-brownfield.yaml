@@ -1,0 +1,548 @@
+id: dark-factory-brownfield
+name: "Dark Factory — Brownfield Mode"
+version: "1.0"
+description: >
+  Clone an existing repo, analyze the codebase for issues and improvements,
+  design and generate targeted fixes using the Dark Factory pattern, create
+  a feature branch with the changes, open a pull request, and deploy the
+  branch to Launchmatic for preview. End-to-end brownfield improvement
+  pipeline — from repo URL to live PR with staging deployment.
+params:
+  - name: repoUrl
+    type: string
+    required: true
+    description: "HTTPS URL of the repo to analyze (e.g. https://github.com/org/repo.git)"
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repo in owner/name format (e.g. org/repo)"
+  - name: focusArea
+    type: string
+    required: false
+    default: "auto"
+    description: "Focus area: auto (pick highest impact), security, performance, testing, refactoring, bugs"
+  - name: githubToken
+    type: string
+    required: true
+    description: "GitHub token with repo + PR permissions"
+    service: github
+  - name: lmApiKey
+    type: string
+    required: false
+    description: "Launchmatic API key for branch deployment"
+    service: launchmatic
+context:
+  repoUrl: "https://github.com/PrincipalForce/stirrup.git"
+  repo: "PrincipalForce/stirrup"
+  focusArea: auto
+  githubToken: ""
+  lmApiKey: ""
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 1: CLONE & READ
+  # ═══════════════════════════════════════════════════════════════════
+  - id: clone-repo
+    type: git-clone
+    name: "Clone Repository"
+    inputs:
+      - from: context.repoUrl
+        to: repoUrl
+      - from: context.githubToken
+        to: token
+    outputs:
+      - clonedDir
+      - repoName
+    config:
+      outputDir: "./brownfield-workspace"
+      depth: 1
+
+  - id: read-codebase
+    type: codebase-read
+    name: "Read Codebase"
+    inputs:
+      - from: nodes.clone-repo.outputs.clonedDir
+        to: dir
+    outputs:
+      - codebase
+      - fileCount
+      - totalSizeKB
+      - files
+    config:
+      maxTotalSize: 400000
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 2: ANALYZE & IDENTIFY
+  # ═══════════════════════════════════════════════════════════════════
+  - id: analyze-architecture
+    type: llm-prompt
+    name: "Analyze Architecture"
+    inputs:
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+      - from: nodes.read-codebase.outputs.fileCount
+        to: fileCount
+      - from: nodes.read-codebase.outputs.files
+        to: fileList
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal engineer performing a codebase audit. Analyze
+        the architecture, patterns, conventions, and tech stack. Be specific
+        about what you find — name files, patterns, and frameworks.
+      promptTemplate: |
+        Analyze this codebase ({{fileCount}} files).
+
+        **File list:** {{fileList}}
+        **Source code:** {{codebase}}
+
+        Produce JSON:
+        {
+          "language": "primary language",
+          "framework": "main framework",
+          "architecture": "pattern (layered, MVC, etc.)",
+          "entryPoint": "main entry file",
+          "keyDirectories": [{"path": "src/", "purpose": "..."}],
+          "dependencies": ["key packages"],
+          "conventions": {
+            "naming": "camelCase/snake_case/etc",
+            "imports": "relative/alias/barrel",
+            "errorHandling": "pattern used",
+            "testing": "framework and patterns"
+          },
+          "strengths": ["what's done well"],
+          "concerns": ["architectural issues"],
+          "techDebt": ["specific debt items with file locations"]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: identify-improvements
+    type: llm-prompt
+    name: "Identify Improvements"
+    inputs:
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+      - from: nodes.analyze-architecture.outputs.response
+        to: analysis
+      - from: context.focusArea
+        to: focusArea
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a senior engineer identifying the highest-impact improvements
+        for an existing codebase. Prioritize by: impact on reliability,
+        security, and maintainability. Be specific — cite exact files and
+        line ranges.
+      promptTemplate: |
+        Identify the top improvements for this codebase.
+
+        **Focus area:** {{focusArea}} (if "auto", pick highest impact)
+        **Architecture analysis:** {{analysis}}
+        **Source code:** {{codebase}}
+
+        Produce JSON with exactly 3-5 improvements, ranked by impact:
+        {
+          "improvements": [
+            {
+              "id": "IMP-001",
+              "title": "Short descriptive title",
+              "category": "security|performance|testing|refactoring|bugs|reliability",
+              "impact": "high|medium",
+              "files": ["src/file1.ts", "src/file2.ts"],
+              "description": "What's wrong and why it matters",
+              "proposedFix": "Specific technical approach to fix it",
+              "effort": "small|medium|large"
+            }
+          ],
+          "branchName": "fix/descriptive-branch-name",
+          "prTitle": "Short PR title under 70 chars",
+          "summary": "One paragraph describing the overall improvement theme"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 3: DESIGN & GENERATE FIXES
+  # ═══════════════════════════════════════════════════════════════════
+  - id: design-fixes
+    type: llm-prompt
+    name: "Design Fixes"
+    inputs:
+      - from: nodes.identify-improvements.outputs.response
+        to: improvements
+      - from: nodes.analyze-architecture.outputs.response
+        to: analysis
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a developer designing targeted fixes for an existing codebase.
+        You MUST follow the existing code conventions, patterns, and style.
+        Changes should be minimal and surgical — fix the identified issues
+        without rewriting unrelated code.
+      promptTemplate: |
+        Design specific fixes for these improvements.
+
+        **Improvements to implement:** {{improvements}}
+        **Architecture & conventions:** {{analysis}}
+        **Current codebase:** {{codebase}}
+
+        For EACH improvement, produce a detailed fix plan:
+        {
+          "fixes": [
+            {
+              "improvementId": "IMP-001",
+              "filesModified": ["src/file.ts"],
+              "filesCreated": ["src/newfile.ts"],
+              "approach": "Detailed step-by-step fix description",
+              "conventionsToFollow": "specific patterns from this codebase to match",
+              "riskAreas": "what could break"
+            }
+          ]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: generate-fixes
+    type: code-generation
+    name: "Generate Fix Code"
+    inputs:
+      - from: nodes.design-fixes.outputs.response
+        to: fixDesign
+      - from: nodes.identify-improvements.outputs.response
+        to: improvements
+      - from: nodes.analyze-architecture.outputs.response
+        to: analysis
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate the EXACT code changes for these fixes.
+
+        **Fix design:** {{fixDesign}}
+        **Improvements:** {{improvements}}
+        **Conventions to follow:** {{analysis}}
+        **Current codebase (for reference):** {{codebase}}
+
+        CRITICAL RULES:
+        - Output ONLY files that change or are new
+        - For modified files: output the COMPLETE modified file (not a diff)
+        - Match EXACTLY the existing code style: indentation, naming, imports
+        - Do NOT change code unrelated to the fix
+        - Do NOT add comments explaining the fix (the PR description covers that)
+        - If adding tests, follow the existing test patterns exactly
+
+        Use: // === FILE: path/to/file ===
+        for every file (both modified and new).
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  - id: generate-tests
+    type: code-generation
+    name: "Generate Tests for Fixes"
+    inputs:
+      - from: nodes.generate-fixes.outputs.code
+        to: fixCode
+      - from: nodes.identify-improvements.outputs.response
+        to: improvements
+      - from: nodes.analyze-architecture.outputs.response
+        to: analysis
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate tests that verify the fixes work correctly.
+
+        **Fix code:** {{fixCode}}
+        **Improvements being fixed:** {{improvements}}
+        **Existing conventions:** {{analysis}}
+        **Existing codebase (for test patterns):** {{codebase}}
+
+        RULES:
+        - Follow the EXISTING test framework and patterns in the repo
+        - Test the specific behavior each fix addresses
+        - Include both positive tests (fix works) and regression tests (nothing broke)
+        - Match existing test file naming and location patterns
+
+        Use: // === FILE: path/to/test ===
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 4: REVIEW CHANGES
+  # ═══════════════════════════════════════════════════════════════════
+  - id: review-changes
+    type: llm-prompt
+    name: "Review Changes"
+    inputs:
+      - from: nodes.generate-fixes.outputs.code
+        to: fixCode
+      - from: nodes.generate-tests.outputs.code
+        to: testCode
+      - from: nodes.read-codebase.outputs.codebase
+        to: originalCode
+      - from: nodes.analyze-architecture.outputs.response
+        to: analysis
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a code reviewer checking that generated fixes are safe to
+        merge. Verify they follow existing conventions and don't break
+        anything.
+      promptTemplate: |
+        Review these changes before creating a PR.
+
+        **Original codebase:** {{originalCode}}
+        **Conventions:** {{analysis}}
+        **Fix code:** {{fixCode}}
+        **Test code:** {{testCode}}
+
+        Check:
+        1. Do changes follow existing code conventions?
+        2. Are imports correct and consistent?
+        3. Could any change break existing functionality?
+        4. Are the tests adequate?
+
+        Produce JSON:
+        {
+          "approved": true or false,
+          "conventionViolations": ["..."],
+          "potentialBreaks": ["..."],
+          "testGaps": ["..."],
+          "summary": "brief review summary"
+        }
+      responseFormat: json
+      maxTokens: 2048
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 5: MERGE CODE + TESTS, PREPARE PR BODY
+  # ═══════════════════════════════════════════════════════════════════
+  - id: merge-changes
+    type: transform
+    name: "Merge Fix + Test Code"
+    inputs:
+      - from: nodes.generate-fixes.outputs.code
+        to: fixCode
+      - from: nodes.generate-tests.outputs.code
+        to: testCode
+    outputs:
+      - code
+    config:
+      expression: |
+        ({
+          code: (inputs.fixCode || '') + '\n\n' + (inputs.testCode || '')
+        })
+
+  - id: write-pr-body
+    type: llm-prompt
+    name: "Write PR Description"
+    inputs:
+      - from: nodes.identify-improvements.outputs.response
+        to: improvements
+      - from: nodes.review-changes.outputs.response
+        to: review
+      - from: nodes.generate-fixes.outputs.code
+        to: fixCode
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        Write a clear, professional PR description. Include what changed,
+        why, and how to test.
+      promptTemplate: |
+        Write a GitHub PR body for these changes.
+
+        **Improvements:** {{improvements}}
+        **Review notes:** {{review}}
+        **Files changed:** {{fixCode}}
+
+        Format as markdown:
+
+        ## Summary
+        Brief description of all changes.
+
+        ## Changes
+        - Bullet per improvement with files changed
+
+        ## Testing
+        - How to verify each change
+
+        ## Risk Assessment
+        - What could break, mitigation steps
+
+        Generated by Stirrup Dark Factory (Brownfield Mode)
+      responseFormat: text
+      maxTokens: 2048
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 6: BRANCH, COMMIT, PUSH, PR
+  # ═══════════════════════════════════════════════════════════════════
+  - id: push-branch
+    type: git-branch-push
+    name: "Create Branch & Push"
+    inputs:
+      - from: nodes.clone-repo.outputs.clonedDir
+        to: dir
+      - from: nodes.identify-improvements.outputs.response
+        to: improvementData
+      - from: nodes.merge-changes.outputs.code
+        to: code
+      - from: context.githubToken
+        to: token
+    outputs:
+      - branch
+      - filesChanged
+    config:
+      branch: "stirrup/brownfield-improvements"
+
+  - id: create-pr
+    type: github-create-pr
+    name: "Create Pull Request"
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.githubToken
+        to: token
+      - from: nodes.push-branch.outputs.branch
+        to: head
+      - from: nodes.write-pr-body.outputs.response
+        to: body
+      - from: nodes.identify-improvements.outputs.response
+        to: improvementData
+    outputs:
+      - prNumber
+      - url
+    config:
+      base: main
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 7: DEPLOY BRANCH TO LAUNCHMATIC
+  # ═══════════════════════════════════════════════════════════════════
+  - id: deploy-preview
+    type: lm-deploy
+    name: "Deploy Branch Preview"
+    inputs:
+      - from: context.lmApiKey
+        to: apiKey
+      - from: context.repo
+        to: repo
+      - from: nodes.push-branch.outputs.branch
+        to: branch
+      - from: nodes.clone-repo.outputs.repoName
+        to: serviceName
+    outputs:
+      - url
+      - status
+    config:
+      environment: staging
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 8: SUMMARY
+  # ═══════════════════════════════════════════════════════════════════
+  - id: final-summary
+    type: transform
+    name: "Delivery Summary"
+    inputs:
+      - from: nodes.identify-improvements.outputs.response
+        to: improvements
+      - from: nodes.review-changes.outputs.response
+        to: review
+      - from: nodes.create-pr.outputs.url
+        to: prUrl
+      - from: nodes.create-pr.outputs.prNumber
+        to: prNumber
+      - from: nodes.push-branch.outputs.branch
+        to: branch
+      - from: nodes.push-branch.outputs.filesChanged
+        to: filesChanged
+      - from: nodes.deploy-preview.outputs.url
+        to: previewUrl
+      - from: nodes.read-codebase.outputs.fileCount
+        to: repoFileCount
+    outputs:
+      - result
+    config:
+      expression: |
+        ({
+          result: {
+            status: 'delivered',
+            repository: {
+              fileCount: inputs.repoFileCount,
+              branch: inputs.branch,
+              filesChanged: inputs.filesChanged
+            },
+            pullRequest: {
+              number: inputs.prNumber,
+              url: inputs.prUrl
+            },
+            preview: {
+              url: inputs.previewUrl
+            },
+            improvements: inputs.improvements,
+            review: inputs.review,
+            deliveredAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  # Phase 1: Clone → Read
+  - from: clone-repo
+    to: read-codebase
+
+  # Phase 2: Analyze
+  - from: read-codebase
+    to: analyze-architecture
+  - from: analyze-architecture
+    to: identify-improvements
+
+  # Phase 3: Design → Generate (fixes + tests parallel)
+  - from: identify-improvements
+    to: design-fixes
+  - from: design-fixes
+    to: generate-fixes
+  - from: generate-fixes
+    to: generate-tests
+
+  # Phase 4: Review
+  - from: generate-fixes
+    to: review-changes
+  - from: generate-tests
+    to: review-changes
+
+  # Phase 5: Merge + PR body (parallel)
+  - from: generate-fixes
+    to: merge-changes
+  - from: generate-tests
+    to: merge-changes
+  - from: review-changes
+    to: write-pr-body
+
+  # Phase 6: Push → PR
+  - from: merge-changes
+    to: push-branch
+  - from: push-branch
+    to: create-pr
+  - from: write-pr-body
+    to: create-pr
+
+  # Phase 7: Deploy
+  - from: push-branch
+    to: deploy-preview
+
+  # Phase 8: Summary (waits for PR + deploy)
+  - from: create-pr
+    to: final-summary
+  - from: deploy-preview
+    to: final-summary
