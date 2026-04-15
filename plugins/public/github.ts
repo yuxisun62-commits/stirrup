@@ -1,6 +1,6 @@
 /**
  * Stirrup Plugin: GitHub
- * Node types: github-get-pr, github-create-issue, github-post-comment, github-list-files
+ * Node types: github-get-pr, github-create-issue, github-post-comment, github-list-files, github-create-repo
  * Tools: github-search-code, github-get-repo
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
@@ -90,6 +90,44 @@ export default function register(ctx: PluginContext) {
         patch: f.patch,
       })),
       fileCount: files.length,
+    };
+  });
+
+  ctx.registerNodeType("github-create-repo", async (config, execCtx) => {
+    const { token, name, description, isPrivate, org } = { ...execCtx.inputs, ...config } as {
+      token: string; name: string; description?: string; isPrivate?: boolean; org?: string;
+    };
+    if (!token) throw new Error("GitHub token required to create a repository");
+    if (!name) throw new Error("Repository name is required");
+
+    // Create under org or authenticated user
+    const url = org
+      ? `https://api.github.com/orgs/${org}/repos`
+      : "https://api.github.com/user/repos";
+
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { ...headers(token), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        description: description ?? "",
+        private: isPrivate ?? false,
+        auto_init: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`GitHub create repo ${res.status}: ${body}`);
+    }
+
+    const repo = await res.json() as Record<string, unknown>;
+    return {
+      fullName: repo.full_name,
+      cloneUrl: repo.clone_url,
+      sshUrl: repo.ssh_url,
+      htmlUrl: repo.html_url,
+      defaultBranch: repo.default_branch ?? "main",
     };
   });
 

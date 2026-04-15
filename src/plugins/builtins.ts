@@ -20,6 +20,7 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "slack", description: "Send messages, blocks, upload files, list channels", category: "integration" },
   { name: "webhook", description: "Outbound webhooks with HMAC signing, retry, and batch send", category: "integration" },
   { name: "filesystem", description: "Read, write, list, and delete files", category: "utility" },
+  { name: "git", description: "Scaffold files from code markers, git init/commit/push to remote", category: "utility" },
   { name: "csv-json", description: "Parse/generate CSV, transform and merge JSON data", category: "utility" },
   { name: "http-auth", description: "OAuth tokens, API key requests, JWT decode, Basic auth", category: "integration" },
   { name: "scheduler", description: "Delay, rate-limit, batch, and debounce utilities", category: "utility" },

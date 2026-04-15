@@ -25,6 +25,19 @@ params:
     required: false
     default: enterprise
     description: "Quality bar: mvp (fast, minimal), production (solid), enterprise (exhaustive)"
+  - name: repoName
+    type: string
+    required: false
+    description: "GitHub repo name to create and push to (leave empty to skip git delivery)"
+  - name: githubOrg
+    type: string
+    required: false
+    description: "GitHub org to create repo under (omit for personal account)"
+  - name: githubToken
+    type: string
+    required: false
+    description: "GitHub token with repo creation permissions"
+    service: github
 context:
   idea: "Build a REST API for a task management platform with teams, projects, tasks, labels, comments, real-time notifications via WebSocket, and role-based access control"
   language: typescript
@@ -895,6 +908,94 @@ nodes:
       responseFormat: json
       maxTokens: 4096
 
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 11: GIT DELIVERY (scaffold → create repo → push)
+  # ═══════════════════════════════════════════════════════════════════
+  - id: prepare-delivery
+    type: transform
+    name: "Prepare Delivery"
+    inputs:
+      - from: nodes.production-hardening.outputs.response
+        to: hardenedCode
+      - from: nodes.completeness-sweep.outputs.response
+        to: sweptCode
+      - from: nodes.generate-unit-tests.outputs.code
+        to: unitTests
+      - from: nodes.generate-integration-tests.outputs.code
+        to: integrationTests
+      - from: nodes.generate-documentation.outputs.response
+        to: docs
+    outputs:
+      - code
+      - tests
+      - integrationTests
+      - docs
+    config:
+      expression: |
+        ({
+          code: inputs.hardenedCode || inputs.sweptCode || '',
+          tests: inputs.unitTests || '',
+          integrationTests: inputs.integrationTests || '',
+          docs: inputs.docs || ''
+        })
+
+  - id: scaffold-project
+    type: scaffold-files
+    name: "Write Files to Disk"
+    inputs:
+      - from: nodes.prepare-delivery.outputs.code
+        to: code
+      - from: nodes.prepare-delivery.outputs.tests
+        to: tests
+      - from: nodes.prepare-delivery.outputs.integrationTests
+        to: integrationTests
+      - from: nodes.prepare-delivery.outputs.docs
+        to: docs
+      - from: context.repoName
+        to: repoName
+    outputs:
+      - outputDir
+      - filesWritten
+      - files
+    config:
+      outputDir: "./generated-projects"
+
+  - id: create-repo
+    type: github-create-repo
+    name: "Create GitHub Repo"
+    inputs:
+      - from: context.githubToken
+        to: token
+      - from: context.repoName
+        to: name
+      - from: context.githubOrg
+        to: org
+      - from: nodes.discover-requirements.outputs.response
+        to: reqData
+    outputs:
+      - fullName
+      - cloneUrl
+      - htmlUrl
+    config:
+      isPrivate: false
+
+  - id: git-push
+    type: git-init-push
+    name: "Git Init & Push"
+    inputs:
+      - from: nodes.scaffold-project.outputs.outputDir
+        to: dir
+      - from: nodes.create-repo.outputs.cloneUrl
+        to: remoteUrl
+      - from: context.githubToken
+        to: token
+    outputs:
+      - pushed
+      - branch
+      - filesCommitted
+    config:
+      branch: main
+
 edges:
   # Phase 1 → 2
   - from: discover-requirements
@@ -979,3 +1080,15 @@ edges:
     to: assemble-deliverable
   - from: assemble-deliverable
     to: final-assessment
+
+  # Phase 11: Git delivery
+  - from: generate-documentation
+    to: prepare-delivery
+  - from: prepare-delivery
+    to: scaffold-project
+  - from: scaffold-project
+    to: create-repo
+  - from: create-repo
+    to: git-push
+  - from: scaffold-project
+    to: git-push
