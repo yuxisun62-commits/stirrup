@@ -8,14 +8,11 @@ description: >
   branch to Launchmatic for preview. End-to-end brownfield improvement
   pipeline — from repo URL to live PR with staging deployment.
 params:
-  - name: repoUrl
-    type: string
-    required: true
-    description: "HTTPS URL of the repo to analyze (e.g. https://github.com/org/repo.git)"
   - name: repo
     type: string
     required: true
-    description: "GitHub repo in owner/name format (e.g. org/repo)"
+    description: "GitHub repository to analyze and improve"
+    picker: github-repo
   - name: focusArea
     type: string
     required: false
@@ -23,8 +20,8 @@ params:
     description: "Focus area: auto (pick highest impact), security, performance, testing, refactoring, bugs"
   - name: githubToken
     type: string
-    required: true
-    description: "GitHub token with repo + PR permissions"
+    required: false
+    description: "GitHub token (auto-filled from connection)"
     service: github
   - name: lmApiKey
     type: string
@@ -32,7 +29,6 @@ params:
     description: "Launchmatic API key for branch deployment"
     service: launchmatic
 context:
-  repoUrl: "https://github.com/PrincipalForce/stirrup.git"
   repo: "PrincipalForce/stirrup"
   focusArea: auto
   githubToken: ""
@@ -40,13 +36,32 @@ context:
 
 nodes:
   # ═══════════════════════════════════════════════════════════════════
+  # PHASE 0: DERIVE URLs FROM REPO PICKER
+  # ═══════════════════════════════════════════════════════════════════
+  - id: resolve-repo
+    type: transform
+    name: "Resolve Repo URLs"
+    inputs:
+      - from: context.repo
+        to: repo
+    outputs:
+      - repoUrl
+      - repo
+    config:
+      expression: |
+        ({
+          repoUrl: 'https://github.com/' + inputs.repo + '.git',
+          repo: inputs.repo
+        })
+
+  # ═══════════════════════════════════════════════════════════════════
   # PHASE 1: CLONE & READ
   # ═══════════════════════════════════════════════════════════════════
   - id: clone-repo
     type: git-clone
     name: "Clone Repository"
     inputs:
-      - from: context.repoUrl
+      - from: nodes.resolve-repo.outputs.repoUrl
         to: repoUrl
       - from: context.githubToken
         to: token
@@ -513,6 +528,10 @@ nodes:
         })
 
 edges:
+  # Phase 0: Resolve repo
+  - from: resolve-repo
+    to: clone-repo
+
   # Phase 1: Clone → Read
   - from: clone-repo
     to: read-codebase

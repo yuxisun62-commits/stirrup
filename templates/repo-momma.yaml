@@ -10,14 +10,11 @@ description: >
   ships when she's satisfied. One perfect improvement per run. Push the
   frontier, nurture what's there, ensure nothing regresses.
 params:
-  - name: repoUrl
-    type: string
-    required: true
-    description: "HTTPS URL of the repo to nurture"
   - name: repo
     type: string
     required: true
-    description: "GitHub repo in owner/name format"
+    description: "GitHub repository to nurture"
+    picker: github-repo
   - name: personality
     type: string
     required: false
@@ -25,16 +22,34 @@ params:
     description: "Momma's focus: pragmatic (highest ROI), protective (security first), nurturing (tests & docs), ambitious (push the frontier)"
   - name: githubToken
     type: string
-    required: true
-    description: "GitHub token"
+    required: false
+    description: "GitHub token (auto-filled from connection)"
     service: github
 context:
-  repoUrl: "https://github.com/PrincipalForce/stirrup.git"
   repo: "PrincipalForce/stirrup"
   personality: pragmatic
   githubToken: ""
 
 nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # RESOLVE — Turn picker value into clone URL
+  # ═══════════════════════════════════════════════════════════════════
+  - id: resolve-repo
+    type: transform
+    name: "Resolve Repo"
+    inputs:
+      - from: context.repo
+        to: repo
+    outputs:
+      - repoUrl
+      - repo
+    config:
+      expression: |
+        ({
+          repoUrl: 'https://github.com/' + inputs.repo + '.git',
+          repo: inputs.repo
+        })
+
   # ═══════════════════════════════════════════════════════════════════
   # OBSERVE — See the whole child, not just the surface
   # ═══════════════════════════════════════════════════════════════════
@@ -42,7 +57,7 @@ nodes:
     type: git-clone
     name: "Clone Her Repo"
     inputs:
-      - from: context.repoUrl
+      - from: nodes.resolve-repo.outputs.repoUrl
         to: repoUrl
       - from: context.githubToken
         to: token
@@ -624,6 +639,10 @@ nodes:
         })
 
 edges:
+  # Resolve
+  - from: resolve-repo
+    to: clone-repo
+
   # Observe
   - from: clone-repo
     to: read-codebase

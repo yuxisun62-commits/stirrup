@@ -7,8 +7,8 @@ params:
   - name: repo
     type: string
     description: "GitHub repository (owner/repo)"
-    required: true
     picker: github-repo
+    required: true
   - name: prNumber
     type: number
     description: "Pull request number"
