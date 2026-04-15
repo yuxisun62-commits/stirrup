@@ -1,0 +1,681 @@
+id: repo-momma
+name: "Repo Momma"
+version: "1.0"
+description: >
+  She loves her repo. Measures twice, cuts once. Repo Momma clones your
+  codebase, performs a deep health assessment, quantifies exactly where the
+  gaps are, picks THE single highest-ROI improvement, plans it meticulously,
+  implements it with extreme care following every existing convention, writes
+  safety tests that prove nothing broke, self-reviews her own work, and only
+  ships when she's satisfied. One perfect improvement per run. Push the
+  frontier, nurture what's there, ensure nothing regresses.
+params:
+  - name: repoUrl
+    type: string
+    required: true
+    description: "HTTPS URL of the repo to nurture"
+  - name: repo
+    type: string
+    required: true
+    description: "GitHub repo in owner/name format"
+  - name: personality
+    type: string
+    required: false
+    default: "pragmatic"
+    description: "Momma's focus: pragmatic (highest ROI), protective (security first), nurturing (tests & docs), ambitious (push the frontier)"
+  - name: githubToken
+    type: string
+    required: true
+    description: "GitHub token"
+    service: github
+context:
+  repoUrl: "https://github.com/PrincipalForce/stirrup.git"
+  repo: "PrincipalForce/stirrup"
+  personality: pragmatic
+  githubToken: ""
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # OBSERVE — See the whole child, not just the surface
+  # ═══════════════════════════════════════════════════════════════════
+  - id: clone-repo
+    type: git-clone
+    name: "Clone Her Repo"
+    inputs:
+      - from: context.repoUrl
+        to: repoUrl
+      - from: context.githubToken
+        to: token
+    outputs:
+      - clonedDir
+      - repoName
+    config:
+      outputDir: "./momma-workspace"
+      depth: 1
+
+  - id: read-codebase
+    type: codebase-read
+    name: "Read Every File"
+    inputs:
+      - from: nodes.clone-repo.outputs.clonedDir
+        to: dir
+    outputs:
+      - codebase
+      - fileCount
+      - totalSizeKB
+      - files
+    config:
+      maxTotalSize: 400000
+
+  # ═══════════════════════════════════════════════════════════════════
+  # MEASURE — Know exactly where your child stands
+  # ═══════════════════════════════════════════════════════════════════
+  - id: health-check
+    type: llm-prompt
+    name: "Deep Health Check"
+    inputs:
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+      - from: nodes.read-codebase.outputs.fileCount
+        to: fileCount
+      - from: nodes.read-codebase.outputs.files
+        to: fileList
+      - from: context.personality
+        to: personality
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are Repo Momma. You love this codebase like it's your own child.
+        You see its strengths AND its growing edges. You're not harsh — you're
+        honest, specific, and always thinking about what will help it thrive.
+        Measure everything. No guessing.
+      promptTemplate: |
+        Give this repo a complete health check. {{fileCount}} files.
+
+        **Momma's personality this run:** {{personality}}
+        **File list:** {{fileList}}
+        **Full codebase:** {{codebase}}
+
+        Assess every dimension — be specific, cite files:
+        {
+          "repoName": "name",
+          "language": "primary lang",
+          "maturity": "early/growing/mature/legacy",
+          "vitals": {
+            "hasTests": true/false,
+            "testFramework": "jest/vitest/pytest/none",
+            "testFileCount": 0,
+            "hasCI": true/false,
+            "ciTool": "github-actions/etc/none",
+            "hasDocker": true/false,
+            "hasTyping": true/false,
+            "hasLinter": true/false,
+            "hasDocs": true/false,
+            "hasChangelog": true/false,
+            "dependencyCount": 0,
+            "devDependencyCount": 0
+          },
+          "strengths": [
+            {"area": "...", "evidence": "specific file/pattern", "impact": "why this matters"}
+          ],
+          "growthAreas": [
+            {
+              "area": "...",
+              "severity": "critical/important/nice-to-have",
+              "evidence": "specific file or missing pattern",
+              "impact": "what happens if we don't address this",
+              "effort": "small/medium/large",
+              "roi": "high/medium/low"
+            }
+          ],
+          "mommasSummary": "A warm but honest 2-3 sentence summary of how this repo is doing"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: measure-gaps
+    type: llm-prompt
+    name: "Measure the Gaps"
+    inputs:
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+      - from: context.personality
+        to: personality
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are Repo Momma doing precise measurements before cutting.
+        For each growth area from the health check, quantify exactly
+        what's missing. Count untested functions. Count undocumented exports.
+        Measure the gap, don't just name it.
+      promptTemplate: |
+        Measure each gap precisely.
+
+        **Health check:** {{health}}
+        **Personality:** {{personality}}
+        **Codebase:** {{codebase}}
+
+        For each growth area, produce concrete measurements:
+        {
+          "measurements": [
+            {
+              "area": "from health check",
+              "metric": "what you measured",
+              "current": "current state (number or description)",
+              "target": "where it should be",
+              "gap": "specific delta",
+              "filesAffected": ["list of specific files"],
+              "roi": "high/medium/low — considering effort vs impact",
+              "risk": "low/medium/high — what could go wrong fixing this"
+            }
+          ]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CUT — One perfect improvement. Measure twice, cut once.
+  # ═══════════════════════════════════════════════════════════════════
+  - id: choose-one
+    type: llm-prompt
+    name: "Choose THE One"
+    inputs:
+      - from: nodes.measure-gaps.outputs.response
+        to: measurements
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: context.personality
+        to: personality
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are Repo Momma choosing THE single improvement to make today.
+        Not two. Not three. ONE. The one that gives this repo the most
+        growth for the least risk. You're pragmatic — you pick what
+        moves the needle most while being absolutely safe to merge.
+      promptTemplate: |
+        Pick ONE improvement. Just one. The best one.
+
+        **Personality:** {{personality}}
+        - If pragmatic: highest ROI, lowest risk
+        - If protective: most critical security or reliability gap
+        - If nurturing: biggest test coverage or documentation gap
+        - If ambitious: most impactful new capability that's safe to add
+
+        **Measurements:** {{measurements}}
+        **Health check:** {{health}}
+
+        Produce:
+        {
+          "chosen": {
+            "area": "the growth area",
+            "title": "Short descriptive title (under 60 chars)",
+            "why": "Why THIS one, not the others — Momma's reasoning",
+            "scope": "Exactly what files will change and how",
+            "filesModify": ["existing files to change"],
+            "filesCreate": ["new files to add"],
+            "acceptanceCriteria": ["specific, testable criteria for 'done'"],
+            "risks": ["what could go wrong"],
+            "mitigations": ["how we prevent each risk"]
+          },
+          "branchName": "momma/short-description",
+          "rejected": [
+            {"area": "...", "reason": "why not this time"}
+          ]
+        }
+      responseFormat: json
+      maxTokens: 2048
+
+  - id: plan-carefully
+    type: llm-prompt
+    name: "Plan Every Detail"
+    inputs:
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are Repo Momma planning the surgery. You've chosen the ONE
+        improvement. Now plan every cut before you make it. Study the
+        existing code patterns. Note the naming conventions, import
+        style, error handling patterns. Your changes must look like
+        they were always part of the codebase.
+      promptTemplate: |
+        Plan the implementation in precise detail.
+
+        **Chosen improvement:** {{chosen}}
+        **Repo conventions:** {{health}}
+        **Codebase:** {{codebase}}
+
+        For each file you'll touch:
+        {
+          "plan": [
+            {
+              "file": "path/to/file",
+              "action": "modify/create",
+              "changes": "exactly what changes, line by line",
+              "conventionsToMatch": "specific patterns from this repo to follow",
+              "testStrategy": "how we'll verify this change works"
+            }
+          ],
+          "dependencyChanges": "any package.json changes needed (or 'none')",
+          "rollbackPlan": "how to undo if something goes wrong"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # NURTURE — Build with love, test with rigor
+  # ═══════════════════════════════════════════════════════════════════
+  - id: generate-improvement
+    type: code-generation
+    name: "Implement with Care"
+    inputs:
+      - from: nodes.plan-carefully.outputs.response
+        to: plan
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Implement this ONE improvement with extreme care.
+
+        **Plan:** {{plan}}
+        **Chosen improvement:** {{chosen}}
+        **Conventions:** {{health}}
+        **Existing codebase:** {{codebase}}
+
+        MOMMA'S RULES:
+        1. Output ONLY files that change or are new — not the whole codebase
+        2. Modified files must be COMPLETE (full file, not a diff)
+        3. Match EXACTLY: indentation, naming, import style, error patterns
+        4. Do NOT touch ANYTHING outside the planned scope
+        5. No "while I'm here" fixes — stay focused on the ONE improvement
+        6. Every line you write should look like the original author wrote it
+        7. If adding a function, follow the existing function style exactly
+        8. If adding a test, follow the existing test patterns exactly
+
+        Use: // === FILE: path/to/file ===
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  - id: generate-safety-tests
+    type: code-generation
+    name: "Write Safety Tests"
+    inputs:
+      - from: nodes.generate-improvement.outputs.code
+        to: improvementCode
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: nodes.read-codebase.outputs.codebase
+        to: codebase
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Write tests that prove the improvement works AND nothing broke.
+
+        **Improvement code:** {{improvementCode}}
+        **What we changed:** {{chosen}}
+        **Test conventions:** {{health}}
+        **Existing codebase:** {{codebase}}
+
+        MOMMA'S TEST RULES:
+        1. Follow the EXISTING test framework and patterns in this repo
+        2. Tests must prove each acceptance criterion from the plan is met
+        3. Include at least one regression test (existing behavior unchanged)
+        4. If the repo has no tests yet, create the test infrastructure first
+           (config file, helpers) following the language's best practices
+        5. Test names should read like acceptance criteria
+
+        Use: // === FILE: path/to/test ===
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # ENSURE — Self-review. Would Momma merge this?
+  # ═══════════════════════════════════════════════════════════════════
+  - id: self-review
+    type: decision-routing
+    name: "Momma's Self-Review"
+    inputs:
+      - from: nodes.generate-improvement.outputs.code
+        to: improvementCode
+      - from: nodes.generate-safety-tests.outputs.code
+        to: testCode
+      - from: nodes.read-codebase.outputs.codebase
+        to: originalCode
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.health-check.outputs.response
+        to: health
+    outputs:
+      - selectedBranch
+      - reasoning
+    config:
+      promptTemplate: |
+        Momma reviews her own work. Be honest — would you merge this?
+
+        **Original codebase:** {{originalCode}}
+        **Improvement code:** {{improvementCode}}
+        **Safety tests:** {{testCode}}
+        **What we set out to do:** {{chosen}}
+        **Repo conventions:** {{health}}
+
+        Check:
+        1. Does the code match existing conventions EXACTLY?
+        2. Are all acceptance criteria met?
+        3. Could this break any existing functionality?
+        4. Are the tests actually testing the right things?
+        5. Is the scope tight — no extra changes crept in?
+        6. Would you be proud to put your name on this PR?
+
+        "ship" if you'd merge this yourself without hesitation.
+        "rework" if anything feels off — even a little.
+      branches:
+        ship: "Momma approves — this is clean, focused, safe, and follows every convention"
+        rework: "Something's not right — needs another pass before it's ready"
+      maxTokens: 2048
+    branches:
+      ship:
+        - finalize
+      rework:
+        - rework-changes
+
+  - id: rework-changes
+    type: llm-prompt
+    name: "Rework with Momma's Notes"
+    inputs:
+      - from: nodes.generate-improvement.outputs.code
+        to: improvementCode
+      - from: nodes.generate-safety-tests.outputs.code
+        to: testCode
+      - from: nodes.self-review.outputs.reasoning
+        to: reviewNotes
+      - from: nodes.read-codebase.outputs.codebase
+        to: originalCode
+      - from: nodes.health-check.outputs.response
+        to: health
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        Momma found issues in her self-review. Fix ONLY what she flagged.
+        Do not change anything else. Output both the fixed implementation
+        AND the fixed tests in one response.
+      promptTemplate: |
+        Fix what Momma flagged. Nothing more, nothing less.
+
+        **Momma's review notes:** {{reviewNotes}}
+        **Current improvement code:** {{improvementCode}}
+        **Current tests:** {{testCode}}
+        **Original codebase (for convention reference):** {{originalCode}}
+        **Conventions:** {{health}}
+
+        Fix the specific issues noted. Output ALL changed files (both
+        implementation and tests) in a single response.
+
+        Use: // === FILE: path/to/file ===
+      responseFormat: text
+      maxTokens: 8192
+
+  - id: finalize
+    type: transform
+    name: "Finalize Changes"
+    inputs:
+      - from: nodes.generate-improvement.outputs.code
+        to: originalImprovement
+      - from: nodes.generate-safety-tests.outputs.code
+        to: originalTests
+      - from: nodes.rework-changes.outputs.response
+        to: reworkedCode
+      - from: nodes.self-review.outputs.selectedBranch
+        to: verdict
+    outputs:
+      - code
+      - wasReworked
+    config:
+      expression: |
+        ({
+          code: inputs.verdict === 'rework' && inputs.reworkedCode
+            ? inputs.reworkedCode
+            : (inputs.originalImprovement || '') + '\n\n' + (inputs.originalTests || ''),
+          wasReworked: inputs.verdict === 'rework'
+        })
+
+  # ═══════════════════════════════════════════════════════════════════
+  # DELIVER — Push the frontier, with a note from Momma
+  # ═══════════════════════════════════════════════════════════════════
+  - id: push-branch
+    type: git-branch-push
+    name: "Push Her Branch"
+    inputs:
+      - from: nodes.clone-repo.outputs.clonedDir
+        to: dir
+      - from: nodes.finalize.outputs.code
+        to: code
+      - from: context.githubToken
+        to: token
+      - from: nodes.choose-one.outputs.response
+        to: chosenData
+    outputs:
+      - branch
+      - filesChanged
+    config:
+      branch: "momma/nurture"
+
+  - id: write-pr
+    type: llm-prompt
+    name: "Momma's PR Note"
+    inputs:
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.measure-gaps.outputs.response
+        to: measurements
+      - from: nodes.self-review.outputs.reasoning
+        to: reviewNotes
+      - from: nodes.self-review.outputs.selectedBranch
+        to: verdict
+      - from: nodes.finalize.outputs.wasReworked
+        to: wasReworked
+      - from: nodes.push-branch.outputs.filesChanged
+        to: filesChanged
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        Write the PR description in Momma's voice — warm, thorough,
+        proud of the work but honest about trade-offs. She explains
+        WHY this change matters, not just WHAT changed.
+      promptTemplate: |
+        Write Momma's PR description.
+
+        **What we improved:** {{chosen}}
+        **Measurements that motivated this:** {{measurements}}
+        **Self-review result:** {{verdict}} (reworked: {{wasReworked}})
+        **Review notes:** {{reviewNotes}}
+        **Files changed:** {{filesChanged}}
+
+        Format as markdown:
+
+        ## What Momma Did
+
+        Brief warm description of the improvement and WHY it matters
+        for the repo's health.
+
+        ## The Measurement
+
+        What gap was measured, what the target was, what we achieved.
+
+        ## Changes
+
+        - Bullet per file changed with what and why
+
+        ## Safety
+
+        - What tests were added
+        - What regression coverage exists
+        - Momma's self-review verdict
+
+        ## What's Next
+
+        What Momma would tackle on her next visit.
+
+        ---
+        *Nurtured with care by Repo Momma — Stirrup Dark Factory*
+      responseFormat: text
+      maxTokens: 2048
+
+  - id: extract-pr-title
+    type: transform
+    name: "PR Title"
+    inputs:
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+    outputs:
+      - title
+    config:
+      expression: |
+        ({
+          title: inputs.chosen && inputs.chosen.chosen && inputs.chosen.chosen.title
+            ? String(inputs.chosen.chosen.title).slice(0, 70)
+            : 'Repo Momma: nurture improvement'
+        })
+
+  - id: create-pr
+    type: github-create-pr
+    name: "Open PR"
+    inputs:
+      - from: context.repo
+        to: repo
+      - from: context.githubToken
+        to: token
+      - from: nodes.push-branch.outputs.branch
+        to: head
+      - from: nodes.write-pr.outputs.response
+        to: body
+      - from: nodes.extract-pr-title.outputs.title
+        to: title
+    outputs:
+      - prNumber
+      - url
+    config:
+      base: main
+
+  - id: nurture-summary
+    type: transform
+    name: "Momma's Report Card"
+    inputs:
+      - from: nodes.health-check.outputs.response
+        to: health
+      - from: nodes.choose-one.outputs.response
+        to: chosen
+      - from: nodes.self-review.outputs.selectedBranch
+        to: selfReviewVerdict
+      - from: nodes.finalize.outputs.wasReworked
+        to: wasReworked
+      - from: nodes.push-branch.outputs.branch
+        to: branch
+      - from: nodes.push-branch.outputs.filesChanged
+        to: filesChanged
+      - from: nodes.create-pr.outputs.url
+        to: prUrl
+      - from: nodes.create-pr.outputs.prNumber
+        to: prNumber
+    outputs:
+      - result
+    config:
+      expression: |
+        ({
+          result: {
+            momma: 'loves this repo',
+            repo: inputs.health?.repoName || 'unknown',
+            maturity: inputs.health?.maturity || 'unknown',
+            improvement: inputs.chosen?.chosen?.title || 'unknown',
+            selfReview: inputs.selfReviewVerdict,
+            wasReworked: !!inputs.wasReworked,
+            branch: inputs.branch,
+            filesChanged: inputs.filesChanged,
+            pullRequest: {
+              number: inputs.prNumber,
+              url: inputs.prUrl
+            },
+            nurturedAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  # Observe
+  - from: clone-repo
+    to: read-codebase
+
+  # Measure
+  - from: read-codebase
+    to: health-check
+  - from: health-check
+    to: measure-gaps
+
+  # Cut (choose + plan)
+  - from: measure-gaps
+    to: choose-one
+  - from: choose-one
+    to: plan-carefully
+
+  # Nurture (implement + test)
+  - from: plan-carefully
+    to: generate-improvement
+  - from: generate-improvement
+    to: generate-safety-tests
+
+  # Ensure (self-review + optional rework)
+  - from: generate-improvement
+    to: self-review
+  - from: generate-safety-tests
+    to: self-review
+  - from: self-review
+    to: rework-changes
+    condition: rework
+  - from: self-review
+    to: finalize
+    condition: ship
+  - from: rework-changes
+    to: finalize
+  - from: generate-improvement
+    to: finalize
+  - from: generate-safety-tests
+    to: finalize
+
+  # Deliver
+  - from: finalize
+    to: push-branch
+  - from: choose-one
+    to: extract-pr-title
+  - from: push-branch
+    to: write-pr
+  - from: write-pr
+    to: create-pr
+  - from: extract-pr-title
+    to: create-pr
+
+  # Summary waits for PR
+  - from: create-pr
+    to: nurture-summary
