@@ -138,6 +138,7 @@ export default function register(ctx: PluginContext) {
     };
     if (!token) throw new Error("GitHub token required");
     if (!repo) throw new Error("repo (owner/name) required");
+    if (!title) throw new Error("PR title is required");
     if (!head) throw new Error("head branch required");
 
     const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {

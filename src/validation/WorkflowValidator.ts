@@ -49,15 +49,14 @@ export function normalizeWorkflow(workflow: unknown): void {
       } else if (typeof node.branches === "string") {
         node.branches = {};
       } else if (typeof node.branches === "object" && node.branches !== null) {
-        // Ensure values are string[] not bare strings
+        // Rebuild into a clean object to prevent prototype pollution
         const obj = node.branches as Record<string, unknown>;
+        const safe: Record<string, string[]> = Object.create(null);
         for (const [k, v] of Object.entries(obj)) {
-          if (typeof v === "string") {
-            obj[k] = v ? [v] : [];
-          } else if (!Array.isArray(v)) {
-            obj[k] = [];
-          }
+          if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+          safe[k] = typeof v === "string" ? (v ? [v] : []) : Array.isArray(v) ? v : [];
         }
+        node.branches = safe;
       }
     }
 

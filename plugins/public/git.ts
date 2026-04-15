@@ -1,82 +1,101 @@
 /**
  * Stirrup Plugin: Git & Project Scaffolding
  * Node types: scaffold-files, git-init-push, git-clone, git-branch-push, codebase-read
- *
- * scaffold-files: Parses "// === FILE: path ===" markers, writes files to disk
- * git-init-push: Init new repo, commit, push
- * git-clone: Clone an existing repo to a local directory
- * git-branch-push: Create branch, stage changes, commit, push on existing clone
- * codebase-read: Read all source files from a directory into a single string
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
-import { resolve, dirname, join, relative, extname } from "node:path";
+import { writeFileSync, readFileSync, mkdirSync, existsSync, readdirSync, statSync, rmSync } from "node:fs";
+import { resolve, dirname, join, relative, extname, sep as pathSep } from "node:path";
 import { execFileSync } from "node:child_process";
 
+// ── Security helpers ─────────────────────────────────────────────
+
+/** Strip token from error messages to prevent leakage via event stream */
+function sanitizeError(err: unknown, token?: string): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  const safe = token ? msg.replaceAll(token, "***") : msg;
+  return new Error(safe);
+}
+
+/** Verify resolved path stays within a base directory */
+function assertContained(filePath: string, baseDir: string): void {
+  const resolved = resolve(filePath);
+  const base = resolve(baseDir);
+  if (resolved !== base && !resolved.startsWith(base + pathSep) && !resolved.startsWith(base + "/")) {
+    throw new Error(`Path traversal blocked: "${filePath}" escapes "${baseDir}"`);
+  }
+}
+
+/** Validate URL is HTTPS only — blocks git://, file://, ssh:// SSRF vectors */
+function assertSafeUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid URL: "${url}"`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error(`Blocked protocol "${parsed.protocol}" — only https: and http: allowed`);
+  }
+}
+
+/** Sanitize a name derived from user input (repo names, branch names) */
+function sanitizeName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^\.+/, "").slice(0, 100) || "unnamed";
+}
+
 export default function register(ctx: PluginContext) {
-  /**
-   * scaffold-files: Parse code with file markers and write to disk.
-   *
-   * Supports markers like:
-   *   // === FILE: src/index.ts ===
-   *   # === FILE: requirements.txt ===
-   *   // === TEST FILE: tests/unit/user.test.ts ===
-   *   === README.md ===
-   */
+
+  // ── scaffold-files ───────────────────────────────────────────────
+
   ctx.registerNodeType("scaffold-files", async (config, execCtx) => {
     const { code, tests, integrationTests, docs, outputDir, repoName } = {
       ...execCtx.inputs,
       ...config,
     } as {
-      code: string;
-      tests?: string;
-      integrationTests?: string;
-      docs?: string;
-      outputDir: string;
-      repoName?: string;
+      code: string; tests?: string; integrationTests?: string;
+      docs?: string; outputDir: string; repoName?: string;
     };
 
     if (!code) throw new Error("code input is required");
     if (!outputDir) throw new Error("outputDir config is required");
 
-    // If repoName provided, use it as subdirectory
-    const dir = repoName ? resolve(outputDir, repoName) : resolve(outputDir);
+    const safeName = repoName ? sanitizeName(repoName) : undefined;
+    const dir = safeName ? resolve(outputDir, safeName) : resolve(outputDir);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    function writeFile(relPath: string, content: string): void {
+      const filePath = resolve(dir, relPath);
+      assertContained(filePath, dir);
+      const fileDir = dirname(filePath);
+      if (!existsSync(fileDir)) mkdirSync(fileDir, { recursive: true });
+      writeFileSync(filePath, content + "\n", "utf-8");
+    }
 
     function parseAndWrite(text: string): string[] {
       const written: string[] = [];
-      // Match: // === FILE: path === or # === FILE: path === or variations
       const regex = /(?:\/\/|#)\s*===\s*(?:FILE|TEST FILE|PATCHED FILE|DOC):\s*(.+?)\s*===/gi;
       const positions: { path: string; start: number }[] = [];
       let match: RegExpExecArray | null;
 
       while ((match = regex.exec(text)) !== null) {
-        positions.push({
-          path: match[1].trim(),
-          start: match.index + match[0].length,
-        });
+        positions.push({ path: match[1].trim(), start: match.index + match[0].length });
       }
 
       for (let i = 0; i < positions.length; i++) {
-        const end =
-          i + 1 < positions.length
-            ? text.lastIndexOf("\n", positions[i + 1].start - positions[i + 1].path.length - 10)
-            : text.length;
+        const end = i + 1 < positions.length
+          ? text.lastIndexOf("\n", positions[i + 1].start - positions[i + 1].path.length - 10)
+          : text.length;
 
         let content = text.slice(positions[i].start, end).trim();
         if (content.startsWith("```")) {
-          const firstNewline = content.indexOf("\n");
-          content = content.slice(firstNewline + 1);
+          const nl = content.indexOf("\n");
+          content = content.slice(nl + 1);
           if (content.endsWith("```")) content = content.slice(0, -3).trimEnd();
         }
 
-        const filePath = join(dir, positions[i].path);
-        const fileDir = dirname(filePath);
-        if (!existsSync(fileDir)) mkdirSync(fileDir, { recursive: true });
-        writeFileSync(filePath, content + "\n", "utf-8");
+        writeFile(positions[i].path, content);
         written.push(positions[i].path);
       }
-
       return written;
     }
 
@@ -87,28 +106,19 @@ export default function register(ctx: PluginContext) {
       let match: RegExpExecArray | null;
 
       while ((match = regex.exec(text)) !== null) {
-        positions.push({
-          path: match[1].trim(),
-          start: match.index + match[0].length,
-        });
+        positions.push({ path: match[1].trim(), start: match.index + match[0].length });
       }
 
       for (let i = 0; i < positions.length; i++) {
-        const end =
-          i + 1 < positions.length
-            ? text.lastIndexOf("\n", positions[i + 1].start - positions[i + 1].path.length - 10)
-            : text.length;
-
+        const end = i + 1 < positions.length
+          ? text.lastIndexOf("\n", positions[i + 1].start - positions[i + 1].path.length - 10)
+          : text.length;
         const content = text.slice(positions[i].start, end).trim();
         if (!content) continue;
 
-        const filePath = join(dir, positions[i].path);
-        const fileDir = dirname(filePath);
-        if (!existsSync(fileDir)) mkdirSync(fileDir, { recursive: true });
-        writeFileSync(filePath, content + "\n", "utf-8");
+        writeFile(positions[i].path, content);
         written.push(positions[i].path);
       }
-
       return written;
     }
 
@@ -118,151 +128,120 @@ export default function register(ctx: PluginContext) {
     if (integrationTests) files.push(...parseAndWrite(integrationTests));
     if (docs) files.push(...parseDocSections(docs));
 
-    return {
-      outputDir: dir,
-      filesWritten: files.length,
-      files,
-    };
+    return { outputDir: dir, filesWritten: files.length, files };
   });
 
-  /**
-   * git-init-push: Initialize a git repo, commit all files, and push.
-   * Uses execFileSync (array args, no shell) to prevent injection.
-   */
+  // ── git-init-push ────────────────────────────────────────────────
+
   ctx.registerNodeType("git-init-push", async (config, execCtx) => {
-    const { dir, remoteUrl, token, branch, commitMessage } = {
-      ...execCtx.inputs,
-      ...config,
-    } as {
-      dir: string;
-      remoteUrl: string;
-      token?: string;
-      branch?: string;
-      commitMessage?: string;
-    };
+    // Prefer inputs over config for security-sensitive params
+    const token = (execCtx.inputs.token as string) ?? (config.token as string);
+    const dir = (execCtx.inputs.dir as string) ?? (config.dir as string);
+    const remoteUrl = (execCtx.inputs.remoteUrl as string) ?? (config.remoteUrl as string);
+    const branch = (execCtx.inputs.branch as string) ?? (config.branch as string) ?? "main";
+    const commitMessage = (execCtx.inputs.commitMessage as string) ?? (config.commitMessage as string)
+      ?? "Initial commit \u2014 generated by Stirrup Dark Factory";
 
     if (!dir) throw new Error("dir is required");
     if (!remoteUrl) throw new Error("remoteUrl is required");
+    assertSafeUrl(remoteUrl);
 
     const targetDir = resolve(dir);
     if (!existsSync(targetDir)) throw new Error(`Directory does not exist: ${targetDir}`);
 
-    const branchName = branch ?? "main";
-    const message = commitMessage ?? "Initial commit \u2014 generated by Stirrup Dark Factory";
-
-    // Build authenticated URL (token embedded, never logged)
     let authUrl = remoteUrl;
     if (token && remoteUrl.startsWith("https://")) {
       authUrl = remoteUrl.replace("https://", `https://${token}@`);
     }
 
-    // execFileSync with array args — no shell, no injection
     function git(...args: string[]): string {
-      return execFileSync("git", args, {
-        cwd: targetDir,
-        encoding: "utf-8",
-        timeout: 30_000,
-      }).trim();
+      try {
+        return execFileSync("git", args, { cwd: targetDir, encoding: "utf-8", timeout: 30_000 }).trim();
+      } catch (err) {
+        throw sanitizeError(err, token);
+      }
     }
 
-    git("init", "-b", branchName);
+    git("init", "-b", branch);
     git("add", "-A");
-    git("commit", "-m", message);
+    git("commit", "-m", commitMessage);
     git("remote", "add", "origin", authUrl);
-
-    let pushOutput: string;
-    try {
-      pushOutput = git("push", "-u", "origin", branchName);
-    } catch (err: unknown) {
-      // git push writes progress to stderr even on success
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("error") || msg.includes("fatal")) throw err;
-      pushOutput = msg;
-    }
+    git("push", "-u", "origin", branch);
 
     const fileList = git("ls-files").split("\n").filter(Boolean);
 
     return {
       pushed: true,
-      branch: branchName,
-      remote: remoteUrl,
+      branch,
+      remote: remoteUrl, // Never expose authUrl
       filesCommitted: fileList.length,
-      commitMessage: message,
+      commitMessage,
     };
   });
 
-  /**
-   * git-clone: Clone a repo to a local directory.
-   */
+  // ── git-clone ────────────────────────────────────────────────────
+
   ctx.registerNodeType("git-clone", async (config, execCtx) => {
-    const { repoUrl, token, outputDir, depth } = {
-      ...execCtx.inputs,
-      ...config,
-    } as {
-      repoUrl: string;
-      token?: string;
-      outputDir?: string;
-      depth?: number;
-    };
+    const repoUrl = (execCtx.inputs.repoUrl as string) ?? (config.repoUrl as string);
+    const token = (execCtx.inputs.token as string) ?? (config.token as string);
+    const outputDir = (execCtx.inputs.outputDir as string) ?? (config.outputDir as string) ?? "./cloned-repos";
+    const depth = (execCtx.inputs.depth as number) ?? (config.depth as number);
 
     if (!repoUrl) throw new Error("repoUrl is required");
+    assertSafeUrl(repoUrl);
 
-    // Extract repo name from URL for default dir
-    const repoName = repoUrl.replace(/\.git$/, "").split("/").pop() ?? "repo";
-    const dir = resolve(outputDir ?? "./cloned-repos", repoName);
+    // Sanitize repo name from URL to prevent path traversal
+    const rawName = repoUrl.replace(/\.git$/, "").split("/").pop() ?? "repo";
+    const repoName = sanitizeName(rawName);
+    const dir = resolve(outputDir, repoName);
 
-    // Build authenticated URL
+    // Verify dir stays within outputDir
+    assertContained(dir, resolve(outputDir));
+
     let authUrl = repoUrl;
     if (token && repoUrl.startsWith("https://")) {
       authUrl = repoUrl.replace("https://", `https://${token}@`);
     }
 
-    // Remove existing clone if present
+    // Remove existing clone if present (safe — verified within outputDir)
     if (existsSync(dir)) {
-      execFileSync("rm", ["-rf", dir], { encoding: "utf-8", timeout: 10_000 });
+      rmSync(dir, { recursive: true, force: true });
     }
 
     const args = ["clone"];
     if (depth) args.push("--depth", String(depth));
     args.push(authUrl, dir);
 
-    execFileSync("git", args, { encoding: "utf-8", timeout: 60_000 });
+    try {
+      execFileSync("git", args, { encoding: "utf-8", timeout: 60_000 });
+    } catch (err) {
+      throw sanitizeError(err, token);
+    }
 
-    return {
-      clonedDir: dir,
-      repoName,
-    };
+    return { clonedDir: dir, repoName };
   });
 
-  /**
-   * codebase-read: Read all source files into a formatted string.
-   * Skips node_modules, .git, dist, build, binary files, etc.
-   */
+  // ── codebase-read ────────────────────────────────────────────────
+
   ctx.registerNodeType("codebase-read", async (config, execCtx) => {
-    const { dir, maxFileSize, maxTotalSize, extensions } = {
-      ...execCtx.inputs,
-      ...config,
-    } as {
-      dir: string;
-      maxFileSize?: number;
-      maxTotalSize?: number;
-      extensions?: string[];
-    };
+    const dir = (execCtx.inputs.dir as string) ?? (config.dir as string);
+    const maxFileSize = (config.maxFileSize as number) ?? 50_000;
+    const maxTotalSize = (config.maxTotalSize as number) ?? 500_000;
+    const extensions = config.extensions as string[] | undefined;
 
     if (!dir) throw new Error("dir is required");
     const rootDir = resolve(dir);
     if (!existsSync(rootDir)) throw new Error(`Directory does not exist: ${rootDir}`);
 
-    const maxFile = maxFileSize ?? 50_000; // 50KB per file
-    const maxTotal = maxTotalSize ?? 500_000; // 500KB total
     const skipDirs = new Set([
       "node_modules", ".git", "dist", "build", ".next", "__pycache__",
       ".venv", "venv", ".tox", "coverage", ".nyc_output", ".cache",
     ]);
+    // .env EXCLUDED by default — may contain secrets that would leak to LLM
     const defaultExts = new Set([
       ".ts", ".tsx", ".js", ".jsx", ".py", ".go", ".rs", ".java",
       ".json", ".yaml", ".yml", ".toml", ".md", ".txt", ".sql",
-      ".html", ".css", ".scss", ".env", ".sh", ".dockerfile",
+      ".html", ".css", ".scss", ".sh", ".dockerfile",
     ]);
     const allowedExts = extensions
       ? new Set(extensions.map((e) => (e.startsWith(".") ? e : `.${e}`)))
@@ -272,12 +251,14 @@ export default function register(ctx: PluginContext) {
     let totalSize = 0;
 
     function walk(dirPath: string) {
-      if (totalSize >= maxTotal) return;
+      if (totalSize >= maxTotalSize) return;
       let entries: string[];
       try { entries = readdirSync(dirPath); } catch { return; }
 
       for (const entry of entries) {
         if (skipDirs.has(entry)) continue;
+        // Skip dotenv files regardless of extension setting
+        if (entry === ".env" || entry.startsWith(".env.")) continue;
         const full = join(dirPath, entry);
         let st;
         try { st = statSync(full); } catch { continue; }
@@ -286,11 +267,11 @@ export default function register(ctx: PluginContext) {
           walk(full);
         } else if (st.isFile()) {
           const ext = extname(entry).toLowerCase();
-          // Also include files with no extension if named like Dockerfile, Makefile, etc.
-          const isAllowed = allowedExts.has(ext) || (!ext && /^(Dockerfile|Makefile|Procfile|Gemfile)$/i.test(entry));
+          const isAllowed = allowedExts.has(ext) ||
+            (!ext && /^(Dockerfile|Makefile|Procfile|Gemfile)$/i.test(entry));
           if (!isAllowed) continue;
-          if (st.size > maxFile) continue;
-          if (totalSize + st.size > maxTotal) continue;
+          if (st.size > maxFileSize) continue;
+          if (totalSize + st.size > maxTotalSize) continue;
 
           try {
             const content = readFileSync(full, "utf-8");
@@ -304,7 +285,6 @@ export default function register(ctx: PluginContext) {
 
     walk(rootDir);
 
-    // Format as // === FILE: path === blocks
     const codebase = files
       .map((f) => `// === FILE: ${f.path} ===\n${f.content}`)
       .join("\n\n");
@@ -317,21 +297,14 @@ export default function register(ctx: PluginContext) {
     };
   });
 
-  /**
-   * git-branch-push: On an existing clone, create a branch, write changed
-   * files from code markers, stage, commit, and push.
-   */
+  // ── git-branch-push ──────────────────────────────────────────────
+
   ctx.registerNodeType("git-branch-push", async (config, execCtx) => {
-    const { dir, branch, commitMessage, code, token } = {
-      ...execCtx.inputs,
-      ...config,
-    } as {
-      dir: string;
-      branch: string;
-      commitMessage: string;
-      code: string;
-      token?: string;
-    };
+    const dir = (execCtx.inputs.dir as string) ?? (config.dir as string);
+    const branch = (execCtx.inputs.branch as string) ?? (config.branch as string);
+    const commitMessage = (execCtx.inputs.commitMessage as string) ?? (config.commitMessage as string);
+    const code = (execCtx.inputs.code as string) ?? (config.code as string);
+    const token = (execCtx.inputs.token as string) ?? (config.token as string);
 
     if (!dir) throw new Error("dir is required");
     if (!branch) throw new Error("branch name is required");
@@ -340,11 +313,11 @@ export default function register(ctx: PluginContext) {
     const targetDir = resolve(dir);
 
     function git(...args: string[]): string {
-      return execFileSync("git", args, {
-        cwd: targetDir,
-        encoding: "utf-8",
-        timeout: 30_000,
-      }).trim();
+      try {
+        return execFileSync("git", args, { cwd: targetDir, encoding: "utf-8", timeout: 30_000 }).trim();
+      } catch (err) {
+        throw sanitizeError(err, token);
+      }
     }
 
     // Embed token in remote URL if provided
@@ -358,10 +331,9 @@ export default function register(ctx: PluginContext) {
       } catch { /* remote might not exist */ }
     }
 
-    // Create and checkout branch
-    git("checkout", "-b", branch);
+    git("checkout", "-b", sanitizeName(branch));
 
-    // Parse file markers and write changed files
+    // Parse file markers and write changed files with path containment
     const regex = /(?:\/\/|#)\s*===\s*(?:FILE|TEST FILE|PATCHED FILE):\s*(.+?)\s*===/gi;
     const positions: { path: string; start: number }[] = [];
     let match: RegExpExecArray | null;
@@ -381,7 +353,8 @@ export default function register(ctx: PluginContext) {
         if (content.endsWith("```")) content = content.slice(0, -3).trimEnd();
       }
 
-      const filePath = join(targetDir, positions[i].path);
+      const filePath = resolve(targetDir, positions[i].path);
+      assertContained(filePath, targetDir);
       const fileDir = dirname(filePath);
       if (!existsSync(fileDir)) mkdirSync(fileDir, { recursive: true });
       writeFileSync(filePath, content + "\n", "utf-8");
@@ -390,20 +363,13 @@ export default function register(ctx: PluginContext) {
 
     if (written.length === 0) throw new Error("No file markers found in code input");
 
-    // Stage, commit, push
     git("add", "-A");
-    const msg = commitMessage ?? `feat: brownfield improvements\n\nGenerated by Stirrup Dark Factory`;
+    const msg = commitMessage ?? "feat: brownfield improvements\n\nGenerated by Stirrup Dark Factory";
     git("commit", "-m", msg);
-
-    try {
-      git("push", "-u", "origin", branch);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("fatal")) throw err;
-    }
+    git("push", "-u", "origin", sanitizeName(branch));
 
     return {
-      branch,
+      branch: sanitizeName(branch),
       filesChanged: written.length,
       files: written,
       commitMessage: msg,
