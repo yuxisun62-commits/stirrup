@@ -1,0 +1,969 @@
+id: dark-factory-v3
+name: "Dark Factory for Enterprise Software"
+version: "3.0"
+description: >
+  Full-lifecycle enterprise software factory with sequential-aware multi-pass
+  code generation. Generates infrastructure + data models in parallel, then
+  feeds actual types/interfaces into business logic generation, then feeds
+  real service signatures into API layer generation — so every import, type,
+  and method call is correct by construction. Includes dual quality gates,
+  completeness sweep (kills stubs/TODOs), parallel unit + integration test
+  generation, security audit with production hardening, and comprehensive
+  documentation. 19 nodes, 27 edges, 3 parallel fan-outs.
+params:
+  - name: idea
+    type: string
+    required: true
+    description: The software idea, feature specification, or requirements document
+  - name: language
+    type: string
+    required: false
+    default: typescript
+    description: Target programming language (typescript, javascript, python)
+  - name: qualityTier
+    type: string
+    required: false
+    default: enterprise
+    description: "Quality bar: mvp (fast, minimal), production (solid), enterprise (exhaustive)"
+context:
+  idea: "Build a REST API for a task management platform with teams, projects, tasks, labels, comments, real-time notifications via WebSocket, and role-based access control"
+  language: typescript
+  qualityTier: enterprise
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 1: DISCOVERY
+  # ═══════════════════════════════════════════════════════════════════
+  - id: discover-requirements
+    type: llm-prompt
+    name: "Requirements Discovery"
+    inputs:
+      - from: context.idea
+        to: idea
+      - from: context.language
+        to: language
+      - from: context.qualityTier
+        to: qualityTier
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal software architect at a Fortune 500 company.
+        You excel at translating vague ideas into rigorous, actionable
+        software requirements. Be thorough and precise.
+      promptTemplate: |
+        Analyze this software idea and produce comprehensive requirements.
+
+        **Idea:** {{idea}}
+        **Target Language:** {{language}}
+        **Quality Tier:** {{qualityTier}}
+
+        Produce a structured JSON response:
+        {
+          "projectName": "short-kebab-name",
+          "summary": "One paragraph executive summary",
+          "functionalRequirements": ["FR-001: ...", ...],
+          "nonFunctionalRequirements": ["NFR-001: ...", ...],
+          "userStories": [{"as": "role", "iWant": "feature", "soThat": "benefit"}],
+          "acceptanceCriteria": ["AC-001: ...", ...],
+          "constraints": ["..."],
+          "outOfScope": ["..."]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 2: ARCHITECTURE
+  # ═══════════════════════════════════════════════════════════════════
+  - id: architect-solution
+    type: llm-prompt
+    name: "Solution Architecture"
+    inputs:
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a distinguished engineer specializing in system architecture.
+        Design robust, scalable systems with clear separation of concerns.
+        Be EXTREMELY specific about interface contracts between layers —
+        name every method, every parameter, every return type. Downstream
+        code generators will implement exactly what you specify.
+      promptTemplate: |
+        Design the technical architecture for this project.
+
+        **Requirements:** {{requirements}}
+        **Target Language:** {{language}}
+
+        Produce a structured JSON response:
+        {
+          "architecture": {
+            "pattern": "e.g. layered, hexagonal",
+            "layers": [{"name": "...", "responsibility": "...", "components": ["..."]}],
+            "dataFlow": "description of data flow"
+          },
+          "techStack": {
+            "runtime": "...",
+            "framework": "...",
+            "database": "...",
+            "dependencies": [{"name": "...", "version": "...", "purpose": "..."}]
+          },
+          "fileStructure": ["src/index.ts", "src/routes/...", "..."],
+          "apiEndpoints": [
+            {"method": "GET", "path": "/api/...", "description": "...", "auth": true, "requestBody": "...", "responseShape": "..."}
+          ],
+          "dataModels": [
+            {"name": "...", "tableName": "...", "fields": [{"name": "...", "type": "...", "nullable": false, "constraints": "..."}], "relations": [{"type": "oneToMany", "target": "...", "foreignKey": "..."}]}
+          ],
+          "serviceInterfaces": [
+            {"name": "UserService", "methods": [{"name": "create", "params": "CreateUserDto", "returns": "User", "throws": ["ConflictError"]}]}
+          ],
+          "errorTypes": ["NotFoundError", "ConflictError", "ForbiddenError", "ValidationError"],
+          "securityMeasures": ["..."]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 3: SEQUENTIAL-AWARE MULTI-PASS CODE GENERATION
+  #
+  # Layer 1 (Infrastructure) and Layer 2 (Data Models) run in PARALLEL
+  # — they're independent. Then Layer 3 (Business Logic) runs with
+  # Layer 2's output as input — real entity types, real repository
+  # interfaces. Then Layer 4 (API) runs with Layer 2 + 3 as input —
+  # real DTOs, real service methods. Every import is correct by
+  # construction.
+  # ═══════════════════════════════════════════════════════════════════
+
+  # ── Layer 1: Infrastructure (parallel with Layer 2) ─────────────
+  - id: generate-infrastructure
+    type: code-generation
+    name: "Layer 1: Infrastructure"
+    inputs:
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate ONLY the infrastructure and configuration layer.
+
+        **Architecture:** {{architecture}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        Generate these files COMPLETELY — no stubs, no TODOs, no placeholders:
+
+        1. **package.json** — ALL dependencies with exact versions
+        2. **tsconfig.json / pyproject.toml** — Full configuration
+        3. **Dockerfile** — Multi-stage production build with non-root user
+        4. **docker-compose.yml** — App + database + redis (if needed)
+        5. **.env.example** — Every env var with descriptions
+        6. **src/config/index.ts** — Typed config loader with validation
+        7. **src/index.ts** — Entry point with graceful startup + shutdown
+        8. **src/server.ts** — HTTP server, middleware stack, error handler
+        9. **src/middleware/errorHandler.ts** — Global error → HTTP response mapper
+        10. **src/middleware/requestLogger.ts** — Structured access logging
+        11. **src/utils/logger.ts** — Winston/Pino logger with levels and formatting
+
+        Use section headers: // === FILE: path/to/file ===
+        Every file COMPLETE. Zero placeholders.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ── Layer 2: Data Models (parallel with Layer 1) ────────────────
+  - id: generate-data-models
+    type: code-generation
+    name: "Layer 2: Data Models"
+    inputs:
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate ONLY the data models, database schema, and repository layer.
+
+        **Architecture:** {{architecture}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        Generate these files COMPLETELY — no stubs, no TODOs:
+
+        1. **Entity/Model files** (one per entity) — EVERY field, type, relation,
+           index, constraint. Include createdAt/updatedAt/deletedAt on all entities.
+        2. **Database migrations** — Complete DDL with foreign keys, indexes, enums
+        3. **Repository interfaces** — Define the contract for each entity's data access
+        4. **Repository implementations** — Full CRUD + query methods:
+           - findById, findAll (with pagination + filters), create, update, delete
+           - Custom query methods from the architecture spec
+           - Transaction support where needed
+        5. **Database connection manager** — Pool config, health check, retry
+        6. **DTO types** — CreateXDto, UpdateXDto, XResponseDto for each entity
+        7. **Enum definitions** — All status enums, role enums, etc.
+        8. **Seed data** — Realistic sample data for development
+
+        CRITICAL: Export ALL entity types, DTOs, repository interfaces, and enums.
+        The business logic layer will import these directly.
+
+        Use section headers: // === FILE: path/to/file ===
+        Every method FULLY IMPLEMENTED.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ── Layer 3: Business Logic (SEQUENTIAL — sees Layer 2 output) ──
+  - id: generate-business-logic
+    type: code-generation
+    name: "Layer 3: Business Logic"
+    inputs:
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: nodes.generate-data-models.outputs.code
+        to: dataModelsCode
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate ONLY the business logic / service layer.
+
+        **Architecture:** {{architecture}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        CRITICAL — Here are the ACTUAL data models, entities, DTOs, and repository
+        interfaces that have already been generated. You MUST import and use these
+        exact types — do NOT reinvent them:
+
+        {{dataModelsCode}}
+
+        Generate these files using the REAL types above:
+
+        1. **Service classes** (one per domain) — Import the actual repository
+           interfaces and entity types from above. Implement ALL methods from
+           the architecture spec's serviceInterfaces.
+        2. **Business rule validators** — Domain validation that goes beyond
+           type-level checks (e.g. "user can only have 5 active projects")
+        3. **Event system** — Domain events (task.assigned, comment.created, etc.)
+           with typed event payloads using the actual entity types
+        4. **Authorization logic** — RBAC using the actual Role enum from data models.
+           Permission matrix: who can do what on which resource.
+        5. **Custom error classes** — NotFoundError, ForbiddenError, ConflictError,
+           ValidationError — each with proper HTTP status code mapping
+        6. **Utility functions** — Slug generation, pagination helpers, date utils
+
+        CRITICAL: Import from the actual file paths in the data models above.
+        Use the EXACT entity names, field names, and DTO types.
+        Export ALL service classes and interfaces — the API layer will import these.
+
+        Use section headers: // === FILE: path/to/file ===
+        Every method FULLY IMPLEMENTED with real logic.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ── Layer 4: API Routes (SEQUENTIAL — sees Layer 2 + 3 output) ──
+  - id: generate-api-layer
+    type: code-generation
+    name: "Layer 4: API Routes"
+    inputs:
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: nodes.generate-data-models.outputs.code
+        to: dataModelsCode
+      - from: nodes.generate-business-logic.outputs.code
+        to: businessLogicCode
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate ONLY the API routes, controllers, and middleware.
+
+        **Architecture:** {{architecture}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        CRITICAL — Here are the ACTUAL data models and business logic that have
+        already been generated. You MUST import and call these exact types, services,
+        and methods — do NOT reinvent them:
+
+        DATA MODELS & DTOs:
+        {{dataModelsCode}}
+
+        SERVICES & BUSINESS LOGIC:
+        {{businessLogicCode}}
+
+        Generate these files calling the REAL services above:
+
+        1. **Route files** (one per resource) — Every endpoint from the architecture
+        2. **Controller/handler functions** — Parse request, call the ACTUAL service
+           methods with the ACTUAL DTO types, format response
+        3. **Validation schemas** (Joi/Zod) — For each endpoint's body/params/query,
+           using the ACTUAL field names and types from the DTOs above
+        4. **Auth middleware** — JWT verify, token refresh, using the ACTUAL User entity
+        5. **Authorization middleware** — Check roles using the ACTUAL Role enum
+        6. **Rate limiting** — Per-endpoint and per-user limits
+        7. **WebSocket handlers** (if required) — Connection auth, room management,
+           event broadcasting using the ACTUAL event types from business logic
+        8. **Response helpers** — Consistent envelope using the ACTUAL response DTOs
+        9. **Dependency injection setup** — Wire ACTUAL repositories → services → controllers
+
+        CRITICAL: Import from the actual file paths above. Call actual service methods
+        with their actual signatures. Use actual DTO types for validation.
+
+        Use section headers: // === FILE: path/to/file ===
+        Every endpoint FULLY IMPLEMENTED.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 4: MERGE + QUALITY REVIEW
+  # ═══════════════════════════════════════════════════════════════════
+  - id: merge-codebase
+    type: transform
+    name: "Merge Code Layers"
+    inputs:
+      - from: nodes.generate-infrastructure.outputs.code
+        to: infrastructure
+      - from: nodes.generate-data-models.outputs.code
+        to: dataModels
+      - from: nodes.generate-business-logic.outputs.code
+        to: businessLogic
+      - from: nodes.generate-api-layer.outputs.code
+        to: apiLayer
+    outputs:
+      - code
+      - layerCount
+    config:
+      expression: |
+        ({
+          code: [
+            '// ╔══════════════════════════════════════════════╗',
+            '// ║  LAYER 1: INFRASTRUCTURE & CONFIGURATION    ║',
+            '// ╚══════════════════════════════════════════════╝',
+            inputs.infrastructure || '',
+            '',
+            '// ╔══════════════════════════════════════════════╗',
+            '// ║  LAYER 2: DATA MODELS & REPOSITORIES        ║',
+            '// ╚══════════════════════════════════════════════╝',
+            inputs.dataModels || '',
+            '',
+            '// ╔══════════════════════════════════════════════╗',
+            '// ║  LAYER 3: BUSINESS LOGIC & SERVICES          ║',
+            '// ╚══════════════════════════════════════════════╝',
+            inputs.businessLogic || '',
+            '',
+            '// ╔══════════════════════════════════════════════╗',
+            '// ║  LAYER 4: API ROUTES & CONTROLLERS           ║',
+            '// ╚══════════════════════════════════════════════╝',
+            inputs.apiLayer || ''
+          ].join('\n'),
+          layerCount: [inputs.infrastructure, inputs.dataModels, inputs.businessLogic, inputs.apiLayer].filter(Boolean).length
+        })
+
+  - id: review-quality
+    type: decision-routing
+    name: "Code Quality Review"
+    inputs:
+      - from: nodes.merge-codebase.outputs.code
+        to: code
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+    outputs:
+      - selectedBranch
+      - reasoning
+    config:
+      promptTemplate: |
+        You are a senior staff engineer reviewing a multi-layer codebase where
+        each layer was generated with knowledge of the layers before it.
+
+        **Merged Codebase:**
+        {{code}}
+
+        **Original Requirements:**
+        {{requirements}}
+
+        Evaluate:
+        1. Do imports between layers resolve correctly?
+        2. Do service method calls match their actual signatures?
+        3. Are all DTO types used consistently across layers?
+        4. Does the code fulfill ALL functional requirements?
+        5. Are there any stub implementations, TODOs, or placeholder code?
+        6. Is error handling consistent end-to-end?
+
+        Choose "refine" if there are broken imports, type mismatches, missing
+        functionality, or integration issues. Choose "accept" only if the
+        merged code is cohesive and complete.
+      branches:
+        refine: "Integration issues, broken references, or incomplete implementations need fixing"
+        accept: "Layers integrate cleanly — cohesive and production-ready"
+      maxTokens: 2048
+    branches:
+      refine:
+        - refine-and-integrate
+      accept:
+        - consolidate-code
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 5: REFINEMENT + COMPLETENESS SWEEP
+  # ═══════════════════════════════════════════════════════════════════
+  - id: refine-and-integrate
+    type: llm-prompt
+    name: "Refine & Integrate"
+    inputs:
+      - from: nodes.merge-codebase.outputs.code
+        to: code
+      - from: nodes.review-quality.outputs.reasoning
+        to: reviewFeedback
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are an integration engineer. Fix all cross-layer issues and
+        ensure every import, type reference, and method call is correct.
+      promptTemplate: |
+        Fix all integration issues in this multi-layer codebase.
+
+        **Review Feedback:** {{reviewFeedback}}
+        **Code:** {{code}}
+        **Requirements:** {{requirements}}
+
+        PASS 1 — Fix broken imports, missing exports, wrong file paths
+        PASS 2 — Align types between layers (entity fields ↔ DTOs ↔ validation)
+        PASS 3 — Wire any disconnected service → controller calls
+        PASS 4 — Implement any stub/TODO/placeholder code
+        PASS 5 — Verify error propagation: repository → service → controller → HTTP
+
+        Output the COMPLETE codebase. Keep all layer markers.
+        Use: // === FILE: path/to/file ===
+      responseFormat: text
+      maxTokens: 8192
+
+  - id: consolidate-code
+    type: transform
+    name: "Consolidate Code"
+    inputs:
+      - from: nodes.merge-codebase.outputs.code
+        to: originalCode
+      - from: nodes.refine-and-integrate.outputs.response
+        to: refinedCode
+      - from: nodes.review-quality.outputs.selectedBranch
+        to: reviewDecision
+    outputs:
+      - code
+      - wasRefined
+    config:
+      expression: |
+        ({
+          code: inputs.refinedCode || inputs.originalCode,
+          wasRefined: inputs.reviewDecision === 'refine' && !!inputs.refinedCode
+        })
+
+  # ── Completeness Sweep (ALWAYS runs — hunts and kills stubs) ────
+  - id: completeness-sweep
+    type: llm-prompt
+    name: "Completeness Sweep"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a code completeness auditor. Your ONLY job is to find and
+        implement any remaining stubs, TODOs, placeholders, empty method
+        bodies, commented-out code, or "not implemented" throws. You must
+        also verify every requirement from the spec has a corresponding
+        implementation. If the code is already complete, return it unchanged.
+      promptTemplate: |
+        Scan this entire codebase for incompleteness and fix everything.
+
+        **Code:** {{code}}
+        **Requirements:** {{requirements}}
+        **Architecture:** {{architecture}}
+
+        Search for and FIX:
+        1. Any line containing TODO, FIXME, HACK, XXX, "not implemented"
+        2. Any empty function/method bodies (just a comment or pass/return)
+        3. Any placeholder strings like "implement this", "add logic here"
+        4. Any throw new Error("Not implemented") or raise NotImplementedError
+        5. Any commented-out code blocks that should be real code
+        6. Any requirement from the spec that has NO corresponding implementation
+
+        For each gap found: implement the COMPLETE real logic, not another stub.
+
+        If the code is genuinely complete with zero gaps, output it unchanged.
+
+        Output the COMPLETE codebase with all gaps filled.
+        Keep all layer markers and file headers.
+        Use: // === FILE: path/to/file ===
+      responseFormat: text
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 6: PARALLEL TEST GENERATION
+  # ═══════════════════════════════════════════════════════════════════
+  - id: generate-unit-tests
+    type: code-generation
+    name: "Generate Unit Tests"
+    inputs:
+      - from: nodes.completeness-sweep.outputs.response
+        to: code
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate COMPREHENSIVE unit tests for this codebase.
+
+        **Implementation Code:** {{code}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        For EVERY service class and utility function, generate tests covering:
+
+        1. **Happy path** — Valid inputs produce expected output
+        2. **Error cases** — Invalid inputs throw the correct typed error
+        3. **Edge cases** — Empty arrays, null/undefined, boundary values, zero
+        4. **Business rules** — Permission checks, ownership validation, limits
+        5. **Mocking** — Mock repository dependencies, verify correct calls
+
+        Also generate:
+        - jest.config / vitest.config / pytest.ini
+        - Mock factories for every entity
+        - Test database setup/teardown helpers
+
+        Use: // === TEST FILE: tests/unit/path/to/test.ts ===
+        Descriptive test names. Clear assertions. >90% coverage target.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  - id: generate-integration-tests
+    type: code-generation
+    name: "Generate Integration Tests"
+    inputs:
+      - from: nodes.completeness-sweep.outputs.response
+        to: code
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      promptTemplate: |
+        Generate COMPREHENSIVE integration / API tests for this codebase.
+
+        **Implementation Code:** {{code}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        For EVERY API endpoint, generate tests with supertest/httpx covering:
+
+        1. **200/201 success** — Valid request → correct response shape + data
+        2. **401 unauthorized** — Missing/invalid/expired token
+        3. **403 forbidden** — Valid token, insufficient permissions
+        4. **400 validation** — Invalid body/params → error with field details
+        5. **404 not found** — Non-existent resource ID
+        6. **409 conflict** — Duplicate creation attempts
+
+        Also generate:
+        - Auth flow tests (register → login → token → request)
+        - WebSocket tests (if applicable): connect, subscribe, receive events
+        - Token factory (creates valid JWTs for test users with specific roles)
+        - Supertest app wrapper
+        - Test database seed + cleanup
+
+        Use: // === TEST FILE: tests/integration/path/to/test.ts ===
+        Self-contained tests with proper setup/teardown per suite.
+      language: typescript
+      execute: false
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 7: SECURITY AUDIT
+  # ═══════════════════════════════════════════════════════════════════
+  - id: security-audit
+    type: llm-prompt
+    name: "Security & Performance Audit"
+    inputs:
+      - from: nodes.completeness-sweep.outputs.response
+        to: code
+      - from: nodes.generate-unit-tests.outputs.code
+        to: unitTests
+      - from: nodes.generate-integration-tests.outputs.code
+        to: integrationTests
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a senior security engineer. Be specific — cite exact file
+        paths and function names. Provide the exact fix code, not vague advice.
+      promptTemplate: |
+        Audit this codebase for security and performance issues.
+
+        **Application Code:** {{code}}
+        **Unit Tests:** {{unitTests}}
+        **Integration Tests:** {{integrationTests}}
+
+        Produce a JSON report:
+        {
+          "securityIssues": [
+            {"severity": "critical|high|medium|low", "location": "file:function", "issue": "...", "fixCode": "exact replacement code"}
+          ],
+          "performanceIssues": [
+            {"severity": "high|medium|low", "location": "file:function", "issue": "...", "fixCode": "exact fix"}
+          ],
+          "reliabilityConcerns": [{"issue": "...", "fix": "..."}],
+          "testCoverageGaps": ["specific untested scenarios"],
+          "overallRiskLevel": "low|medium|high|critical",
+          "criticalFixesRequired": true or false,
+          "topRecommendations": ["prioritized actions"]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 8: PRODUCTION GATE + HARDENING
+  # ═══════════════════════════════════════════════════════════════════
+  - id: production-review
+    type: decision-routing
+    name: "Production Readiness"
+    inputs:
+      - from: nodes.security-audit.outputs.response
+        to: audit
+    outputs:
+      - selectedBranch
+      - reasoning
+    config:
+      promptTemplate: |
+        Based on this security audit, decide if hardening is needed.
+
+        **Audit:** {{audit}}
+
+        "harden" if: any critical/high issues, SQL injection, XSS, auth bypass,
+        or overall risk is high/critical.
+        "ready" if: only medium/low findings, acceptable risk.
+      branches:
+        harden: "Critical issues — needs hardening"
+        ready: "Audit passed — production-ready"
+      maxTokens: 1024
+    branches:
+      harden:
+        - production-hardening
+      ready:
+        - generate-documentation
+
+  - id: production-hardening
+    type: llm-prompt
+    name: "Production Hardening"
+    inputs:
+      - from: nodes.completeness-sweep.outputs.response
+        to: code
+      - from: nodes.security-audit.outputs.response
+        to: auditReport
+      - from: nodes.production-review.outputs.reasoning
+        to: reviewNotes
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a security engineer. Apply every fix from the audit report.
+        Use the exact fixCode provided where available. For issues without
+        fixCode, implement the industry-standard fix.
+      promptTemplate: |
+        Harden this codebase using the audit findings.
+
+        **Code:** {{code}}
+        **Audit Report:** {{auditReport}}
+        **Review Notes:** {{reviewNotes}}
+
+        Apply ALL of these:
+        1. Every critical/high severity fix from the audit (use the fixCode)
+        2. Helmet security headers with strict CSP
+        3. Parameterized queries everywhere (no string interpolation in SQL)
+        4. Rate limiting on auth endpoints (stricter) and API endpoints
+        5. Secure cookie settings (httpOnly, secure, sameSite)
+        6. Input sanitization beyond validation (XSS prevention)
+        7. Audit logging for auth events and data mutations
+
+        Output COMPLETE hardened codebase. Keep all layer markers.
+        Use: // === FILE: path/to/file ===
+        Include EVERY file.
+      responseFormat: text
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 9: DOCUMENTATION
+  # ═══════════════════════════════════════════════════════════════════
+  - id: generate-documentation
+    type: llm-prompt
+    name: "Documentation"
+    inputs:
+      - from: nodes.completeness-sweep.outputs.response
+        to: code
+      - from: nodes.production-hardening.outputs.response
+        to: hardenedCode
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.generate-unit-tests.outputs.code
+        to: unitTests
+      - from: nodes.generate-integration-tests.outputs.code
+        to: integrationTests
+      - from: nodes.security-audit.outputs.response
+        to: audit
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a technical writer. Write clear, comprehensive documentation
+        for developers and operators.
+      promptTemplate: |
+        Generate complete project documentation.
+
+        **Final Code:** {{hardenedCode}} {{code}}
+        **Requirements:** {{requirements}}
+        **Architecture:** {{architecture}}
+        **Unit Tests:** {{unitTests}}
+        **Integration Tests:** {{integrationTests}}
+        **Security Audit:** {{audit}}
+
+        Generate with section markers:
+
+        === README.md ===
+        Overview, features, tech stack, prerequisites, quick start (5 steps to running)
+
+        === API_REFERENCE.md ===
+        Every endpoint: method, path, auth, request/response examples with curl
+
+        === ARCHITECTURE.md ===
+        Layer diagram (text), data flow, design decisions, trade-offs
+
+        === DEPLOYMENT.md ===
+        Docker commands, env vars table, DB setup, health check endpoints, scaling
+
+        === CONTRIBUTING.md ===
+        Dev setup, coding standards, testing commands, PR checklist
+
+        === SECURITY.md ===
+        Auth model, RBAC matrix, hardening applied, remaining considerations
+      responseFormat: text
+      maxTokens: 8192
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 10: ASSEMBLY + ASSESSMENT
+  # ═══════════════════════════════════════════════════════════════════
+  - id: assemble-deliverable
+    type: transform
+    name: "Assemble Deliverable"
+    inputs:
+      - from: nodes.discover-requirements.outputs.response
+        to: requirements
+      - from: nodes.architect-solution.outputs.response
+        to: architecture
+      - from: nodes.completeness-sweep.outputs.response
+        to: sweptCode
+      - from: nodes.consolidate-code.outputs.wasRefined
+        to: wasRefined
+      - from: nodes.production-hardening.outputs.response
+        to: hardenedCode
+      - from: nodes.generate-unit-tests.outputs.code
+        to: unitTests
+      - from: nodes.generate-integration-tests.outputs.code
+        to: integrationTests
+      - from: nodes.security-audit.outputs.response
+        to: audit
+      - from: nodes.generate-documentation.outputs.response
+        to: documentation
+      - from: nodes.review-quality.outputs.selectedBranch
+        to: qualityGate1
+      - from: nodes.production-review.outputs.selectedBranch
+        to: qualityGate2
+    outputs:
+      - deliverable
+    config:
+      expression: |
+        ({
+          deliverable: {
+            finalCode: inputs.hardenedCode || inputs.sweptCode,
+            unitTests: inputs.unitTests,
+            integrationTests: inputs.integrationTests,
+            documentation: inputs.documentation,
+            requirements: inputs.requirements,
+            architecture: inputs.architecture,
+            securityAudit: inputs.audit,
+            metadata: {
+              version: '3.0.0',
+              generationMethod: 'sequential-aware multi-pass (4 layers + completeness sweep)',
+              codeWasRefined: !!inputs.wasRefined,
+              completenessSwept: true,
+              productionHardened: inputs.qualityGate2 === 'harden',
+              qualityGates: {
+                codeReview: inputs.qualityGate1,
+                productionReadiness: inputs.qualityGate2
+              },
+              assembledAt: new Date().toISOString()
+            }
+          }
+        })
+
+  - id: final-assessment
+    type: llm-prompt
+    name: "Final Assessment"
+    inputs:
+      - from: nodes.assemble-deliverable.outputs.deliverable
+        to: deliverable
+      - from: context.idea
+        to: originalIdea
+      - from: context.qualityTier
+        to: qualityTier
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are the VP of Engineering. Grade honestly based on what was
+        produced. This codebase was generated with sequential-aware multi-pass
+        generation where each layer saw the prior layers' output.
+      promptTemplate: |
+        Final assessment of this deliverable.
+
+        **Original Idea:** {{originalIdea}}
+        **Quality Tier:** {{qualityTier}}
+        **Deliverable:** {{deliverable}}
+
+        Produce JSON:
+        {
+          "overallGrade": "A+ through F",
+          "requirementsFulfillment": {"score": 0-100, "details": "..."},
+          "codeQuality": {"score": 0-100, "details": "..."},
+          "testCoverage": {"score": 0-100, "details": "..."},
+          "securityPosture": {"score": 0-100, "details": "..."},
+          "documentation": {"score": 0-100, "details": "..."},
+          "productionReadiness": {"score": 0-100, "details": "..."},
+          "layerIntegration": {"score": 0-100, "details": "..."},
+          "completeness": {"score": 0-100, "details": "any remaining stubs or gaps?"},
+          "strengths": ["top 5"],
+          "improvements": ["top 5"],
+          "verdict": "APPROVED | APPROVED_WITH_CAVEATS | NEEDS_WORK",
+          "executiveSummary": "3-4 sentences"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+edges:
+  # Phase 1 → 2
+  - from: discover-requirements
+    to: architect-solution
+
+  # Phase 2 → 3: Fan out to parallel layers 1+2
+  - from: architect-solution
+    to: generate-infrastructure
+  - from: architect-solution
+    to: generate-data-models
+
+  # Phase 3: Sequential — Layer 3 sees Layer 2
+  - from: generate-data-models
+    to: generate-business-logic
+
+  # Phase 3: Sequential — Layer 4 sees Layer 2 + 3
+  - from: generate-data-models
+    to: generate-api-layer
+  - from: generate-business-logic
+    to: generate-api-layer
+
+  # Phase 3 → 4: All layers fan in to merge
+  - from: generate-infrastructure
+    to: merge-codebase
+  - from: generate-data-models
+    to: merge-codebase
+  - from: generate-business-logic
+    to: merge-codebase
+  - from: generate-api-layer
+    to: merge-codebase
+
+  # Phase 4: Quality review
+  - from: merge-codebase
+    to: review-quality
+
+  # Phase 4 → 5: Quality gate
+  - from: review-quality
+    to: refine-and-integrate
+    condition: refine
+  - from: review-quality
+    to: consolidate-code
+    condition: accept
+  - from: refine-and-integrate
+    to: consolidate-code
+  - from: merge-codebase
+    to: consolidate-code
+
+  # Phase 5: Completeness sweep (always runs)
+  - from: consolidate-code
+    to: completeness-sweep
+
+  # Phase 5 → 6: Fan out to parallel test generation
+  - from: completeness-sweep
+    to: generate-unit-tests
+  - from: completeness-sweep
+    to: generate-integration-tests
+
+  # Phase 6 → 7: Tests + code fan in to security audit
+  - from: completeness-sweep
+    to: security-audit
+  - from: generate-unit-tests
+    to: security-audit
+  - from: generate-integration-tests
+    to: security-audit
+
+  # Phase 7 → 8
+  - from: security-audit
+    to: production-review
+
+  # Phase 8: Production gate
+  - from: production-review
+    to: production-hardening
+    condition: harden
+  - from: production-review
+    to: generate-documentation
+    condition: ready
+  - from: production-hardening
+    to: generate-documentation
+
+  # Phase 9 → 10
+  - from: generate-documentation
+    to: assemble-deliverable
+  - from: assemble-deliverable
+    to: final-assessment

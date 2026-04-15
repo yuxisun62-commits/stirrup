@@ -1,6 +1,6 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
-import { validateWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
+import { validateWorkflow, normalizeWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
 import { enrichError } from "../../validation/suggestions.js";
 import type { WorkflowDefinition } from "../../types/workflow.js";
 
@@ -16,7 +16,11 @@ Available node types:
 - decision-routing: AI picks next branch. Config: { promptTemplate: string, branches: { branchName: "description" } }
 - code-generation: AI generates code. Config: { promptTemplate: string, language: "typescript"|"javascript"|"python", execute: boolean }
 
-Each node has: id, type, name, inputs (array of {from, to}), outputs (string[]), config, and optionally branches (for condition/decision-routing).
+Each node has: id, type, name, inputs (array of {from, to}), outputs (string[]), config.
+For condition and decision-routing nodes, add a top-level "branches" field (NOT inside config) that maps branch names to arrays of downstream node IDs:
+  branches: { "branchName": ["downstream-node-id-1", "downstream-node-id-2"] }
+IMPORTANT: "branches" must be an OBJECT mapping strings to string arrays, never a plain array or string.
+Note: config.branches (inside config) is different — it maps branch names to description strings for the AI prompt.
 Inputs reference data as "context.<param>" or "nodes.<nodeId>.outputs.<field>".
 Edges connect nodes: { from, to, condition? }.
 
@@ -73,6 +77,8 @@ export function generateRoutes(): Router {
       if (fenceMatch) jsonStr = fenceMatch[1].trim();
 
       const workflow = JSON.parse(jsonStr);
+      // Normalize common AI format issues (wrong branches type, etc.)
+      normalizeWorkflow(workflow);
       res.json(workflow);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -146,6 +152,7 @@ export function generateRoutes(): Router {
       if (fenceMatch) jsonStr = fenceMatch[1].trim();
 
       const fixed = JSON.parse(jsonStr);
+      normalizeWorkflow(fixed);
       res.json(fixed);
     } catch (err) {
       res.status(500).json({ error: { code: "FIX_FAILED", message: (err as Error).message } });

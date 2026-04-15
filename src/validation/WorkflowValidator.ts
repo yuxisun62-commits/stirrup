@@ -28,8 +28,54 @@ export class WorkflowValidationError extends Error {
   }
 }
 
+/**
+ * Normalize a workflow definition in-place to fix common format issues
+ * (e.g. AI-generated workflows with wrong `branches` type).
+ * Safe to call multiple times — idempotent.
+ */
+export function normalizeWorkflow(workflow: unknown): void {
+  if (!workflow || typeof workflow !== "object") return;
+  const wf = workflow as Record<string, unknown>;
+  if (!Array.isArray(wf.nodes)) return;
+
+  for (const node of wf.nodes as Record<string, unknown>[]) {
+    if (!node || typeof node !== "object") continue;
+
+    // branches must be Record<string, string[]>; fix common misformats
+    if ("branches" in node && node.branches !== undefined) {
+      if (Array.isArray(node.branches)) {
+        // Array of strings → empty object (can't infer branch names from an array)
+        node.branches = {};
+      } else if (typeof node.branches === "string") {
+        node.branches = {};
+      } else if (typeof node.branches === "object" && node.branches !== null) {
+        // Ensure values are string[] not bare strings
+        const obj = node.branches as Record<string, unknown>;
+        for (const [k, v] of Object.entries(obj)) {
+          if (typeof v === "string") {
+            obj[k] = v ? [v] : [];
+          } else if (!Array.isArray(v)) {
+            obj[k] = [];
+          }
+        }
+      }
+    }
+
+    // Ensure outputs is always an array of strings (not missing)
+    if (!Array.isArray(node.outputs)) {
+      node.outputs = [];
+    }
+
+    // Ensure inputs is always an array
+    if (!Array.isArray(node.inputs)) {
+      node.inputs = [];
+    }
+  }
+}
+
 /** Validate a workflow definition against the JSON schema and check for DAG cycles */
 export function validateWorkflow(workflow: unknown): asserts workflow is WorkflowDefinition {
+  normalizeWorkflow(workflow);
   validateSchema(workflow);
   const def = workflow as WorkflowDefinition;
   validateUniqueNodeIds(def);

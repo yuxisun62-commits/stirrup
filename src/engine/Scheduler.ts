@@ -94,7 +94,9 @@ export class Scheduler {
     const allIncoming = this.workflow.edges.filter((e) => e.to === nodeId);
     const liveIncoming = allIncoming.filter((e) => {
       const srcStep = this.state.steps[e.from];
-      if (!srcStep || srcStep.status === "skipped") return false;
+      // No step yet → node is pending/not dispatched → still potentially live
+      if (!srcStep) return true;
+      if (srcStep.status === "skipped") return false;
       // Unconditional edge from a non-skipped source → live
       if (!e.condition) return true;
       // Conditional edge → only live if the source took this branch
