@@ -185,6 +185,10 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://console.anthropic.com/settings/keys",
     instructions: "Open the Anthropic Console → API Keys → Create Key. Paste the resulting `sk-ant-...` key here. Stirrup uses this for every AI node (llm-prompt, agent-tool-use, decision-routing, code-generation) and for deploy workflows that package AI nodes into standalone services.",
   },
+  gemini: {
+    url: "https://aistudio.google.com/apikey",
+    instructions: "Open Google AI Studio → Get API Key → Create API Key. Paste it here. Set `model: gemini-2.5-flash` (or any gemini-* model) in node config to use Gemini instead of Claude.",
+  },
 };
 
 export function authRoutes(): Router {
@@ -542,6 +546,11 @@ export function authRoutes(): Router {
       case "anthropic":
         if (token.startsWith("sk-ant-")) return null;
         return "Anthropic API keys start with sk-ant-. This doesn't match — double-check the key from console.anthropic.com.";
+
+      case "gemini":
+        if (token.startsWith("AIza")) return null;
+        if (token.length < 20) return "Google API keys are typically 39 characters. This seems too short.";
+        return null;
 
       case "stripe":
         if (token.startsWith("sk_live_") || token.startsWith("sk_test_") || token.startsWith("rk_live_") || token.startsWith("rk_test_")) return null;

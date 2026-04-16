@@ -65,6 +65,7 @@ export function setToken(service: string, token: Omit<StoredToken, "service" | "
  */
 const ENV_FALLBACKS: Record<string, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
+  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
   replicate: ["REPLICATE_API_TOKEN"],
   github: ["GITHUB_TOKEN", "GH_TOKEN"],
   slack: ["SLACK_BOT_TOKEN", "SLACK_TOKEN"],

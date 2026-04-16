@@ -139,6 +139,14 @@ const KNOWN_SERVICES: ServiceCard[] = [
     tokenDocsUrl: 'https://console.anthropic.com/settings/keys',
     tokenInstructions: 'Open the Anthropic Console → API Keys → Create Key. Paste the resulting `sk-ant-...` key here.',
   },
+  {
+    service: 'gemini',
+    label: 'Google Gemini',
+    description: 'Use Gemini models in AI nodes — set model to gemini-2.5-flash or any gemini-* model in node config',
+    oauthSupported: false,
+    tokenDocsUrl: 'https://aistudio.google.com/apikey',
+    tokenInstructions: 'Open Google AI Studio → Get API Key → Create API Key. Paste it here. Use `model: gemini-2.5-flash` in node config.',
+  },
 ];
 
 export function AuthPanel({ onClose }: Props) {

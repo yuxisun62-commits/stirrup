@@ -68,7 +68,7 @@ function App() {
   const [showParams, setShowParams] = useState(false);
   const tutorial = useTutorial();
 
-  const { execution, events, isRunning, run, clear } = useExecution();
+  const { execution, events, isRunning, run, resume, restore, clear } = useExecution();
   const [showTemplates, setShowTemplates] = useState(false);
   const [showRunDialog, setShowRunDialog] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
@@ -79,6 +79,15 @@ function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
+
+  // Restore the most recent execution when the workflow changes (e.g. after
+  // page reload). This lets the user see the failed/completed state and hit
+  // Resume without losing context.
+  useEffect(() => {
+    if (workflow.id && !execution) {
+      restore(workflow.id);
+    }
+  }, [workflow.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Close sidebar on mobile when selecting a workflow
   const handleSelectWorkflow = (wf: WorkflowDefinition) => {
@@ -342,6 +351,11 @@ function App() {
             isRunning={isRunning}
             totalNodes={workflow.nodes.length}
             onRun={handleRunClick}
+            onResume={execution?.executionId ? () => {
+              resume(execution.executionId).catch((err) =>
+                alert(`Resume failed: ${err instanceof Error ? err.message : String(err)}`)
+              );
+            } : undefined}
             onClear={clear}
             onDeploy={execution?.status === 'completed' ? () => setShowDeploy(true) : undefined}
             onSelectNode={setSelectedNodeId}

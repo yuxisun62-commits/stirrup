@@ -1,7 +1,7 @@
 import vm from "node:vm";
 import type { NodeHandler } from "./NodeRegistry.js";
 import type { CodeGenerationConfig } from "../types/nodes.js";
-import type { AnthropicProvider } from "../ai/AnthropicProvider.js";
+import type { AIProvider } from "../ai/AIProvider.js";
 import { renderTemplate } from "../ai/PromptTemplate.js";
 
 /** Extract code from a markdown code fence */
@@ -11,7 +11,7 @@ function extractCode(text: string): string {
   return text.trim();
 }
 
-export function createCodeGenerationHandler(provider: AnthropicProvider): NodeHandler {
+export function createCodeGenerationHandler(provider: AIProvider): NodeHandler {
   return async (config, ctx) => {
     const cfg = config as unknown as CodeGenerationConfig;
     const prompt = renderTemplate(cfg.promptTemplate, ctx.inputs);
@@ -30,7 +30,7 @@ export function createCodeGenerationHandler(provider: AnthropicProvider): NodeHa
     });
 
     const textBlocks = response.content.filter((b) => b.type === "text");
-    const rawText = textBlocks.map((b) => b.text).join("");
+    const rawText = textBlocks.map((b) => (b as { type: "text"; text: string }).text).join("");
     const code = extractCode(rawText);
 
     const result: Record<string, unknown> = { code };

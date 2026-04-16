@@ -9,6 +9,7 @@ src/ui/dist/
 *.db-wal
 .claude/
 .stirrup.json
-workflows/
+/workflows/
 plugins/premium/
 deploy/
+*-workspace/

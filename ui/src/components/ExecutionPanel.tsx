@@ -10,6 +10,7 @@ interface Props {
   isRunning: boolean;
   totalNodes: number;
   onRun: () => void;
+  onResume?: () => void;
   onClear: () => void;
   onDeploy?: () => void;
   onSelectNode?: (nodeId: string) => void;
@@ -26,7 +27,7 @@ function getEventColor(type: string): string {
 
 export function ExecutionPanel({
   execution, events, isRunning, totalNodes,
-  onRun, onClear, onDeploy, onSelectNode,
+  onRun, onResume, onClear, onDeploy, onSelectNode,
 }: Props) {
   const [expanded, setExpanded] = useState(true);
 
@@ -98,6 +99,19 @@ export function ExecutionPanel({
 
         {execution && (
           <>
+            {onResume && !isRunning && (execution.status === 'failed' || execution.status === 'paused') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onResume(); }}
+                style={{
+                  padding: '4px 14px', fontSize: 11, fontWeight: 700, borderRadius: 4,
+                  border: 'none', cursor: 'pointer',
+                  background: `linear-gradient(135deg, ${tokens.status.running}, #6366f1)`,
+                  color: '#fff', fontFamily: tokens.font.sans, letterSpacing: '0.3px',
+                }}
+              >
+                Resume
+              </button>
+            )}
             {onDeploy && !isRunning && execution.status === 'completed' && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDeploy(); }}

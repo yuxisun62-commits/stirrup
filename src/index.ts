@@ -55,7 +55,10 @@ export { createDecisionRoutingHandler } from "./nodes/DecisionRoutingNode.js";
 export { createCodeGenerationHandler } from "./nodes/CodeGenerationNode.js";
 
 // AI utilities
+export type { AIProvider, AIMessage, AIContentBlock, AIToolDef, AICreateMessageParams, AIResponse } from "./ai/AIProvider.js";
 export { AnthropicProvider } from "./ai/AnthropicProvider.js";
+export { GeminiProvider } from "./ai/GeminiProvider.js";
+export { ProviderRouter } from "./ai/ProviderRouter.js";
 export { ToolManager } from "./ai/ToolManager.js";
 export type { ToolDefinition } from "./ai/ToolManager.js";
 export { renderTemplate } from "./ai/PromptTemplate.js";

@@ -8,6 +8,8 @@ import { conditionHandler } from "../nodes/ConditionNode.js";
 import { httpHandler } from "../nodes/HttpNode.js";
 import { scriptHandler } from "../nodes/ScriptNode.js";
 import { AnthropicProvider } from "../ai/AnthropicProvider.js";
+import { GeminiProvider } from "../ai/GeminiProvider.js";
+import { ProviderRouter } from "../ai/ProviderRouter.js";
 import { ToolManager } from "../ai/ToolManager.js";
 import { createLlmPromptHandler } from "../nodes/LlmPromptNode.js";
 import { createAgentToolUseHandler } from "../nodes/AgentToolUseNode.js";
@@ -46,9 +48,10 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
   registry.register("http", httpHandler);
   registry.register("script", scriptHandler);
 
-  // AI node handlers — check env var first, then fall back to the token store
-  // (the user may have saved the key via the Connections panel instead of
-  // setting an env var).
+  // ── AI providers ──────────────────────────────────────────────────
+  // Check env vars first, then fall back to the token store (the user
+  // may have saved the key via the Connections panel).
+
   let anthropicApiKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicApiKey) {
     try {
@@ -57,12 +60,33 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
       if (stored) anthropicApiKey = stored.accessToken;
     } catch { /* token store not available */ }
   }
-  if (anthropicApiKey) {
-    const provider = new AnthropicProvider(anthropicApiKey);
-    registry.register("llm-prompt", createLlmPromptHandler(provider));
-    registry.register("agent-tool-use", createAgentToolUseHandler(provider, toolManager));
-    registry.register("decision-routing", createDecisionRoutingHandler(provider));
-    registry.register("code-generation", createCodeGenerationHandler(provider));
+
+  let geminiApiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!geminiApiKey) {
+    try {
+      const { getToken } = await import("../auth/tokenStore.js");
+      const stored = getToken("gemini");
+      if (stored) geminiApiKey = stored.accessToken;
+    } catch { /* token store not available */ }
+  }
+
+  // Build the provider router — routes by model prefix (gemini-*, claude-*)
+  // At least one provider must be available for AI nodes to register.
+  const hasAnyProvider = !!(anthropicApiKey || geminiApiKey);
+
+  if (hasAnyProvider) {
+    // Default provider is Anthropic if available, otherwise Gemini
+    const anthropic = anthropicApiKey ? new AnthropicProvider(anthropicApiKey) : null;
+    const gemini = geminiApiKey ? new GeminiProvider(geminiApiKey) : null;
+
+    const router = new ProviderRouter(anthropic ?? gemini!);
+    if (anthropic) router.register("claude", anthropic);
+    if (gemini) router.register("gemini", gemini);
+
+    registry.register("llm-prompt", createLlmPromptHandler(router));
+    registry.register("agent-tool-use", createAgentToolUseHandler(router, toolManager));
+    registry.register("decision-routing", createDecisionRoutingHandler(router));
+    registry.register("code-generation", createCodeGenerationHandler(router));
   }
 
   // Auto-load built-in plugins (zero-dep ones load immediately, peer-dep on demand)

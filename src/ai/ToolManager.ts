@@ -1,4 +1,4 @@
-import type { Tool } from "@anthropic-ai/sdk/resources/messages.js";
+import type { AIToolDef } from "./AIProvider.js";
 
 export interface ToolDefinition {
   name: string;
@@ -22,15 +22,15 @@ export class ToolManager {
     return this.tools.has(name);
   }
 
-  /** Convert named tools to Anthropic SDK Tool format */
-  getAnthropicToolDefs(names: string[]): Tool[] {
+  /** Convert named tools to provider-agnostic AIToolDef format */
+  getToolDefs(names: string[]): AIToolDef[] {
     return names.map((name) => {
       const tool = this.tools.get(name);
       if (!tool) throw new Error(`Tool not registered: "${name}"`);
       return {
         name: tool.name,
         description: tool.description,
-        input_schema: tool.inputSchema as Tool["input_schema"],
+        inputSchema: tool.inputSchema,
       };
     });
   }

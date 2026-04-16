@@ -134,11 +134,23 @@ export function executionRoutes(engine: WorkflowEngine): Router {
     }
   });
 
-  // Resume execution
+  // Resume execution (async — responds immediately, client subscribes to SSE)
   router.post("/executions/:id/resume", async (req, res, next) => {
     try {
-      const state = await engine.resume(req.params.id);
-      res.json(state);
+      // Load current state to verify execution exists and return it immediately
+      const currentState = await engine.getState(req.params.id);
+      if (!currentState) {
+        res.status(404).json({ error: { code: "NOT_FOUND", message: `Execution not found: ${req.params.id}` } });
+        return;
+      }
+
+      // Respond immediately with the current state so the UI can subscribe to SSE
+      res.status(202).json({ ...currentState, status: "running" });
+
+      // Kick off resume in the background — errors reported via events
+      engine.resume(req.params.id).catch(() => {
+        // Errors are emitted as execution:fail events, SSE picks them up
+      });
     } catch (err) {
       next(err);
     }

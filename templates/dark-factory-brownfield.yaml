@@ -23,16 +23,16 @@ params:
     required: false
     description: "GitHub token (auto-filled from connection)"
     service: github
-  - name: lmApiKey
+  - name: lmToken
     type: string
     required: false
-    description: "Launchmatic API key for branch deployment"
+    description: "Launchmatic API token"
     service: launchmatic
 context:
   repo: "PrincipalForce/stirrup"
   focusArea: auto
   githubToken: ""
-  lmApiKey: ""
+  lmToken: ""
 
 nodes:
   # ═══════════════════════════════════════════════════════════════════
@@ -465,7 +465,7 @@ nodes:
     type: lm-deploy
     name: "Deploy Branch Preview"
     inputs:
-      - from: context.lmApiKey
+      - from: context.lmToken
         to: apiKey
       - from: context.repo
         to: repo

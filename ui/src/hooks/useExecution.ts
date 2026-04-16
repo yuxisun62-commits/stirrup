@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { executeWorkflow, subscribeToExecution, type ExecutionState } from '../api/client';
+import { executeWorkflow, resumeExecution, listExecutions, subscribeToExecution, type ExecutionState } from '../api/client';
 
 export interface ExecutionEvent {
   type: string;
@@ -118,6 +118,118 @@ export function useExecution() {
     }
   }, []);
 
+  const resume = useCallback(async (executionId: string) => {
+    unsubRef.current?.();
+    setIsRunning(true);
+
+    try {
+      const state = await resumeExecution(executionId);
+      setExecution({ ...state, status: 'running' });
+
+      const unsub = subscribeToExecution(state.executionId, (type, data) => {
+        const evt: ExecutionEvent = {
+          type,
+          nodeId: (data as any)?.nodeId,
+          timestamp: new Date().toISOString(),
+          data,
+        };
+        setEvents((prev) => [...prev, evt]);
+
+        if (type === 'node:start') {
+          setExecution((prev) => {
+            if (!prev) return prev;
+            const d = data as any;
+            return {
+              ...prev,
+              status: 'running',
+              steps: {
+                ...prev.steps,
+                [d.nodeId]: {
+                  nodeId: d.nodeId,
+                  status: 'running',
+                  outputs: {},
+                  startedAt: new Date().toISOString(),
+                  attempts: 0,
+                },
+              },
+            };
+          });
+        }
+
+        if (type === 'node:complete' || type === 'node:fail' || type === 'node:skip') {
+          setExecution((prev) => {
+            if (!prev) return prev;
+            const d = data as any;
+            const existing = prev.steps[d.nodeId];
+            return {
+              ...prev,
+              steps: {
+                ...prev.steps,
+                [d.nodeId]: {
+                  ...existing,
+                  nodeId: d.nodeId,
+                  status: type === 'node:complete' ? 'completed' : type === 'node:fail' ? 'failed' : 'skipped',
+                  outputs: d.outputs ?? existing?.outputs ?? {},
+                  error: type === 'node:fail'
+                    ? { message: d.error ?? 'unknown', attempt: d.attempt ?? 1 }
+                    : undefined,
+                  startedAt: existing?.startedAt ?? new Date().toISOString(),
+                  completedAt: new Date().toISOString(),
+                  attempts: d.attempt ?? existing?.attempts ?? 1,
+                },
+              },
+            };
+          });
+        }
+
+        if (type === 'node:retry') {
+          setExecution((prev) => {
+            if (!prev) return prev;
+            const d = data as any;
+            const existing = prev.steps[d.nodeId];
+            return {
+              ...prev,
+              steps: {
+                ...prev.steps,
+                [d.nodeId]: {
+                  ...existing,
+                  attempts: d.attempt ?? (existing?.attempts ?? 0) + 1,
+                },
+              },
+            };
+          });
+        }
+
+        if (type === 'execution:complete' || type === 'execution:fail') {
+          setIsRunning(false);
+          setExecution((prev) =>
+            prev ? { ...prev, status: type === 'execution:complete' ? 'completed' : 'failed' } : prev
+          );
+          setTimeout(() => unsubRef.current?.(), 500);
+        }
+      });
+
+      unsubRef.current = unsub;
+    } catch (err) {
+      setIsRunning(false);
+      throw err;
+    }
+  }, []);
+
+  /** Load the most recent execution for a workflow from the DB (no SSE). */
+  const restore = useCallback(async (workflowId: string) => {
+    try {
+      const executions = await listExecutions(workflowId);
+      if (executions.length === 0) return;
+      // Most recent first (sorted by updatedAt descending)
+      const latest = executions.sort((a, b) =>
+        (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+      )[0];
+      setExecution(latest);
+      setIsRunning(latest.status === 'running');
+    } catch { /* ignore — server may not be ready yet */ }
+  }, []);
+
   const clear = useCallback(() => {
     unsubRef.current?.();
     setExecution(null);
@@ -125,5 +237,5 @@ export function useExecution() {
     setIsRunning(false);
   }, []);
 
-  return { execution, events, isRunning, run, clear };
+  return { execution, events, isRunning, run, resume, restore, clear };
 }

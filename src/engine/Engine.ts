@@ -137,6 +137,25 @@ export class WorkflowEngine extends EventEmitter {
       throw new Error(`Workflow not found: "${state.workflowId}"`);
     }
 
+    // Re-inject stored service tokens — the saved context may have empty
+    // strings for credentials that were auto-injected at run time but not
+    // persisted (e.g. githubToken, lmToken). Without this, every resumed
+    // node that needs a token fails with "token required".
+    if (workflow.params) {
+      try {
+        const { getToken } = await import("../auth/tokenStore.js");
+        for (const param of workflow.params) {
+          if (!param.service) continue;
+          const existing = state.context[param.name];
+          if (existing !== undefined && existing !== "" && existing !== null) continue;
+          const stored = getToken(param.service);
+          if (stored) {
+            state.context[param.name] = stored.accessToken;
+          }
+        }
+      } catch { /* token store optional */ }
+    }
+
     const scheduler = new Scheduler(workflow, state, {
       runner: this.runner,
       emit: (event: EngineEvent) => this.emit(event.type, event),
