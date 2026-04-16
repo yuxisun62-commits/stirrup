@@ -85,15 +85,18 @@ function extractContent(response: GenerateContentResponse): AIContentBlock[] {
   if (!candidate?.content?.parts) return [{ type: "text", text: "" }];
 
   const blocks: AIContentBlock[] = [];
+  // Gemini doesn't provide tool_use IDs, so we synthesize them.
+  // Use both the per-response index AND a timestamp so multiple calls made
+  // in the same millisecond (which does happen in agent loops) never collide.
+  let toolIndex = 0;
   for (const part of candidate.content.parts) {
     if (part.text !== undefined) {
       blocks.push({ type: "text", text: part.text });
     }
     if (part.functionCall) {
-      // Gemini doesn't provide a tool_use ID — generate one
       blocks.push({
         type: "tool_use",
-        id: `gemini_${part.functionCall.name}_${Date.now()}`,
+        id: `gemini_${part.functionCall.name}_${Date.now()}_${toolIndex++}`,
         name: part.functionCall.name!,
         input: (part.functionCall.args ?? {}) as Record<string, unknown>,
       });

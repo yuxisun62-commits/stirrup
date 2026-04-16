@@ -34,7 +34,7 @@ Mix AI and deterministic nodes to build workflows that think, fetch, branch, and
 
 | | Type | What it does |
 |---|---|---|
-| **AI** | `llm-prompt` | Send a templated prompt to Claude, get text or structured JSON back |
+| **AI** | `llm-prompt` | Send a templated prompt to Claude or Gemini, get text or structured JSON back |
 | **AI** | `code-generation` | AI writes code in JS/TS/Python, optionally executes it in a sandbox |
 | **AI** | `decision-routing` | AI evaluates data and picks the next branch from labeled options |
 | **AI** | `agent-tool-use` | Autonomous agent with access to registered tools in a loop |
@@ -51,6 +51,9 @@ Plus 83 plugin node types: GitHub PRs/issues/repos, Slack messages, LinkedIn pos
 
 ### Visual Node Editor
 Build workflows by dragging nodes onto a canvas, connecting them, and configuring each one with purpose-built form editors. No code required to get started.
+
+### Multi-Model AI (Claude + Gemini)
+Every AI node works with Claude or Gemini. Set `model: claude-sonnet-4-...` or `model: gemini-2.5-flash` on any node — Stirrup routes to the right provider automatically based on the model prefix. Mix both in the same workflow to optimize for cost, speed, or capability per step.
 
 ### AI Generate
 Describe what you want in plain English and Claude generates the complete workflow with nodes, connections, and configuration automatically.
@@ -69,6 +72,9 @@ Watch your workflow execute with real-time status updates. Nodes light up as the
 ### Debug & Inspect
 When a node fails, click it to see the exact error, resolved inputs, and stack trace. Click **Analyze with AI** and Claude diagnoses the issue and suggests concrete field edits you can apply with one click.
 
+### Resume After Failure
+Every execution is persisted to SQLite. When a workflow fails, hit **Resume** — completed nodes stay done, the failed node retries, and the rest of the DAG continues from where it stopped. Reload the page and your last execution is automatically restored so nothing is lost.
+
 ### Params & Connections
 Define typed workflow parameters with service bindings for auto-injected credentials and smart UI controls like the GitHub repo picker. Connect once, use everywhere.
 
@@ -83,8 +89,10 @@ First-time users get a 15-step guided walkthrough that highlights each feature w
 # Install globally
 npm install -g stirrup-ai
 
-# Set your Anthropic API key
+# Set your Anthropic API key (or use Gemini — see below)
 stirrup config set anthropicApiKey sk-ant-...
+# Optional: add Gemini for gemini-* models
+# export GEMINI_API_KEY=AIza...
 
 # Launch the visual editor
 stirrup ui
@@ -268,6 +276,8 @@ Full visibility into every execution. Inspect node-by-node results, see exact in
 - **AI-powered debugging** — Claude reads the error, config, and inputs, then suggests specific fixes
 - **One-click apply** — review the AI's suggested edits with before/after diffs and apply them directly to the workflow
 - **Isolated retry** — re-run a single failed node with modified inputs without re-executing the entire workflow
+- **Resume after failure** — pick up from the failed node; completed nodes stay done, tokens are auto-re-injected
+- **Session restore** — reload the page and your last execution state is automatically rehydrated from SQLite
 
 ---
 
@@ -279,7 +289,8 @@ Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens
 |---------|------------|----------------|
 | **GitHub** | OAuth device flow or `gh` CLI | PRs, issues, code search, repo picker, repo creation |
 | **Launchmatic** | `lm login` browser flow or manual paste | Deploy, databases, domains, browser tests |
-| **Anthropic** | API key (or `ANTHROPIC_API_KEY` env var) | Every AI node |
+| **Anthropic** | API key (or `ANTHROPIC_API_KEY` env var) | AI nodes when model is `claude-*` or unspecified |
+| **Google Gemini** | API key (or `GEMINI_API_KEY` env var) | AI nodes when model is `gemini-*` (e.g., `gemini-2.5-flash`) |
 | **Slack** | Bot User OAuth Token (`xoxb-`) with guided setup | Messages, files, channels |
 | **LinkedIn** | OAuth token | Post to feed, org pages, engagement stats |
 | **Stripe** | Secret key or `stripe` CLI | Charges, customers, payments |
@@ -289,7 +300,7 @@ Connect once, use everywhere. Credentials are stored locally (`~/.stirrup/tokens
 | **AWS** | `aws configure` CLI | S3, Lambda, DynamoDB |
 | **Google Cloud** | `gcloud auth login` CLI | GCS, BigQuery, Cloud Run |
 
-Environment variables (e.g., `ANTHROPIC_API_KEY`, `GITHUB_TOKEN`) are detected automatically.
+Environment variables (e.g., `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GITHUB_TOKEN`) are detected automatically.
 
 ---
 

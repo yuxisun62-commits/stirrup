@@ -10,6 +10,70 @@ import { Runner } from "./Runner.js";
 import { Scheduler } from "./Scheduler.js";
 import { loadWorkflowFile, loadWorkflowDirectory } from "../loader/WorkflowLoader.js";
 
+/**
+ * Strip service-backed credentials from context before persistence.
+ *
+ * Service tokens (GitHub, Anthropic, Launchmatic, etc.) are injected into
+ * `state.context` at execute/resume time from the local token store. They
+ * need to be there during execution so nodes can authenticate. But they
+ * DON'T need to survive to disk — on resume, we re-inject them from the
+ * token store (which is the authoritative source).
+ *
+ * Persisting them would leak credentials anywhere the state store ends up:
+ * copied SQLite files, backups, log exports, shared dev environments.
+ *
+ * We return a shallow clone with service-backed param values cleared. The
+ * in-memory state that the scheduler uses is untouched — only the snapshot
+ * being written to disk is scrubbed.
+ */
+function redactTokensForPersistence(
+  state: ExecutionState,
+  workflow: WorkflowDefinition,
+): ExecutionState {
+  if (!workflow.params || workflow.params.length === 0) return state;
+  const serviceParams = workflow.params.filter((p) => p.service);
+  if (serviceParams.length === 0) return state;
+
+  const redactedContext: Record<string, unknown> = { ...state.context };
+  for (const param of serviceParams) {
+    if (redactedContext[param.name] === undefined) continue;
+    // Empty string, not null/undefined, so the resume-path re-injection
+    // (which checks `existing !== "" && existing !== null`) triggers on
+    // reload. This also matches how templates declare default context
+    // (e.g. `lmToken: ""`) so format stays uniform.
+    redactedContext[param.name] = "";
+  }
+
+  return { ...state, context: redactedContext };
+}
+
+/**
+ * Inverse of redaction: re-inject service tokens from the local token store
+ * into a loaded state's context. Used when resuming or debugging, where we
+ * need the real credentials at hand even though they were scrubbed from disk.
+ *
+ * Mutates the state in place for simplicity — callers just loaded it and
+ * own the reference.
+ */
+async function rehydrateTokens(
+  state: ExecutionState,
+  workflow: WorkflowDefinition,
+): Promise<void> {
+  if (!workflow.params) return;
+  try {
+    const { getToken } = await import("../auth/tokenStore.js");
+    for (const param of workflow.params) {
+      if (!param.service) continue;
+      const existing = state.context[param.name];
+      if (existing !== undefined && existing !== "" && existing !== null) continue;
+      const stored = getToken(param.service);
+      if (stored) {
+        state.context[param.name] = stored.accessToken;
+      }
+    }
+  } catch { /* token store optional */ }
+}
+
 export interface EngineOptions {
   definitionsDir?: string;
   stateDir?: string;
@@ -112,7 +176,7 @@ export class WorkflowEngine extends EventEmitter {
     const scheduler = new Scheduler(workflow, state, {
       runner: this.runner,
       emit: (event: EngineEvent) => this.emit(event.type, event),
-      persist: (s: ExecutionState) => this.stateStore.save(s),
+      persist: (s: ExecutionState) => this.stateStore.save(redactTokensForPersistence(s, workflow)),
     });
 
     this.activeSchedulers.set(executionId, scheduler);
@@ -137,29 +201,15 @@ export class WorkflowEngine extends EventEmitter {
       throw new Error(`Workflow not found: "${state.workflowId}"`);
     }
 
-    // Re-inject stored service tokens — the saved context may have empty
-    // strings for credentials that were auto-injected at run time but not
-    // persisted (e.g. githubToken, lmToken). Without this, every resumed
+    // Re-inject stored service tokens — saved state has empty strings for
+    // credentials (redacted before persistence). Without this, every resumed
     // node that needs a token fails with "token required".
-    if (workflow.params) {
-      try {
-        const { getToken } = await import("../auth/tokenStore.js");
-        for (const param of workflow.params) {
-          if (!param.service) continue;
-          const existing = state.context[param.name];
-          if (existing !== undefined && existing !== "" && existing !== null) continue;
-          const stored = getToken(param.service);
-          if (stored) {
-            state.context[param.name] = stored.accessToken;
-          }
-        }
-      } catch { /* token store optional */ }
-    }
+    await rehydrateTokens(state, workflow);
 
     const scheduler = new Scheduler(workflow, state, {
       runner: this.runner,
       emit: (event: EngineEvent) => this.emit(event.type, event),
-      persist: (s: ExecutionState) => this.stateStore.save(s),
+      persist: (s: ExecutionState) => this.stateStore.save(redactTokensForPersistence(s, workflow)),
     });
 
     this.activeSchedulers.set(executionId, scheduler);
@@ -205,6 +255,10 @@ export class WorkflowEngine extends EventEmitter {
 
     const node = workflow.nodes.find((n) => n.id === nodeId);
     if (!node) throw new Error(`Node not found: "${nodeId}"`);
+
+    // Service tokens were redacted on persistence — re-inject from the token
+    // store so debug runs can actually hit authenticated APIs.
+    await rehydrateTokens(state, workflow);
 
     // Resolve the inputs the same way the scheduler would, using the current execution's state
     const { ContextManager } = await import("./ContextManager.js");

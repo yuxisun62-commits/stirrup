@@ -61,7 +61,10 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
     } catch { /* token store not available */ }
   }
 
-  let geminiApiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  // Only honor GEMINI_API_KEY — GOOGLE_API_KEY is commonly set for unrelated
+  // Google services (Maps, Cloud) and silently pulling it in would cause
+  // scoped keys to hit the wrong endpoint.
+  let geminiApiKey = process.env.GEMINI_API_KEY;
   if (!geminiApiKey) {
     try {
       const { getToken } = await import("../auth/tokenStore.js");

@@ -65,7 +65,11 @@ export function setToken(service: string, token: Omit<StoredToken, "service" | "
  */
 const ENV_FALLBACKS: Record<string, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
-  gemini: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  // Only use the unambiguous GEMINI_API_KEY. GOOGLE_API_KEY is commonly set
+  // for other Google services (Maps, Places, Cloud APIs) and using it as a
+  // Gemini fallback could surprise users with scoped keys that get routed to
+  // the wrong endpoint.
+  gemini: ["GEMINI_API_KEY"],
   replicate: ["REPLICATE_API_TOKEN"],
   github: ["GITHUB_TOKEN", "GH_TOKEN"],
   slack: ["SLACK_BOT_TOKEN", "SLACK_TOKEN"],

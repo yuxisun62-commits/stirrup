@@ -137,6 +137,20 @@ export function executionRoutes(engine: WorkflowEngine): Router {
   // Resume execution (async — responds immediately, client subscribes to SSE)
   router.post("/executions/:id/resume", async (req, res, next) => {
     try {
+      // Validate the execution ID is a UUID before touching the state store.
+      // Matches the pattern used by DELETE /executions/:id — fail fast with
+      // a clean 400 for malformed IDs instead of leaking a 500 from deeper
+      // layers. SqliteStateStore uses parameterized queries, but defense in
+      // depth is cheap here.
+      try {
+        assertUuid(req.params.id);
+      } catch {
+        res.status(400).json({
+          error: { code: "INVALID_ID", message: "Execution ID must be a valid UUID" },
+        });
+        return;
+      }
+
       // Load current state to verify execution exists and return it immediately
       const currentState = await engine.getState(req.params.id);
       if (!currentState) {
@@ -147,9 +161,18 @@ export function executionRoutes(engine: WorkflowEngine): Router {
       // Respond immediately with the current state so the UI can subscribe to SSE
       res.status(202).json({ ...currentState, status: "running" });
 
-      // Kick off resume in the background — errors reported via events
-      engine.resume(req.params.id).catch(() => {
-        // Errors are emitted as execution:fail events, SSE picks them up
+      // Kick off resume in the background. If engine.resume() throws BEFORE
+      // the scheduler starts (e.g. workflow not found, corrupt state), no
+      // execution:fail event fires naturally — so we emit one ourselves so
+      // the UI's SSE subscriber doesn't hang forever on a "running" status
+      // that will never resolve.
+      engine.resume(req.params.id).catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`[resume] Failed to start for ${req.params.id}:`, message);
+        engine.emit("execution:fail", {
+          executionId: req.params.id,
+          error: `Resume failed: ${message}`,
+        });
       });
     } catch (err) {
       next(err);
