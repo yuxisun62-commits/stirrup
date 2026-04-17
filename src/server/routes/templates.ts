@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -39,8 +39,21 @@ function loadAllTemplates(): CachedTemplate[] {
   const seen = new Set<string>();
 
   for (const dir of templateDirs) {
-    if (!existsSync(dir)) continue;
-    const files = readdirSync(dir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+    // Each candidate is wrapped independently: on Windows, when stirrup is
+    // launched from the user's home directory (e.g. C:\Users\Alec), the
+    // cwd/templates path can exist as a reparse point or have ACLs that
+    // throw EPERM on readdirSync. Without this guard, one unreadable
+    // directory took the whole /api/templates route down, hiding the
+    // packaged templates entirely. Each dir now fails in isolation.
+    let files: string[];
+    try {
+      if (!existsSync(dir)) continue;
+      const s = statSync(dir);
+      if (!s.isDirectory()) continue;
+      files = readdirSync(dir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+    } catch {
+      continue;
+    }
     for (const file of files) {
       try {
         const content = parseYaml(readFileSync(resolve(dir, file), "utf-8")) as Record<string, unknown>;

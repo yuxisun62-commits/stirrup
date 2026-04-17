@@ -126,6 +126,16 @@ async function findProjectBySlug(
   return (arr.find((p: any) => p.slug === slug) as Record<string, unknown>) ?? null;
 }
 
+async function findServiceBySlug(
+  api: (method: string, path: string, body?: unknown) => Promise<unknown>,
+  projectId: string,
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  const res = await api("GET", `/services?projectId=${encodeURIComponent(projectId)}`);
+  const arr = Array.isArray(res) ? res : [];
+  return (arr.find((s: any) => s.slug === slug) as Record<string, unknown>) ?? null;
+}
+
 export default function register(ctx: PluginContext) {
   // ─────────────────────── Deployment ───────────────────────
 
@@ -166,17 +176,28 @@ export default function register(ctx: PluginContext) {
 
     const { owner: repoOwner, name: repoName } = parseRepo(repo);
     const serviceSlug = slugify(name);
-    const service = await api("POST", "/services", {
-      name,
-      slug: serviceSlug,
-      type: "WEB",
-      projectId,
-      repoOwner,
-      repoName,
-      repoBranch: branch ?? "main",
-      port: port ?? 3000,
-      framework,
-    });
+
+    // Idempotent: if a service with this slug already exists in the project,
+    // reuse it and just trigger a new deployment. Avoids 500s on the service
+    // POST when the unique constraint on (projectId, slug) collides.
+    let service = await findServiceBySlug(api, projectId, serviceSlug);
+    let reused = false;
+    if (service) {
+      reused = true;
+    } else {
+      service = await api("POST", "/services", {
+        name,
+        slug: serviceSlug,
+        type: "WEB",
+        projectId,
+        repoOwner,
+        repoName,
+        repoBranch: branch ?? "main",
+        port: port ?? 3000,
+        framework,
+      });
+    }
+
     const deployment = await api("POST", "/deployments", {
       serviceId: service.id,
       branch: branch ?? "main",
@@ -189,6 +210,7 @@ export default function register(ctx: PluginContext) {
       status: deployment.status,
       url: computeServiceUrl(service),
       subdomain: service.subdomain,
+      reused,
     };
   });
 
@@ -222,17 +244,24 @@ export default function register(ctx: PluginContext) {
     const api = lmApi(getToken(config, execCtx.inputs));
     const teamId = await resolveTeamId(api, teamIdIn);
     const resolvedSlug = slug ?? slugify(name);
+
+    // Look up first: the API returns 500 (not 409) on unique-slug collisions
+    // in some environments, so probing beforehand is the only reliable way
+    // to make this node idempotent across reruns.
+    const preexisting = await findProjectBySlug(api, teamId, resolvedSlug);
+    if (preexisting) {
+      return { projectId: preexisting.id, slug: preexisting.slug, name: preexisting.name, teamId, reused: true };
+    }
+
     try {
       const project = await api("POST", "/projects", { name, slug: resolvedSlug, teamId });
-      return { projectId: project.id, slug: project.slug, name: project.name, teamId };
+      return { projectId: project.id, slug: project.slug, name: project.name, teamId, reused: false };
     } catch (err) {
-      // Idempotency: on unique-constraint conflict, return the existing project
-      const status = (err as LmApiError).status;
-      if (status === 409 || status === 400) {
-        const existing = await findProjectBySlug(api, teamId, resolvedSlug);
-        if (existing) {
-          return { projectId: existing.id, slug: existing.slug, name: existing.name, teamId };
-        }
+      // Concurrent create → re-list. Also covers the case where the server
+      // returns a non-specific error code for a duplicate.
+      const existing = await findProjectBySlug(api, teamId, resolvedSlug);
+      if (existing) {
+        return { projectId: existing.id, slug: existing.slug, name: existing.name, teamId, reused: true };
       }
       throw err;
     }

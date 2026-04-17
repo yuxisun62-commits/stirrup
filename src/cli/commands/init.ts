@@ -1,6 +1,6 @@
 import type { CommandModule } from "yargs";
 import { resolve, dirname } from "node:path";
-import { writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { writeFileSync, existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { input, select } from "@inquirer/prompts";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
@@ -53,8 +53,17 @@ function loadFileTemplates(): TemplateInfo[] {
   const seen = new Set<string>();
 
   for (const dir of templateDirs) {
-    if (!existsSync(dir)) continue;
-    const files = readdirSync(dir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+    // Isolate per-dir failures (Windows EPERM on home-dir junctions, etc.)
+    // so one unreadable candidate doesn't hide the packaged templates.
+    let files: string[];
+    try {
+      if (!existsSync(dir)) continue;
+      const s = statSync(dir);
+      if (!s.isDirectory()) continue;
+      files = readdirSync(dir).filter((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
+    } catch {
+      continue;
+    }
     for (const file of files) {
       const filePath = resolve(dir, file);
       try {

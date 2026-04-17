@@ -5,6 +5,26 @@
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
 
+const ghHeaders = (token?: string) => ({
+  Accept: "application/vnd.github.v3+json",
+  "User-Agent": "stirrup-github-plugin",
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+});
+
+async function fetchAuthUserLogin(token: string): Promise<string> {
+  const res = await fetch("https://api.github.com/user", { headers: ghHeaders(token) });
+  if (!res.ok) throw new Error(`GitHub /user ${res.status}: ${await res.text()}`);
+  const user = await res.json() as Record<string, unknown>;
+  return user.login as string;
+}
+
+async function fetchRepo(token: string, owner: string, name: string): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${name}`, { headers: ghHeaders(token) });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`GitHub /repos/${owner}/${name} ${res.status}: ${await res.text()}`);
+  return await res.json() as Record<string, unknown>;
+}
+
 export default function register(ctx: PluginContext) {
   const headers = (token?: string) => ({
     Accept: "application/vnd.github.v3+json",
@@ -94,8 +114,9 @@ export default function register(ctx: PluginContext) {
   });
 
   ctx.registerNodeType("github-create-repo", async (config, execCtx) => {
-    const { token, name, description, isPrivate, org } = { ...execCtx.inputs, ...config } as {
-      token: string; name: string; description?: string; isPrivate?: boolean; org?: string;
+    const { token, name, description, isPrivate, org, reuseIfExists } = { ...execCtx.inputs, ...config } as {
+      token: string; name: string; description?: string; isPrivate?: boolean;
+      org?: string; reuseIfExists?: boolean;
     };
     if (!token) throw new Error("GitHub token required to create a repository");
     if (!name) throw new Error("Repository name is required");
@@ -116,19 +137,40 @@ export default function register(ctx: PluginContext) {
       }),
     });
 
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`GitHub create repo ${res.status}: ${body}`);
+    if (res.ok) {
+      const repo = await res.json() as Record<string, unknown>;
+      return {
+        fullName: repo.full_name,
+        cloneUrl: repo.clone_url,
+        sshUrl: repo.ssh_url,
+        htmlUrl: repo.html_url,
+        defaultBranch: repo.default_branch ?? "main",
+        reused: false,
+      };
     }
 
-    const repo = await res.json() as Record<string, unknown>;
-    return {
-      fullName: repo.full_name,
-      cloneUrl: repo.clone_url,
-      sshUrl: repo.ssh_url,
-      htmlUrl: repo.html_url,
-      defaultBranch: repo.default_branch ?? "main",
-    };
+    const body = await res.text();
+
+    // Idempotency: on 422 "name already exists", look up the existing repo
+    // and return its metadata so the workflow carries on. Opt-in because
+    // silently reusing a repo that a caller expected to be brand new could
+    // mask bugs elsewhere (wrong productName, stale state, etc.).
+    if (reuseIfExists && res.status === 422 && /already exists/i.test(body)) {
+      const owner = org ?? await fetchAuthUserLogin(token);
+      const existing = await fetchRepo(token, owner, name);
+      if (existing) {
+        return {
+          fullName: existing.full_name,
+          cloneUrl: existing.clone_url,
+          sshUrl: existing.ssh_url,
+          htmlUrl: existing.html_url,
+          defaultBranch: existing.default_branch ?? "main",
+          reused: true,
+        };
+      }
+    }
+
+    throw new Error(`GitHub create repo ${res.status}: ${body}`);
   });
 
   ctx.registerNodeType("github-create-pr", async (config, execCtx) => {
