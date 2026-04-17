@@ -63,3 +63,34 @@ export interface ScriptConfig {
   code: string;
   timeoutMs?: number;
 }
+
+/**
+ * Config for "iterate" nodes — runs a child node handler N times over an
+ * array input. Enables dynamic fan-out where the item count is only known
+ * at runtime.
+ *
+ * Each iteration sees `{ item, index, ...parentInputs, priorResults }` as
+ * its inputs (where priorResults is only populated in sequential mode).
+ *
+ * Output is `{ results: [...per-item outputs], count, successCount, failureCount }`.
+ */
+export interface IterateConfig {
+  /** Which node type to invoke per item (must be a registered handler) */
+  childType: string;
+  /** Config passed to each child invocation (template strings see {{item}}, {{index}}) */
+  childConfig: Record<string, unknown>;
+  /**
+   * parallel: all iterations run concurrently (up to `concurrency`).
+   * sequential: iterations run one at a time, each seeing prior results.
+   * Default: parallel.
+   */
+  mode?: "parallel" | "sequential";
+  /** Max concurrent iterations in parallel mode. Default: unlimited. */
+  concurrency?: number;
+  /**
+   * If true, individual iteration failures don't abort the whole iterate node.
+   * Failed iterations produce `{ error: string }` in the results array.
+   * If false, the first iteration failure throws. Default: true.
+   */
+  continueOnIterationError?: boolean;
+}

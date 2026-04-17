@@ -13,7 +13,8 @@ export type NodeType =
   | "llm-prompt"
   | "agent-tool-use"
   | "decision-routing"
-  | "code-generation";
+  | "code-generation"
+  | "iterate";
 
 /** Retry policy for a node */
 export interface RetryPolicy {
@@ -43,6 +44,14 @@ export interface WorkflowNode {
   retry?: RetryPolicy;
   /** For condition/decision-routing: named branches mapping to downstream node IDs */
   branches?: Record<string, NodeId[]>;
+  /**
+   * When true, a failed node (after retries exhausted) lets the execution
+   * continue instead of aborting the whole workflow. Downstream nodes can
+   * inspect the failed step's `error` field to handle the failure gracefully.
+   * Use for non-critical work (screenshots, supplementary analysis) where a
+   * failure shouldn't block the rest of the DAG.
+   */
+  continueOnError?: boolean;
 }
 
 /** An edge in the DAG */

@@ -7,6 +7,7 @@ import { transformHandler } from "../nodes/TransformNode.js";
 import { conditionHandler } from "../nodes/ConditionNode.js";
 import { httpHandler } from "../nodes/HttpNode.js";
 import { scriptHandler } from "../nodes/ScriptNode.js";
+import { createIterateHandler } from "../nodes/IterateNode.js";
 import { AnthropicProvider } from "../ai/AnthropicProvider.js";
 import { GeminiProvider } from "../ai/GeminiProvider.js";
 import { ProviderRouter } from "../ai/ProviderRouter.js";
@@ -47,6 +48,8 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
   registry.register("condition", conditionHandler);
   registry.register("http", httpHandler);
   registry.register("script", scriptHandler);
+  // Iterate needs the registry itself so it can dispatch to child node types
+  registry.register("iterate", createIterateHandler(registry));
 
   // ── AI providers ──────────────────────────────────────────────────
   // Check env vars first, then fall back to the token store (the user

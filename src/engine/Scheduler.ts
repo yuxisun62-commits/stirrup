@@ -138,13 +138,17 @@ export class Scheduler {
     }
   }
 
-  /** Find all nodes ready to execute (in-degree 0, not completed/skipped/running) */
+  /** Find all nodes ready to execute (in-degree 0, not completed/skipped/running/soft-failed) */
   private getReadyNodes(): NodeId[] {
     const ready: NodeId[] = [];
     for (const [nodeId, degree] of this.inDegree) {
       if (degree > 0) continue;
       const step = this.state.steps[nodeId];
       if (step?.status === "completed" || step?.status === "skipped") continue;
+      // If the node has continueOnError and already failed, treat it as
+      // terminal — we're letting it pass, downstream will run, and we must
+      // not re-dispatch (that would infinite-loop).
+      if (step?.status === "failed" && this.nodeMap.get(nodeId)?.continueOnError) continue;
       if (this.running.has(nodeId)) continue;
       ready.push(nodeId);
     }
@@ -248,7 +252,28 @@ export class Scheduler {
           attempt: result.attempts,
         });
 
-        // Fail the entire execution
+        // If the node is marked continueOnError, treat the failure as a
+        // satisfying event: downstream runs, whole workflow continues, and
+        // consumers can inspect the failed step's `.error` field. Useful for
+        // non-critical work (screenshots, supplementary analysis) where a
+        // single node's failure shouldn't abort the entire DAG.
+        //
+        // We keep status="failed" on the step (the node really did fail,
+        // and the UI should show that honestly). The getReadyNodes() filter
+        // skips nodes with a continueOnError parent so the failed node
+        // isn't re-dispatched into an infinite loop.
+        const failedNode = this.nodeMap.get(completedId);
+        if (failedNode?.continueOnError) {
+          // Pass the failed step to satisfyNode so downstream in-degrees
+          // get reduced as if the node had completed. Edges with conditions
+          // won't match (status isn't "completed") but that's fine —
+          // continueOnError is for unconditional downstream paths.
+          this.satisfyNode(completedId, { ...result, status: "completed" });
+          await this.options.persist(this.state);
+          continue;
+        }
+
+        // Hard fail — abort the execution
         this.state.status = "failed";
         this.options.emit({
           type: "execution:fail",
@@ -262,10 +287,15 @@ export class Scheduler {
       await this.options.persist(this.state);
     }
 
-    // Check if all nodes are done
+    // Check if all nodes are done. A failed step is "done" ONLY when the
+    // node has continueOnError — otherwise the workflow would already have
+    // aborted above. This lets soft-failures coexist with overall success.
     const allDone = this.workflow.nodes.every((n) => {
       const step = this.state.steps[n.id];
-      return step?.status === "completed" || step?.status === "skipped";
+      if (!step) return false;
+      if (step.status === "completed" || step.status === "skipped") return true;
+      if (step.status === "failed" && n.continueOnError) return true;
+      return false;
     });
 
     this.state.status = allDone ? "completed" : "failed";

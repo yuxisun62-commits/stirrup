@@ -30,6 +30,7 @@ export type {
   TransformConfig,
   ConditionConfig,
   ScriptConfig,
+  IterateConfig,
 } from "./types/nodes.js";
 
 export type { EngineEvent } from "./types/events.js";
@@ -47,6 +48,7 @@ export { transformHandler } from "./nodes/TransformNode.js";
 export { conditionHandler } from "./nodes/ConditionNode.js";
 export { httpHandler } from "./nodes/HttpNode.js";
 export { scriptHandler } from "./nodes/ScriptNode.js";
+export { createIterateHandler } from "./nodes/IterateNode.js";
 
 // AI node handler factories
 export { createLlmPromptHandler } from "./nodes/LlmPromptNode.js";

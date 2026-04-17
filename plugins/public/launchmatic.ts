@@ -20,14 +20,16 @@
  *   lm-deploy-service, lm-get-status, lm-run-query, lm-get-logs, lm-screenshot
  *
  * Auth: Set LAUNCHMATIC_TOKEN env var or pass token in config.
- * API Base: https://api.launchmatic.io/v1
+ * API Base: https://api.launchmatic.io/api
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
 
-const API_BASE = "https://api.launchmatic.io/v1";
+const API_BASE = process.env.LAUNCHMATIC_API_BASE ?? "https://api.launchmatic.io/api";
+
+type LmApiError = Error & { status: number; body: unknown };
 
 function lmApi(token: string) {
-  return async (method: string, path: string, body?: unknown): Promise<Record<string, unknown>> => {
+  return async (method: string, path: string, body?: unknown): Promise<any> => {
     const res = await fetch(`${API_BASE}${path}`, {
       method,
       headers: {
@@ -37,17 +39,53 @@ function lmApi(token: string) {
       body: body ? JSON.stringify(body) : undefined,
     });
     if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      throw new Error(`Launchmatic API ${res.status}: ${errBody}`);
+      const errText = await res.text().catch(() => "");
+      let parsed: unknown = errText;
+      try { parsed = JSON.parse(errText); } catch { /* keep as text */ }
+      const err = new Error(`Launchmatic API ${res.status}: ${errText}`) as LmApiError;
+      err.status = res.status;
+      err.body = parsed;
+      throw err;
     }
     if (res.status === 204) return { ok: true };
-    return (await res.json()) as Record<string, unknown>;
+    const json = await res.json();
+    if (json && typeof json === "object" && "success" in json && "data" in json) {
+      if ((json as any).success === false) {
+        throw new Error(`Launchmatic API error: ${String((json as any).error ?? "unknown")}`);
+      }
+      return (json as any).data;
+    }
+    return json;
   };
 }
 
-function getToken(config: Record<string, unknown>): string {
-  const token = (config.token as string) ?? process.env.LAUNCHMATIC_TOKEN;
-  if (!token) throw new Error("Launchmatic token required: set LAUNCHMATIC_TOKEN or pass token in config");
+async function resolveTeamId(
+  api: (method: string, path: string, body?: unknown) => Promise<any>,
+  explicit?: string,
+): Promise<string> {
+  if (explicit) return explicit;
+  const envTeam = process.env.LAUNCHMATIC_TEAM_ID;
+  if (envTeam) return envTeam;
+  const list = await api("GET", "/teams");
+  const arr = Array.isArray(list) ? list : [];
+  if (arr.length === 0) {
+    throw new Error("Launchmatic: no teams found for this token; pass teamId in config or set LAUNCHMATIC_TEAM_ID");
+  }
+  if (arr.length > 1) {
+    const ids = arr.map((t: any) => `${t.id}(${t.name ?? ""})`).join(", ");
+    throw new Error(`Launchmatic: multiple teams available, pick one via teamId config or LAUNCHMATIC_TEAM_ID. Teams: ${ids}`);
+  }
+  return String((arr[0] as any).id);
+}
+
+function getToken(source: Record<string, unknown>, inputs?: Record<string, unknown>): string {
+  // Token can arrive three ways, in priority order: (1) input mapping from
+  // workflow context (the canonical path for `service: launchmatic` params),
+  // (2) explicit config value, (3) LAUNCHMATIC_TOKEN env var. Without the
+  // inputs check, templates using `from: context.lmToken, to: token` would
+  // fail with "token required" unless the env var happened to be set too.
+  const token = (inputs?.token as string) ?? (source.token as string) ?? process.env.LAUNCHMATIC_TOKEN;
+  if (!token) throw new Error("Launchmatic token required: set LAUNCHMATIC_TOKEN or pass token via input/config");
   return token;
 }
 
@@ -59,93 +97,192 @@ async function getPlaywright() {
   }
 }
 
+const PROXY_DOMAIN = process.env.LAUNCHMATIC_PROXY_DOMAIN ?? "launchmatic.io";
+
+function computeServiceUrl(service: Record<string, unknown>): string {
+  const subdomain = (service.subdomain as string) || "";
+  if (!subdomain) return "";
+  return `https://${subdomain}.apps.${PROXY_DOMAIN}`;
+}
+
+function slugify(s: string): string {
+  return String(s).toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "app";
+}
+
+function parseRepo(repo?: string): { owner?: string; name?: string } {
+  if (!repo) return {};
+  const [owner, name] = repo.split("/");
+  return { owner, name };
+}
+
+async function findProjectBySlug(
+  api: (method: string, path: string, body?: unknown) => Promise<unknown>,
+  teamId: string,
+  slug: string,
+): Promise<Record<string, unknown> | null> {
+  // lmApi unwraps { success, data } → so GET /projects returns the array directly
+  const res = await api("GET", `/projects?teamId=${encodeURIComponent(teamId)}`);
+  const arr = Array.isArray(res) ? res : [];
+  return (arr.find((p: any) => p.slug === slug) as Record<string, unknown>) ?? null;
+}
+
 export default function register(ctx: PluginContext) {
   // ─────────────────────── Deployment ───────────────────────
 
   ctx.registerNodeType("lm-deploy", async (config, execCtx) => {
-    const { serviceId } = { ...execCtx.inputs, ...config } as { serviceId: string };
-    const api = lmApi(getToken(config));
-    const deployment = await api("POST", `/services/${serviceId}/deploy`);
+    const { serviceId, branch, commitSha } = { ...execCtx.inputs, ...config } as {
+      serviceId: string; branch?: string; commitSha?: string;
+    };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const deployment = await api("POST", "/deployments", { serviceId, branch, commitSha });
     return {
       deploymentId: deployment.id,
       status: deployment.status,
       serviceId,
-      url: deployment.url,
+      branch: deployment.branch,
+      commitSha: deployment.commitSha,
       createdAt: deployment.createdAt,
     };
   });
 
   ctx.registerNodeType("lm-quicklaunch", async (config, execCtx) => {
-    const { projectSlug, name, runtime, repo, branch } = { ...execCtx.inputs, ...config } as {
-      projectSlug: string; name: string; runtime?: string; repo?: string; branch?: string;
+    const { projectId: projectIdIn, projectSlug, name, repo, branch, framework, port } = {
+      ...execCtx.inputs, ...config,
+    } as {
+      projectId?: string; projectSlug?: string; name: string;
+      repo?: string; branch?: string; framework?: string; port?: number;
     };
-    const api = lmApi(getToken(config));
-    const service = await api("POST", `/projects/${projectSlug}/services`, {
-      name, runtime, repo, branch: branch ?? "main",
+    const api = lmApi(getToken(config, execCtx.inputs));
+
+    // Resolve projectId: explicit input wins, else look up by slug within the team
+    let projectId = projectIdIn;
+    if (!projectId) {
+      if (!projectSlug) throw new Error("lm-quicklaunch: projectId or projectSlug is required");
+      const teamId = await resolveTeamId(api);
+      const project = await findProjectBySlug(api, teamId, projectSlug);
+      if (!project) throw new Error(`lm-quicklaunch: no project with slug '${projectSlug}' in team`);
+      projectId = String((project as any).id);
+    }
+
+    const { owner: repoOwner, name: repoName } = parseRepo(repo);
+    const serviceSlug = slugify(name);
+    const service = await api("POST", "/services", {
+      name,
+      slug: serviceSlug,
+      type: "WEB",
+      projectId,
+      repoOwner,
+      repoName,
+      repoBranch: branch ?? "main",
+      port: port ?? 3000,
+      framework,
     });
-    const deployment = await api("POST", `/services/${service.id}/deploy`);
+    const deployment = await api("POST", "/deployments", {
+      serviceId: service.id,
+      branch: branch ?? "main",
+    });
     return {
       serviceId: service.id,
-      serviceName: name,
+      serviceName: service.name,
+      serviceSlug: service.slug,
       deploymentId: deployment.id,
       status: deployment.status,
-      url: deployment.url,
+      url: computeServiceUrl(service),
+      subdomain: service.subdomain,
     };
   });
 
   ctx.registerNodeType("lm-status", async (config, execCtx) => {
     const { serviceId } = { ...execCtx.inputs, ...config } as { serviceId: string };
-    const api = lmApi(getToken(config));
+    const api = lmApi(getToken(config, execCtx.inputs));
     const service = await api("GET", `/services/${serviceId}`);
-    const deployments = await api("GET", `/services/${serviceId}/deployments`);
-    const list = Array.isArray(deployments) ? deployments : (deployments.data as any[]) ?? [];
+    const deployments = await api("GET", `/deployments?serviceId=${encodeURIComponent(serviceId)}&limit=1`);
+    const list = Array.isArray(deployments) ? deployments : [];
     const latest = list[0] as Record<string, unknown> | undefined;
     return {
-      serviceId: service.id, name: service.name, status: service.status,
-      url: service.url, runtime: service.runtime,
+      serviceId: service.id, name: service.name, slug: service.slug,
+      url: computeServiceUrl(service), framework: service.framework,
       latestDeployment: latest ? { id: latest.id, status: latest.status, createdAt: latest.createdAt } : null,
     };
   });
 
   ctx.registerNodeType("lm-rollback", async (config, execCtx) => {
-    const { serviceId, deploymentId } = { ...execCtx.inputs, ...config } as {
-      serviceId: string; deploymentId: string;
-    };
-    const api = lmApi(getToken(config));
-    const result = await api("POST", `/services/${serviceId}/deploy`, { rollbackTo: deploymentId });
-    return { deploymentId: result.id, status: result.status, rolledBackTo: deploymentId };
+    const { deploymentId } = { ...execCtx.inputs, ...config } as { deploymentId: string };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const result = await api("POST", `/deployments/${deploymentId}/rollback`);
+    return { deploymentId: result.id, status: result.status, rolledBackFromId: result.rollbackFromId ?? deploymentId };
   });
 
   // ─────────────────────── Projects ───────────────────────
 
   ctx.registerNodeType("lm-create-project", async (config, execCtx) => {
-    const { name, slug } = { ...execCtx.inputs, ...config } as { name: string; slug?: string };
-    const api = lmApi(getToken(config));
-    const project = await api("POST", "/projects", { name, slug });
-    return { projectId: project.id, slug: project.slug, name: project.name };
+    const { name, slug, teamId: teamIdIn } = { ...execCtx.inputs, ...config } as {
+      name: string; slug?: string; teamId?: string;
+    };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const teamId = await resolveTeamId(api, teamIdIn);
+    const resolvedSlug = slug ?? slugify(name);
+    try {
+      const project = await api("POST", "/projects", { name, slug: resolvedSlug, teamId });
+      return { projectId: project.id, slug: project.slug, name: project.name, teamId };
+    } catch (err) {
+      // Idempotency: on unique-constraint conflict, return the existing project
+      const status = (err as LmApiError).status;
+      if (status === 409 || status === 400) {
+        const existing = await findProjectBySlug(api, teamId, resolvedSlug);
+        if (existing) {
+          return { projectId: existing.id, slug: existing.slug, name: existing.name, teamId };
+        }
+      }
+      throw err;
+    }
   });
 
-  ctx.registerNodeType("lm-list-projects", async (config) => {
-    const api = lmApi(getToken(config));
-    const projects = await api("GET", "/projects");
-    const list = Array.isArray(projects) ? projects : (projects.data as any[]) ?? [];
-    return { projects: list.map((p: any) => ({ id: p.id, name: p.name, slug: p.slug })), count: list.length };
+  ctx.registerNodeType("lm-list-projects", async (config, execCtx) => {
+    const { teamId: teamIdIn } = { ...execCtx.inputs, ...config } as { teamId?: string };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const teamId = await resolveTeamId(api, teamIdIn);
+    const list = await api("GET", `/projects?teamId=${encodeURIComponent(teamId)}`);
+    const arr = Array.isArray(list) ? list : [];
+    return {
+      projects: arr.map((p: any) => ({ id: p.id, name: p.name, slug: p.slug, teamId: p.teamId })),
+      count: arr.length,
+      teamId,
+    };
   });
 
   // ─────────────────────── Services ───────────────────────
 
   ctx.registerNodeType("lm-create-service", async (config, execCtx) => {
-    const { projectSlug, name, runtime, repo, branch, dockerfile } = { ...execCtx.inputs, ...config } as {
-      projectSlug: string; name: string; runtime?: string; repo?: string; branch?: string; dockerfile?: string;
+    const { projectId, name, repo, branch, framework, port } = {
+      ...execCtx.inputs, ...config,
+    } as {
+      projectId: string; name: string; repo?: string;
+      branch?: string; framework?: string; port?: number;
     };
-    const api = lmApi(getToken(config));
-    const service = await api("POST", `/projects/${projectSlug}/services`, { name, runtime, repo, branch, dockerfile });
-    return { serviceId: service.id, name: service.name, status: service.status };
+    if (!projectId) throw new Error("lm-create-service: projectId is required");
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const { owner: repoOwner, name: repoName } = parseRepo(repo);
+    const service = await api("POST", "/services", {
+      name,
+      slug: slugify(name),
+      type: "WEB",
+      projectId,
+      repoOwner,
+      repoName,
+      repoBranch: branch ?? "main",
+      port: port ?? 3000,
+      framework,
+    });
+    return {
+      serviceId: service.id, name: service.name, slug: service.slug,
+      subdomain: service.subdomain, url: computeServiceUrl(service),
+    };
   });
 
   ctx.registerNodeType("lm-delete-service", async (config, execCtx) => {
     const { serviceId } = { ...execCtx.inputs, ...config } as { serviceId: string };
-    const api = lmApi(getToken(config));
+    const api = lmApi(getToken(config, execCtx.inputs));
     await api("DELETE", `/services/${serviceId}`);
     return { deleted: true, serviceId };
   });
@@ -153,25 +290,32 @@ export default function register(ctx: PluginContext) {
   // ─────────────────────── Databases ───────────────────────
 
   ctx.registerNodeType("lm-db-create", async (config, execCtx) => {
-    const { name, engine, serviceId } = { ...execCtx.inputs, ...config } as {
-      name: string; engine?: string; serviceId?: string;
+    const { name, engine, projectId, serviceId, version, storageSize } = {
+      ...execCtx.inputs, ...config,
+    } as {
+      name: string; engine?: string; projectId?: string; serviceId?: string;
+      version?: string; storageSize?: number;
     };
-    const api = lmApi(getToken(config));
-    const db = await api("POST", "/databases", { name, engine: engine ?? "postgres" });
-    if (serviceId && db.id) {
+    // Launchmatic accepts POSTGRESQL | REDIS | MONGODB (enum uppercase)
+    const engineUpper = (engine ?? "POSTGRESQL").toUpperCase();
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const db = await api("POST", "/databases", {
+      name, engine: engineUpper, projectId, serviceId, version, storageSize,
+    });
+    if (serviceId && db.id && !projectId) {
       try { await api("POST", `/databases/${db.id}/link`, { serviceId }); } catch { /* optional */ }
     }
-    return { databaseId: db.id, name: db.name, engine: db.engine, status: db.status, connectionString: db.connectionString };
+    return { databaseId: db.id, name: db.name, engine: db.engine, status: db.status };
   });
 
   ctx.registerNodeType("lm-db-query", async (config, execCtx) => {
     const { databaseId, sql, params } = { ...execCtx.inputs, ...config } as {
       databaseId: string; sql: string; params?: unknown[];
     };
-    const api = lmApi(getToken(config));
-    const dbInfo = await api("GET", `/databases/${databaseId}`);
-    const connString = dbInfo.connectionString as string;
-    if (!connString) throw new Error("Could not retrieve connection string");
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const creds = await api("GET", `/databases/${databaseId}/credentials`);
+    const connString = (creds.connectionString as string) || (creds.externalUrl as string);
+    if (!connString) throw new Error("Could not retrieve connection string from /credentials");
 
     const pg = await import("pg").catch(() => { throw new Error("pg required: npm install pg"); });
     const Pool = pg.default?.Pool ?? (pg as any).Pool;
@@ -184,11 +328,13 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerNodeType("lm-db-seed", async (config, execCtx) => {
     const { databaseId, sql } = { ...execCtx.inputs, ...config } as { databaseId: string; sql: string };
-    const api = lmApi(getToken(config));
-    const dbInfo = await api("GET", `/databases/${databaseId}`);
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const creds = await api("GET", `/databases/${databaseId}/credentials`);
+    const connString = (creds.connectionString as string) || (creds.externalUrl as string);
+    if (!connString) throw new Error("Could not retrieve connection string from /credentials");
     const pg = await import("pg").catch(() => { throw new Error("pg required"); });
     const Pool = pg.default?.Pool ?? (pg as any).Pool;
-    const pool = new Pool({ connectionString: dbInfo.connectionString as string });
+    const pool = new Pool({ connectionString: connString });
     try {
       const stmts = sql.split(";").map((s) => s.trim()).filter(Boolean);
       for (const stmt of stmts) await pool.query(stmt);
@@ -198,36 +344,45 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerNodeType("lm-db-credentials", async (config, execCtx) => {
     const { databaseId } = { ...execCtx.inputs, ...config } as { databaseId: string };
-    const api = lmApi(getToken(config));
-    const db = await api("GET", `/databases/${databaseId}`);
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const creds = await api("GET", `/databases/${databaseId}/credentials`);
     return {
-      databaseId: db.id, engine: db.engine, host: db.host, port: db.port,
-      username: db.username, password: db.password, database: db.database,
-      connectionString: db.connectionString, internalDns: db.internalDns,
+      databaseId, engine: creds.engine, host: creds.host, port: creds.port,
+      username: creds.username, password: creds.password, database: creds.database,
+      connectionString: creds.connectionString, externalUrl: creds.externalUrl,
+      internalDns: creds.internalDns,
     };
   });
 
   // ─────────────────────── Domains ───────────────────────
 
   ctx.registerNodeType("lm-domain-add", async (config, execCtx) => {
-    const { serviceId, domain } = { ...execCtx.inputs, ...config } as { serviceId: string; domain: string };
-    const api = lmApi(getToken(config));
-    const result = await api("POST", `/services/${serviceId}/domains`, { domain });
-    return { domainId: result.id, domain: result.domain, verified: result.verified, sslStatus: result.sslStatus, dnsRecords: result.dnsRecords };
+    const { serviceId, domain, hostname } = { ...execCtx.inputs, ...config } as {
+      serviceId: string; domain?: string; hostname?: string;
+    };
+    const host = hostname ?? domain;
+    if (!host) throw new Error("lm-domain-add: hostname (or domain) is required");
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const result = await api("POST", "/domains", { hostname: host, serviceId });
+    return {
+      domainId: result.id, hostname: result.hostname,
+      verified: result.verified, sslStatus: result.sslStatus, dnsStatus: result.dnsStatus,
+    };
   });
 
   ctx.registerNodeType("lm-domain-verify", async (config, execCtx) => {
     const { domainId } = { ...execCtx.inputs, ...config } as { domainId: string };
-    const api = lmApi(getToken(config));
-    const result = await api("GET", `/domains/${domainId}/verify`);
-    return { domainId, verified: result.verified, sslStatus: result.sslStatus, dnsCorrect: result.dnsCorrect };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const result = await api("POST", `/domains/${domainId}/verify`);
+    return { domainId, verified: result.verified, sslStatus: result.sslStatus, dnsStatus: result.dnsStatus };
   });
 
   ctx.registerNodeType("lm-domain-list", async (config, execCtx) => {
     const { serviceId } = { ...execCtx.inputs, ...config } as { serviceId: string };
-    const api = lmApi(getToken(config));
-    const service = await api("GET", `/services/${serviceId}`);
-    return { domains: service.domains ?? [], serviceId };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const list = await api("GET", `/domains?serviceId=${encodeURIComponent(serviceId)}`);
+    const arr = Array.isArray(list) ? list : [];
+    return { domains: arr, count: arr.length, serviceId };
   });
 
   // ─────────────────────── Environment Variables ───────────────────────
@@ -236,21 +391,24 @@ export default function register(ctx: PluginContext) {
     const { serviceId, variables } = { ...execCtx.inputs, ...config } as {
       serviceId: string; variables: Record<string, string>;
     };
-    const api = lmApi(getToken(config));
-    await api("PATCH", `/services/${serviceId}`, { env: variables });
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const vars = Object.entries(variables).map(([key, value]) => ({ key, value }));
+    await api("PUT", `/services/${serviceId}/env`, { vars });
     return { serviceId, set: Object.keys(variables), count: Object.keys(variables).length };
   });
 
   ctx.registerNodeType("lm-env-list", async (config, execCtx) => {
     const { serviceId } = { ...execCtx.inputs, ...config } as { serviceId: string };
-    const api = lmApi(getToken(config));
-    const service = await api("GET", `/services/${serviceId}`);
-    const env = (service.env ?? {}) as Record<string, string>;
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const list = await api("GET", `/services/${serviceId}/env`);
+    const arr = Array.isArray(list) ? list : [];
     const masked: Record<string, string> = {};
-    for (const [k, v] of Object.entries(env)) {
+    for (const row of arr) {
+      const k = (row as any).key as string;
+      const v = String((row as any).value ?? "");
       masked[k] = v.length > 8 ? v.slice(0, 4) + "..." + v.slice(-4) : "***";
     }
-    return { variables: masked, count: Object.keys(env).length, serviceId };
+    return { variables: masked, count: arr.length, serviceId };
   });
 
   // ─────────────────────── Browser Automation ───────────────────────
@@ -345,27 +503,54 @@ export default function register(ctx: PluginContext) {
   // ─────────────────────── AI — Lightspeed ───────────────────────
 
   ctx.registerNodeType("lm-lightspeed", async (config, execCtx) => {
-    const { serviceId, prompt } = { ...execCtx.inputs, ...config } as { serviceId: string; prompt: string };
-    const api = lmApi(getToken(config));
-    const result = await api("POST", `/services/${serviceId}/lightspeed`, { prompt });
-    return { serviceId, prompt, changes: result.changes, deploymentId: result.deploymentId, status: result.status };
+    const { prompt, projectId } = { ...execCtx.inputs, ...config } as {
+      prompt: string; projectId?: string;
+    };
+    const api = lmApi(getToken(config, execCtx.inputs));
+    const gen = await api("POST", "/lightspeed/generate", { prompt, projectId });
+    return {
+      generationId: gen.id ?? gen.generationId,
+      prompt,
+      status: gen.status,
+      plan: gen.plan,
+      projectId: gen.projectId,
+    };
   });
 
   // ─────────────────────── Logs ───────────────────────
+  // NOTE: Launchmatic log streams are WebSocket-only (/ws/logs/:deploymentId,
+  // /ws/runtime-logs/:serviceId). There is no REST endpoint that returns a
+  // snapshot of recent lines, so this node returns deployment metadata + a
+  // connection URL for callers that want to subscribe themselves.
 
   ctx.registerNodeType("lm-logs", async (config, execCtx) => {
     const { serviceId, deploymentId, lines } = { ...execCtx.inputs, ...config } as {
       serviceId?: string; deploymentId?: string; lines?: number;
     };
-    const api = lmApi(getToken(config));
+    const api = lmApi(getToken(config, execCtx.inputs));
     if (!serviceId && !deploymentId) throw new Error("serviceId or deploymentId required");
 
-    const path = deploymentId
-      ? `/deployments/${deploymentId}/logs?lines=${lines ?? 100}`
-      : `/services/${serviceId}/deployments`;
-    const result = await api("GET", path);
-    const logs = result.logs ?? result.data ?? result;
-    return { logs: Array.isArray(logs) ? logs : [logs], lineCount: Array.isArray(logs) ? logs.length : 1 };
+    if (deploymentId) {
+      const dep = await api("GET", `/deployments/${deploymentId}`);
+      return {
+        deploymentId,
+        status: dep.status,
+        logsWebsocketUrl: `wss://api.launchmatic.io/ws/logs/${deploymentId}`,
+        note: "Launchmatic logs are streamed via WebSocket; this node returns deployment metadata and the WS URL",
+        lines: lines ?? 100,
+      };
+    }
+    const list = await api("GET", `/deployments?serviceId=${encodeURIComponent(serviceId!)}&limit=1`);
+    const arr = Array.isArray(list) ? list : [];
+    if (arr.length === 0) return { logs: [], message: "No deployments for service" };
+    const latestId = (arr[0] as any).id as string;
+    return {
+      deploymentId: latestId,
+      status: (arr[0] as any).status,
+      logsWebsocketUrl: `wss://api.launchmatic.io/ws/logs/${latestId}`,
+      runtimeLogsWebsocketUrl: `wss://api.launchmatic.io/ws/runtime-logs/${serviceId}`,
+      note: "Launchmatic logs are streamed via WebSocket; this node returns deployment metadata and WS URLs",
+    };
   });
 
   // ─────────────────────── Tools (for agent-tool-use nodes) ───────────────────────
@@ -379,7 +564,7 @@ export default function register(ctx: PluginContext) {
       required: ["serviceId"],
     },
     handler: async (input) => lmApi(getToken({}))(
-      "POST", `/services/${input.serviceId}/deploy`
+      "POST", "/deployments", { serviceId: input.serviceId }
     ),
   });
 
@@ -393,7 +578,7 @@ export default function register(ctx: PluginContext) {
     },
     handler: async (input) => {
       const service = await lmApi(getToken({}))("GET", `/services/${input.serviceId}`);
-      return { id: service.id, name: service.name, status: service.status, url: service.url };
+      return { id: service.id, name: service.name, slug: service.slug, url: computeServiceUrl(service) };
     },
   });
 
@@ -409,10 +594,13 @@ export default function register(ctx: PluginContext) {
       required: ["databaseId", "sql"],
     },
     handler: async (input) => {
-      const db = await lmApi(getToken({}))("GET", `/databases/${input.databaseId}`);
+      const api = lmApi(getToken({}));
+      const creds = await api("GET", `/databases/${input.databaseId}/credentials`);
+      const connString = (creds.connectionString as string) || (creds.externalUrl as string);
+      if (!connString) throw new Error("Could not retrieve connection string from /credentials");
       const pg = await import("pg").catch(() => { throw new Error("pg required"); });
       const Pool = pg.default?.Pool ?? (pg as any).Pool;
-      const pool = new Pool({ connectionString: db.connectionString as string });
+      const pool = new Pool({ connectionString: connString });
       try {
         const r = await pool.query(input.sql as string);
         return { rows: r.rows?.slice(0, 50), rowCount: r.rowCount };
@@ -422,21 +610,27 @@ export default function register(ctx: PluginContext) {
 
   ctx.registerTool({
     name: "lm-get-logs",
-    description: "Fetch recent logs from a Launchmatic service deployment.",
+    description: "Return deployment metadata and a WebSocket URL for streaming logs (Launchmatic logs are WS-only).",
     inputSchema: {
       type: "object",
       properties: {
         serviceId: { type: "string", description: "Service ID" },
-        lines: { type: "number", description: "Number of lines (default 50)" },
+        lines: { type: "number", description: "Hint for number of lines (not enforced server-side)" },
       },
       required: ["serviceId"],
     },
     handler: async (input) => {
       const api = lmApi(getToken({}));
-      const deps = await api("GET", `/services/${input.serviceId}/deployments`);
-      const list = Array.isArray(deps) ? deps : (deps.data as any[]) ?? [];
+      const deps = await api("GET", `/deployments?serviceId=${encodeURIComponent(input.serviceId as string)}&limit=1`);
+      const list = Array.isArray(deps) ? deps : [];
       if (list.length === 0) return { logs: [], message: "No deployments" };
-      return api("GET", `/deployments/${(list[0] as any).id}/logs?lines=${input.lines ?? 50}`);
+      const latestId = (list[0] as any).id as string;
+      return {
+        deploymentId: latestId,
+        status: (list[0] as any).status,
+        logsWebsocketUrl: `wss://api.launchmatic.io/ws/logs/${latestId}`,
+        runtimeLogsWebsocketUrl: `wss://api.launchmatic.io/ws/runtime-logs/${input.serviceId}`,
+      };
     },
   });
 

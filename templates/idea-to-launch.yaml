@@ -1,0 +1,1343 @@
+id: idea-to-launch
+name: "Idea → MVP → Launch"
+version: "1.0"
+description: >
+  Full product delivery pipeline from idea (or PRD) to live launched site with
+  graded UAT. Normalizes idea prompt or pasted PRD text into a structured brief,
+  runs deep requirements discovery, produces technical architecture, organizes
+  work into sprints with tasks and deliverables, generates the full codebase
+  with sequential-aware multi-pass code gen, runs quality gates, generates
+  tests, audits security, hardens when needed, writes documentation, scaffolds
+  to disk, creates a GitHub repo, pushes the code, deploys to Launchmatic, runs
+  real browser-based UAT against the deployed URL, and assigns a final product
+  grade. 28 nodes, ~40 edges.
+
+params:
+  - name: idea
+    type: string
+    required: true
+    description: Short idea description (always required — the vision in one paragraph)
+  - name: prdText
+    type: string
+    required: false
+    default: ""
+    description: "Optional full PRD content (paste here to override with detailed spec)"
+  - name: productName
+    type: string
+    required: false
+    description: "Product name — used for the GitHub repo and Launchmatic service. Leave empty to let AI pick."
+  - name: language
+    type: string
+    required: false
+    default: typescript
+    description: Target programming language (typescript, javascript, python)
+  - name: githubOrg
+    type: string
+    required: false
+    description: "GitHub org to create repo under (omit for personal account)"
+  - name: githubToken
+    type: string
+    required: false
+    description: "GitHub token with repo creation permissions"
+    service: github
+  - name: lmToken
+    type: string
+    required: false
+    description: "Launchmatic API token for deployment"
+    service: launchmatic
+
+context:
+  idea: "A minimalist time-tracking SaaS for solo freelancers — projects, timers, weekly summaries, PDF export of billable hours per client."
+  prdText: ""
+  productName: ""
+  language: typescript
+
+nodes:
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 0: INTAKE — Normalize idea OR PRD into a structured brief
+  # ═══════════════════════════════════════════════════════════════════
+  - id: normalize-brief
+    type: llm-prompt
+    name: "Normalize Input Brief"
+    inputs:
+      - from: context.idea
+        to: idea
+      - from: context.prdText
+        to: prdText
+      - from: context.productName
+        to: suggestedName
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a product strategist. Normalize the user's input (either a
+        short idea prompt or a full PRD) into a single structured brief.
+        When a PRD is provided, it is authoritative — extract every detail.
+        When only an idea is provided, expand it with reasonable assumptions
+        and flag them as such.
+      promptTemplate: |
+        Normalize the following input into a structured product brief.
+
+        **Idea prompt:** {{idea}}
+        **Suggested product name (may be empty):** {{suggestedName}}
+        **PRD text (may be empty — if present, this is authoritative):**
+        {{prdText}}
+
+        Output JSON:
+        {
+          "productName": "kebab-case-name",
+          "displayName": "Human-Readable Name",
+          "vision": "One-sentence vision statement",
+          "elevator": "One-paragraph elevator pitch",
+          "targetUsers": [{"persona": "...", "painPoint": "...", "goal": "..."}],
+          "coreFeatures": ["feature 1", "feature 2", ...],
+          "constraints": ["platform, tech, compliance, budget constraints"],
+          "outOfScope": ["explicitly NOT included in MVP"],
+          "successCriteria": ["measurable success indicators"],
+          "source": "prd" | "idea",
+          "assumptions": ["explicit assumptions made when expanding from idea"]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 1: DISCOVERY — Deep requirements analysis
+  # ═══════════════════════════════════════════════════════════════════
+  - id: requirements-discovery
+    type: llm-prompt
+    name: "Requirements Discovery"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+      - from: context.language
+        to: language
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal software architect. Translate the product brief
+        into rigorous, actionable requirements. Be thorough and precise —
+        name specific technologies, concrete acceptance criteria, and measurable
+        non-functional constraints.
+      promptTemplate: |
+        Expand this product brief into full requirements.
+
+        **Product Brief:** {{brief}}
+        **Target Language:** {{language}}
+
+        Output JSON:
+        {
+          "functionalRequirements": ["FR-001: ...", ...],
+          "nonFunctionalRequirements": ["NFR-001: performance/security/scale..."],
+          "userStories": [{"id": "US-001", "as": "role", "iWant": "...", "soThat": "...", "acceptance": ["..."]}],
+          "dataEntities": [{"name": "...", "fields": [{"name": "...", "type": "..."}], "relationships": ["..."]}],
+          "integrations": ["external APIs/services needed"],
+          "risks": [{"risk": "...", "impact": "high|medium|low", "mitigation": "..."}],
+          "openQuestions": ["questions that should be resolved before build"]
+        }
+      responseFormat: json
+      maxTokens: 6144
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 2: ARCHITECTURE — Tech stack and system design
+  # ═══════════════════════════════════════════════════════════════════
+  - id: solution-architecture
+    type: llm-prompt
+    name: "Solution Architecture"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+      - from: nodes.requirements-discovery.outputs.response
+        to: requirements
+      - from: context.language
+        to: language
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal engineer designing the architecture for an MVP
+        that must be built in one pass, deployed live, and accepted by users.
+        Pick boring, proven tech. Optimize for correctness and shippability.
+      promptTemplate: |
+        Design the technical architecture.
+
+        **Brief:** {{brief}}
+        **Requirements:** {{requirements}}
+        **Language:** {{language}}
+
+        Output JSON:
+        {
+          "techStack": {
+            "language": "...",
+            "framework": "express|fastify|next|etc",
+            "database": "postgres|sqlite|none",
+            "orm": "prisma|drizzle|none",
+            "auth": "jwt|session|none",
+            "deploy": "launchmatic-node"
+          },
+          "layers": [
+            {"name": "infrastructure", "purpose": "...", "files": ["src/..."]},
+            {"name": "data", "purpose": "...", "files": [...]},
+            {"name": "business", "purpose": "...", "files": [...]},
+            {"name": "api", "purpose": "...", "files": [...]}
+          ],
+          "entities": [{"name": "...", "schema": {...}, "relations": [...]}],
+          "apiRoutes": [{"method": "GET|POST|...", "path": "/api/...", "purpose": "..."}],
+          "keyDependencies": ["npm package names"],
+          "deploymentPlan": "how this deploys to Launchmatic"
+        }
+      responseFormat: json
+      maxTokens: 6144
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 3: SPRINT PLANNING — Break objectives into sprints
+  # ═══════════════════════════════════════════════════════════════════
+  - id: sprint-plan
+    type: llm-prompt
+    name: "Sprint Planning"
+    inputs:
+      - from: nodes.requirements-discovery.outputs.response
+        to: requirements
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are an engineering manager breaking a project into focused sprints.
+        Each sprint should ship a coherent slice. The sprint plan is both a
+        planning artifact AND the source of truth for UAT test scenarios.
+      promptTemplate: |
+        Organize the delivery into 3-5 sprints.
+
+        **Requirements:** {{requirements}}
+        **Architecture:** {{architecture}}
+
+        Output JSON:
+        {
+          "sprints": [
+            {
+              "number": 1,
+              "goal": "sprint goal in one sentence",
+              "deliverables": ["concrete outputs"],
+              "tasks": [
+                {"id": "T-001", "title": "...", "description": "...", "estimate": "S|M|L", "dependsOn": []}
+              ],
+              "definitionOfDone": ["acceptance criteria"],
+              "uatScenarios": [
+                {"id": "UAT-001", "title": "...", "steps": ["user action..."], "expected": "outcome"}
+              ]
+            }
+          ],
+          "timeline": "estimated total duration",
+          "criticalPath": ["task IDs in dependency order"]
+        }
+      responseFormat: json
+      maxTokens: 6144
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 4: CODE GENERATION — Sequential-aware 4-layer generation
+  # ═══════════════════════════════════════════════════════════════════
+  - id: gen-infrastructure
+    type: code-generation
+    name: "Generate Infrastructure"
+    inputs:
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Generate the infrastructure layer for this project.
+
+        **Architecture:** {{architecture}}
+        **Language:** {{language}}
+
+        Include: package.json, tsconfig.json, server entry point, config loader,
+        logger setup, error middleware, health check, CORS, env schema.
+
+        Use: // === FILE: path/to/file === for every file.
+
+  - id: gen-data-models
+    type: code-generation
+    name: "Generate Data Models"
+    inputs:
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Generate the data layer for this project.
+
+        **Architecture:** {{architecture}}
+        **Language:** {{language}}
+
+        Include: entity types/interfaces, schema definitions (Prisma/Drizzle if
+        chosen), repositories with CRUD methods, migrations, seed data.
+
+        Use: // === FILE: path/to/file === for every file.
+
+  - id: gen-business-logic
+    type: code-generation
+    name: "Generate Business Logic"
+    inputs:
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+      - from: nodes.gen-data-models.outputs.code
+        to: dataCode
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Generate the business logic layer.
+
+        **Architecture:** {{architecture}}
+        **Data layer (ACTUAL CODE — use these exact types/methods):** {{dataCode}}
+        **Language:** {{language}}
+
+        Services must import from the data layer using the real type names.
+        Include: service classes, validation, business rules, domain errors.
+
+        Use: // === FILE: path/to/file === for every file.
+
+  - id: gen-api-routes
+    type: code-generation
+    name: "Generate API Routes"
+    inputs:
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+      - from: nodes.gen-data-models.outputs.code
+        to: dataCode
+      - from: nodes.gen-business-logic.outputs.code
+        to: businessCode
+      - from: context.language
+        to: language
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Generate the API/controller layer.
+
+        **Architecture:** {{architecture}}
+        **Data layer (for types):** {{dataCode}}
+        **Business layer (for services — import and call these):** {{businessCode}}
+        **Language:** {{language}}
+
+        Routes must wire real service methods, not stubs. Include: route handlers,
+        request/response schemas, auth middleware, input validation, error mapping.
+
+        Use: // === FILE: path/to/file === for every file.
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 5: QUALITY GATE — Review + conditional refine
+  # ═══════════════════════════════════════════════════════════════════
+  - id: merge-code
+    type: transform
+    name: "Merge Code Layers"
+    inputs:
+      - from: nodes.gen-infrastructure.outputs.code
+        to: infra
+      - from: nodes.gen-data-models.outputs.code
+        to: data
+      - from: nodes.gen-business-logic.outputs.code
+        to: business
+      - from: nodes.gen-api-routes.outputs.code
+        to: api
+    outputs:
+      - code
+    config:
+      expression: |
+        ({
+          code: [inputs.infra, inputs.data, inputs.business, inputs.api]
+            .filter(Boolean).join('\n\n')
+        })
+
+  - id: quality-review
+    type: llm-prompt
+    name: "Quality Review"
+    inputs:
+      - from: nodes.merge-code.outputs.code
+        to: code
+      - from: nodes.requirements-discovery.outputs.response
+        to: requirements
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a senior code reviewer. Score the generated code against the
+        requirements. Flag missing features, broken imports, type mismatches,
+        and stubs.
+      promptTemplate: |
+        Review this codebase.
+
+        **Requirements:** {{requirements}}
+        **Code:** {{code}}
+
+        Output JSON:
+        {
+          "verdict": "accept" | "refine",
+          "score": 0-100,
+          "strengths": ["..."],
+          "issues": [{"severity": "critical|major|minor", "location": "file:line", "issue": "...", "fix": "..."}],
+          "missingFeatures": ["requirement IDs not implemented"],
+          "rationale": "why this verdict"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: route-quality
+    type: decision-routing
+    name: "Route on Quality"
+    inputs:
+      - from: nodes.quality-review.outputs.response
+        to: review
+    outputs:
+      - selectedBranch
+    config:
+      promptTemplate: |
+        Based on this review, pick a branch. The "verdict" field is authoritative.
+        Review: {{review}}
+      branches:
+        refine: "Code needs improvement — major issues found or verdict is refine"
+        accept: "Code is acceptable — verdict is accept or only minor issues"
+
+  - id: refine-code
+    type: code-generation
+    name: "Refine Code"
+    inputs:
+      - from: nodes.merge-code.outputs.code
+        to: code
+      - from: nodes.quality-review.outputs.response
+        to: review
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Fix the issues identified in the review.
+
+        **Current code:** {{code}}
+        **Review (issues to fix):** {{review}}
+
+        Output ONLY the files that change or are new. Keep unchanged files out.
+        Use: // === FILE: path/to/file === for every file.
+
+  - id: consolidate-code
+    type: transform
+    name: "Consolidate Final Code"
+    inputs:
+      - from: nodes.merge-code.outputs.code
+        to: merged
+      - from: nodes.refine-code.outputs.code
+        to: refined
+    outputs:
+      - code
+    config:
+      expression: |
+        ({
+          code: inputs.refined && inputs.refined.length > 0
+            ? (inputs.merged + '\n\n// === REFINEMENT APPLIED ===\n\n' + inputs.refined)
+            : inputs.merged
+        })
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 5b: PER-SPRINT REVIEW — verify each sprint's deliverables made it
+  # ═══════════════════════════════════════════════════════════════════
+  # Flatten the sprint plan into a simple array for iteration. Each item is
+  # a sprint with its goal, deliverables, and DoD.
+  - id: extract-sprints
+    type: transform
+    name: "Extract Sprints for Iteration"
+    inputs:
+      - from: nodes.sprint-plan.outputs.response
+        to: plan
+    outputs:
+      - sprints
+    config:
+      expression: |
+        ({
+          sprints: (inputs.plan && inputs.plan.sprints) ? inputs.plan.sprints : []
+        })
+
+  # Iterate over sprints in sequential mode — each sprint review sees the
+  # prior sprints' verdicts via priorResults, so it can flag cross-sprint
+  # issues (e.g., "Sprint 2's feature X depends on Sprint 1's Y which is
+  # missing").
+  - id: per-sprint-review
+    type: iterate
+    name: "Per-Sprint Deliverable Review"
+    inputs:
+      - from: nodes.extract-sprints.outputs.sprints
+        to: items
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+    outputs:
+      - results
+      - count
+      - successCount
+      - failureCount
+    config:
+      childType: llm-prompt
+      mode: sequential
+      childConfig:
+        systemPrompt: >
+          You are a delivery lead checking a single sprint's deliverables
+          against the generated codebase. Be specific — cite files. Consider
+          prior sprint reviews for cross-sprint dependencies.
+        promptTemplate: |
+          Review this sprint's deliverables.
+
+          **Sprint:** {{item}}
+          **Prior sprint reviews (may be empty for sprint 1):** {{priorResults}}
+          **Full codebase:** {{code}}
+
+          Output JSON:
+          {
+            "sprintNumber": <number>,
+            "goal": "...",
+            "deliverablesShipped": ["deliverables that are present"],
+            "deliverablesMissing": ["deliverables NOT present in code"],
+            "dodMet": true | false,
+            "crossSprintBlockers": ["issues inherited from prior sprints"],
+            "sprintGrade": "A|B|C|D|F",
+            "verdict": "accept|reopen"
+          }
+        responseFormat: json
+        maxTokens: 2048
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 6: TESTING — Unit + integration tests (parallel)
+  # ═══════════════════════════════════════════════════════════════════
+  - id: gen-unit-tests
+    type: code-generation
+    name: "Generate Unit Tests"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.sprint-plan.outputs.response
+        to: sprints
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Write unit tests for the business logic.
+
+        **Code:** {{code}}
+        **Acceptance criteria (from sprint plan):** {{sprints}}
+
+        Use vitest. Cover: happy paths, validation errors, edge cases, permissions.
+
+        Use: // === FILE: path/to/test === for every test file.
+
+  - id: gen-integration-tests
+    type: code-generation
+    name: "Generate Integration Tests"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.sprint-plan.outputs.response
+        to: sprints
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Write integration tests hitting real API routes.
+
+        **Code:** {{code}}
+        **Sprint UAT scenarios:** {{sprints}}
+
+        Use supertest + vitest. Cover end-to-end flows for each sprint's UAT scenarios.
+
+        Use: // === FILE: path/to/test === for every test file.
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 7: SECURITY + PRODUCTION
+  # ═══════════════════════════════════════════════════════════════════
+  - id: security-audit
+    type: llm-prompt
+    name: "Security Audit"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a security engineer. Find real vulnerabilities: injection, auth
+        bypass, broken access control, secrets in code, unsafe deserialization.
+        Be specific — cite file and line.
+      promptTemplate: |
+        Audit this codebase for security issues.
+
+        **Code:** {{code}}
+
+        Output JSON:
+        {
+          "findings": [{"severity": "critical|high|medium|low", "category": "...", "location": "file:line", "issue": "...", "fix": "..."}],
+          "overallRisk": "high|medium|low",
+          "mustFix": ["finding IDs that block production"]
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: production-review
+    type: llm-prompt
+    name: "Production Readiness"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.security-audit.outputs.response
+        to: security
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal engineer signing off on production deployment.
+        Check: logging, error handling, observability, graceful shutdown,
+        rate limiting, health checks, secrets management.
+      promptTemplate: |
+        Is this code production-ready?
+
+        **Code:** {{code}}
+        **Security audit:** {{security}}
+
+        Output JSON:
+        {
+          "verdict": "harden" | "ready",
+          "score": 0-100,
+          "gaps": [{"area": "...", "severity": "blocking|nice-to-have", "fix": "..."}],
+          "signOff": "one-paragraph summary"
+        }
+      responseFormat: json
+      maxTokens: 4096
+
+  - id: route-production
+    type: decision-routing
+    name: "Route on Production Review"
+    inputs:
+      - from: nodes.production-review.outputs.response
+        to: review
+    outputs:
+      - selectedBranch
+    config:
+      promptTemplate: |
+        Based on the production review, pick a branch. The "verdict" field is authoritative.
+        Review: {{review}}
+      branches:
+        harden: "Code needs hardening — verdict is harden or gaps include blocking items"
+        ready: "Code is production-ready — verdict is ready"
+
+  - id: harden-code
+    type: code-generation
+    name: "Harden for Production"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.security-audit.outputs.response
+        to: security
+      - from: nodes.production-review.outputs.response
+        to: review
+    outputs:
+      - code
+    config:
+      language: typescript
+      execute: false
+      maxTokens: 8192
+      promptTemplate: |
+        Apply production hardening fixes.
+
+        **Code:** {{code}}
+        **Security findings:** {{security}}
+        **Production gaps:** {{review}}
+
+        Output ONLY the files that change or are new.
+        Use: // === FILE: path/to/file === for every file.
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 8: DOCUMENTATION
+  # ═══════════════════════════════════════════════════════════════════
+  - id: gen-documentation
+    type: llm-prompt
+    name: "Generate Documentation"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+      - from: nodes.solution-architecture.outputs.response
+        to: architecture
+      - from: nodes.sprint-plan.outputs.response
+        to: sprints
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        Write clear, professional documentation. No fluff — describe what it
+        does, how to run it, how to deploy it.
+      promptTemplate: |
+        Write the project documentation as a single string containing all doc
+        files. Use: // === FILE: path/to/file === before each file.
+
+        **Brief:** {{brief}}
+        **Architecture:** {{architecture}}
+        **Sprint plan:** {{sprints}}
+
+        Produce:
+        - README.md: overview, setup, run locally, deploy, architecture summary
+        - docs/API.md: all endpoints with request/response examples
+        - docs/DEPLOYMENT.md: Launchmatic deploy steps, env vars, database
+        - docs/SPRINTS.md: the sprint plan as a developer reference
+      responseFormat: text
+      maxTokens: 6144
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 9: ASSEMBLE + SHIP
+  # ═══════════════════════════════════════════════════════════════════
+  - id: assemble-deliverable
+    type: transform
+    name: "Assemble Full Deliverable"
+    inputs:
+      - from: nodes.consolidate-code.outputs.code
+        to: code
+      - from: nodes.harden-code.outputs.code
+        to: hardened
+      - from: nodes.gen-unit-tests.outputs.code
+        to: unitTests
+      - from: nodes.gen-integration-tests.outputs.code
+        to: integrationTests
+      - from: nodes.gen-documentation.outputs.response
+        to: docs
+    outputs:
+      - code
+    config:
+      expression: |
+        ({
+          code: [
+            inputs.code,
+            inputs.hardened || '',
+            inputs.unitTests || '',
+            inputs.integrationTests || '',
+            inputs.docs || ''
+          ].filter(s => s && s.length > 0).join('\n\n')
+        })
+
+  - id: extract-repo-name
+    type: transform
+    name: "Extract Repo Name"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+    outputs:
+      - repoName
+      - displayName
+    config:
+      expression: |
+        ({
+          repoName: (inputs.brief && inputs.brief.productName)
+            ? String(inputs.brief.productName).toLowerCase().replace(/[^a-z0-9-]/g, '-').slice(0, 60)
+            : 'stirrup-mvp-' + Date.now(),
+          displayName: (inputs.brief && inputs.brief.displayName)
+            ? String(inputs.brief.displayName)
+            : 'Stirrup MVP'
+        })
+
+  - id: scaffold-project
+    type: scaffold-files
+    name: "Scaffold to Disk"
+    inputs:
+      - from: nodes.assemble-deliverable.outputs.code
+        to: code
+      - from: nodes.extract-repo-name.outputs.repoName
+        to: repoName
+    outputs:
+      - outputDir
+      - filesWritten
+    config:
+      outputDir: "./idea-to-launch-output"
+
+  - id: create-repo
+    type: github-create-repo
+    name: "Create GitHub Repo"
+    inputs:
+      - from: nodes.extract-repo-name.outputs.repoName
+        to: name
+      - from: context.githubOrg
+        to: org
+      - from: context.githubToken
+        to: token
+    outputs:
+      - htmlUrl
+      - cloneUrl
+      - fullName
+      - defaultBranch
+    config:
+      isPrivate: false
+
+  - id: git-push
+    type: git-init-push
+    name: "Init + Push"
+    inputs:
+      - from: nodes.scaffold-project.outputs.outputDir
+        to: dir
+      - from: nodes.create-repo.outputs.htmlUrl
+        to: remoteUrl
+      - from: context.githubToken
+        to: token
+    outputs:
+      - pushed
+      - branch
+      - filesCommitted
+      - commitMessage
+    config:
+      commitMessage: "feat: initial MVP generated by Stirrup Idea → Launch"
+      branch: main
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 10: DEPLOY TO LAUNCHMATIC
+  # ═══════════════════════════════════════════════════════════════════
+  # First-run setup: ensure the Launchmatic project exists. If it already
+  # exists, the API returns 409 — continueOnError lets us carry on. If it
+  # doesn't, we create it. Either way, subsequent deploy can find it.
+  - id: ensure-lm-project
+    type: lm-create-project
+    name: "Ensure Launchmatic Project"
+    inputs:
+      - from: context.lmToken
+        to: token
+    outputs:
+      - projectId
+      - slug
+      - name
+    config:
+      name: "Stirrup Idea Launches"
+      slug: stirrup-idea-launches
+    continueOnError: true
+
+  - id: deploy-launchmatic
+    type: lm-quicklaunch
+    name: "Deploy to Launchmatic"
+    inputs:
+      - from: nodes.create-repo.outputs.fullName
+        to: repo
+      - from: nodes.extract-repo-name.outputs.repoName
+        to: name
+      - from: nodes.ensure-lm-project.outputs.projectId
+        to: projectId
+      - from: context.lmToken
+        to: token
+    outputs:
+      - url
+      - serviceId
+      - status
+    config:
+      # Slug fallback: used only if projectId input is empty (e.g. the
+      # ensure-lm-project node was skipped). The plugin resolves slug→id
+      # within the team.
+      projectSlug: stirrup-idea-launches
+      branch: main
+    # Deploys have transient failures (cold starts, DNS propagation, queue
+    # pressure). Retry with exponential backoff before declaring defeat.
+    # If all retries fail (e.g. the generated app has a build error
+    # Launchmatic can't recover from), continueOnError lets UAT and the
+    # final grade still run — the grade will reflect the missing deployment
+    # so the user sees the issue clearly.
+    retry:
+      maxAttempts: 3
+      backoffMs: 10000
+      backoffMultiplier: 2
+    continueOnError: true
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 11: UAT — Real browser testing against the deployed URL
+  # ═══════════════════════════════════════════════════════════════════
+  # The browser test can fail intermittently (network, DNS) and the
+  # screenshot is purely supplementary — neither should block grading.
+  - id: uat-browser-test
+    type: lm-browser-test
+    name: "UAT: Browser Test"
+    inputs:
+      - from: nodes.deploy-launchmatic.outputs.url
+        to: url
+      - from: context.lmToken
+        to: token
+    outputs:
+      - passed
+      - status
+      - loadTimeMs
+      - jsErrors
+      - consoleWarnings
+      - title
+      - linksChecked
+      - brokenLinks
+    config:
+      checkLinks: true
+      timeout: 45000
+    retry:
+      maxAttempts: 2
+      backoffMs: 5000
+      backoffMultiplier: 2
+    continueOnError: true
+
+  - id: uat-screenshot
+    type: lm-browser-screenshot
+    name: "UAT: Capture Home"
+    inputs:
+      - from: nodes.deploy-launchmatic.outputs.url
+        to: url
+      - from: context.lmToken
+        to: token
+    outputs:
+      - path
+      - size
+    config:
+      fullPage: true
+    continueOnError: true
+
+  # Flatten per-sprint UAT scenarios into a single flat array so we can
+  # iterate over each one individually and get per-scenario grades.
+  - id: flatten-scenarios
+    type: transform
+    name: "Flatten UAT Scenarios"
+    inputs:
+      - from: nodes.sprint-plan.outputs.response
+        to: plan
+    outputs:
+      - scenarios
+    config:
+      expression: |
+        ({
+          scenarios: (inputs.plan && inputs.plan.sprints ? inputs.plan.sprints : [])
+            .flatMap(s => (s.uatScenarios || []).map(sc => ({
+              ...sc,
+              sprintNumber: s.number,
+              sprintGoal: s.goal
+            })))
+        })
+
+  # Iterate: run an AI analysis PER UAT scenario. This produces per-scenario
+  # pass/fail + rationale, which is richer than a single aggregate analysis.
+  # Uses parallel mode with concurrency=4 to keep total time bounded even
+  # with many scenarios.
+  - id: uat-per-scenario
+    type: iterate
+    name: "UAT: Per-Scenario Analysis"
+    inputs:
+      - from: nodes.flatten-scenarios.outputs.scenarios
+        to: items
+      - from: nodes.uat-browser-test.outputs.passed
+        to: browserPassed
+      - from: nodes.uat-browser-test.outputs.status
+        to: httpStatus
+      - from: nodes.uat-browser-test.outputs.jsErrors
+        to: jsErrors
+      - from: nodes.uat-browser-test.outputs.brokenLinks
+        to: brokenLinks
+      - from: nodes.deploy-launchmatic.outputs.url
+        to: deployedUrl
+    outputs:
+      - results
+      - count
+      - successCount
+      - failureCount
+    config:
+      childType: llm-prompt
+      mode: parallel
+      concurrency: 4
+      childConfig:
+        systemPrompt: >
+          You are a QA tester evaluating a single UAT scenario against a
+          deployed site. Use the browser test evidence to judge whether the
+          scenario can plausibly pass. Be honest — if the evidence doesn't
+          cover the scenario, say so.
+        promptTemplate: |
+          Evaluate this UAT scenario against the deployed site.
+
+          **Scenario:** {{item}}
+          **Deployed URL:** {{deployedUrl}}
+          **Smoke test passed:** {{browserPassed}}
+          **HTTP status:** {{httpStatus}}
+          **JS errors:** {{jsErrors}}
+          **Broken links:** {{brokenLinks}}
+
+          Output JSON:
+          {
+            "scenarioId": "<id>",
+            "sprintNumber": <number>,
+            "verdict": "pass|fail|inconclusive",
+            "confidence": "high|medium|low",
+            "rationale": "one-sentence why",
+            "evidence": "specific evidence from the smoke test",
+            "blockers": ["if fail, what's broken"]
+          }
+        responseFormat: json
+        maxTokens: 1024
+
+  # Aggregate per-scenario verdicts into a single UAT summary + grade.
+  - id: uat-analysis
+    type: llm-prompt
+    name: "UAT: Aggregate Grade"
+    inputs:
+      - from: nodes.uat-per-scenario.outputs.results
+        to: perScenario
+      - from: nodes.uat-per-scenario.outputs.successCount
+        to: scenariosEvaluated
+      - from: nodes.uat-browser-test.outputs.passed
+        to: browserPassed
+      - from: nodes.uat-browser-test.outputs.loadTimeMs
+        to: loadTime
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a QA lead aggregating per-scenario UAT verdicts into a
+        single grade. Weight failures heavily.
+      promptTemplate: |
+        Aggregate these per-scenario UAT verdicts into a final UAT assessment.
+
+        **Per-scenario results:** {{perScenario}}
+        **Scenarios evaluated:** {{scenariosEvaluated}}
+        **Overall smoke test passed:** {{browserPassed}}
+        **Load time (ms):** {{loadTime}}
+
+        Output JSON:
+        {
+          "uatGrade": "A|B|C|D|F",
+          "scenariosPassed": <number>,
+          "scenariosFailed": <number>,
+          "scenariosInconclusive": <number>,
+          "blockers": ["critical UAT failures"],
+          "warnings": ["non-blocking issues"],
+          "performanceNote": "load time assessment",
+          "recommendedFixes": ["ordered by priority"],
+          "shipReady": true | false
+        }
+      responseFormat: json
+      maxTokens: 3072
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 12: FINAL GRADE — Overall product assessment
+  # ═══════════════════════════════════════════════════════════════════
+  - id: final-grade
+    type: llm-prompt
+    name: "Final Product Grade"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+      - from: nodes.requirements-discovery.outputs.response
+        to: requirements
+      - from: nodes.quality-review.outputs.response
+        to: qualityReview
+      - from: nodes.per-sprint-review.outputs.results
+        to: sprintReviews
+      - from: nodes.security-audit.outputs.response
+        to: security
+      - from: nodes.production-review.outputs.response
+        to: production
+      - from: nodes.uat-analysis.outputs.response
+        to: uat
+    outputs:
+      - response
+    config:
+      systemPrompt: >
+        You are a principal engineer assigning a final product grade. Weigh:
+        requirements coverage (20%), per-sprint deliverables (15%), code
+        quality (15%), security (15%), production readiness (10%), UAT
+        results (25%). Be rigorous — A is reserved for genuinely excellent
+        output.
+      promptTemplate: |
+        Assign the final grade.
+
+        **Brief:** {{brief}}
+        **Requirements:** {{requirements}}
+        **Per-sprint deliverable reviews:** {{sprintReviews}}
+        **Code quality review:** {{qualityReview}}
+        **Security audit:** {{security}}
+        **Production review:** {{production}}
+        **UAT analysis (per-scenario verdicts aggregated):** {{uat}}
+
+        Output JSON:
+        {
+          "grade": "A+|A|A-|B+|B|B-|C+|C|D|F",
+          "compositeScore": 0-100,
+          "scores": {
+            "requirementsCoverage": 0-100,
+            "sprintDeliverables": 0-100,
+            "codeQuality": 0-100,
+            "security": 0-100,
+            "productionReadiness": 0-100,
+            "uat": 0-100
+          },
+          "strengths": ["..."],
+          "weaknesses": ["..."],
+          "shipRecommendation": "ship|ship-with-caveats|rework",
+          "summary": "one-paragraph final assessment"
+        }
+      responseFormat: json
+      maxTokens: 3072
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PHASE 13: DELIVERY SUMMARY
+  # ═══════════════════════════════════════════════════════════════════
+  - id: delivery-summary
+    type: transform
+    name: "Delivery Summary"
+    inputs:
+      - from: nodes.normalize-brief.outputs.response
+        to: brief
+      - from: nodes.sprint-plan.outputs.response
+        to: sprints
+      - from: nodes.per-sprint-review.outputs.results
+        to: sprintReviews
+      - from: nodes.create-repo.outputs.htmlUrl
+        to: repoUrl
+      - from: nodes.git-push.outputs.filesCommitted
+        to: filesCommitted
+      - from: nodes.deploy-launchmatic.outputs.url
+        to: liveUrl
+      - from: nodes.uat-per-scenario.outputs.results
+        to: uatPerScenario
+      - from: nodes.uat-analysis.outputs.response
+        to: uat
+      - from: nodes.final-grade.outputs.response
+        to: grade
+      - from: nodes.scaffold-project.outputs.filesWritten
+        to: filesWritten
+    outputs:
+      - result
+    config:
+      expression: |
+        ({
+          result: {
+            status: 'launched',
+            product: {
+              name: inputs.brief && inputs.brief.displayName,
+              vision: inputs.brief && inputs.brief.vision,
+              source: inputs.brief && inputs.brief.source
+            },
+            repository: {
+              url: inputs.repoUrl,
+              filesCommitted: inputs.filesCommitted
+            },
+            deployment: {
+              liveUrl: inputs.liveUrl
+            },
+            filesWritten: inputs.filesWritten,
+            sprints: inputs.sprints,
+            sprintReviews: inputs.sprintReviews,
+            uat: inputs.uat,
+            uatPerScenario: inputs.uatPerScenario,
+            grade: inputs.grade,
+            deliveredAt: new Date().toISOString()
+          }
+        })
+
+edges:
+  # Phase 0 → 1
+  - from: normalize-brief
+    to: requirements-discovery
+
+  # Phase 1 → 2
+  - from: requirements-discovery
+    to: solution-architecture
+
+  # Phase 2 → 3 (sprint planning)
+  - from: requirements-discovery
+    to: sprint-plan
+  - from: solution-architecture
+    to: sprint-plan
+
+  # Phase 3 → 4 (code gen fan-out, sequential-aware)
+  - from: solution-architecture
+    to: gen-infrastructure
+  - from: solution-architecture
+    to: gen-data-models
+  - from: gen-data-models
+    to: gen-business-logic
+  - from: solution-architecture
+    to: gen-business-logic
+  - from: gen-data-models
+    to: gen-api-routes
+  - from: gen-business-logic
+    to: gen-api-routes
+  - from: solution-architecture
+    to: gen-api-routes
+
+  # Phase 4 fan-in → merge
+  - from: gen-infrastructure
+    to: merge-code
+  - from: gen-data-models
+    to: merge-code
+  - from: gen-business-logic
+    to: merge-code
+  - from: gen-api-routes
+    to: merge-code
+
+  # Phase 5: quality gate + conditional refine
+  - from: merge-code
+    to: quality-review
+  - from: quality-review
+    to: route-quality
+  - from: route-quality
+    to: refine-code
+    condition: refine
+  - from: merge-code
+    to: refine-code
+  - from: merge-code
+    to: consolidate-code
+  - from: refine-code
+    to: consolidate-code
+  - from: route-quality
+    to: consolidate-code
+    condition: accept
+
+  # Phase 5b: per-sprint review (sequential iteration over sprints)
+  - from: sprint-plan
+    to: extract-sprints
+  - from: extract-sprints
+    to: per-sprint-review
+  - from: consolidate-code
+    to: per-sprint-review
+
+  # Phase 6: tests (parallel)
+  - from: consolidate-code
+    to: gen-unit-tests
+  - from: consolidate-code
+    to: gen-integration-tests
+  - from: sprint-plan
+    to: gen-unit-tests
+  - from: sprint-plan
+    to: gen-integration-tests
+
+  # Phase 7: security + production + conditional harden
+  - from: consolidate-code
+    to: security-audit
+  - from: security-audit
+    to: production-review
+  - from: consolidate-code
+    to: production-review
+  - from: production-review
+    to: route-production
+  - from: route-production
+    to: harden-code
+    condition: harden
+  - from: security-audit
+    to: harden-code
+  - from: consolidate-code
+    to: harden-code
+
+  # Phase 8: docs
+  - from: consolidate-code
+    to: gen-documentation
+  - from: sprint-plan
+    to: gen-documentation
+
+  # Phase 9: assemble + ship (all must complete before assembly)
+  - from: gen-unit-tests
+    to: assemble-deliverable
+  - from: gen-integration-tests
+    to: assemble-deliverable
+  - from: gen-documentation
+    to: assemble-deliverable
+  - from: route-production
+    to: assemble-deliverable
+    condition: ready
+  - from: harden-code
+    to: assemble-deliverable
+
+  # Phase 9 cont: repo + push
+  - from: normalize-brief
+    to: extract-repo-name
+  - from: assemble-deliverable
+    to: scaffold-project
+  - from: extract-repo-name
+    to: scaffold-project
+  - from: extract-repo-name
+    to: create-repo
+  - from: normalize-brief
+    to: create-repo
+  - from: scaffold-project
+    to: git-push
+  - from: create-repo
+    to: git-push
+
+  # Phase 10: deploy (ensure project exists first)
+  - from: normalize-brief
+    to: ensure-lm-project
+  - from: ensure-lm-project
+    to: deploy-launchmatic
+  - from: git-push
+    to: deploy-launchmatic
+  - from: create-repo
+    to: deploy-launchmatic
+  - from: extract-repo-name
+    to: deploy-launchmatic
+
+  # Phase 11: UAT against deployed URL (iterate per scenario)
+  - from: deploy-launchmatic
+    to: uat-browser-test
+  - from: deploy-launchmatic
+    to: uat-screenshot
+  # Flatten sprints' scenarios into a single array for iteration
+  - from: sprint-plan
+    to: flatten-scenarios
+  # Iterate per scenario — needs scenarios list + browser test evidence + URL
+  - from: flatten-scenarios
+    to: uat-per-scenario
+  - from: uat-browser-test
+    to: uat-per-scenario
+  - from: deploy-launchmatic
+    to: uat-per-scenario
+  # Aggregate per-scenario verdicts into a single UAT grade
+  - from: uat-per-scenario
+    to: uat-analysis
+  - from: uat-browser-test
+    to: uat-analysis
+
+  # Phase 12: final grade waits for everything
+  - from: uat-analysis
+    to: final-grade
+  - from: quality-review
+    to: final-grade
+  - from: per-sprint-review
+    to: final-grade
+  - from: security-audit
+    to: final-grade
+  - from: production-review
+    to: final-grade
+  - from: normalize-brief
+    to: final-grade
+  - from: requirements-discovery
+    to: final-grade
+
+  # Phase 13: summary
+  - from: final-grade
+    to: delivery-summary
+  - from: uat-screenshot
+    to: delivery-summary

@@ -194,4 +194,100 @@ describe("Scheduler", () => {
     expect(result.steps["high-path"].outputs.result).toBe("HIGH: 5");
     expect(result.steps["low-path"].status).toBe("skipped");
   });
+
+  it("continueOnError: downstream still runs when a failed node allows it", async () => {
+    const registry = new NodeRegistry();
+    registry.register("transform", transformHandler);
+
+    const workflow: WorkflowDefinition = {
+      id: "soft-fail",
+      name: "Soft Fail",
+      version: "1",
+      nodes: [
+        {
+          id: "ok",
+          type: "transform",
+          name: "OK",
+          inputs: [],
+          outputs: ["v"],
+          config: { expression: "({ v: 1 })" },
+        },
+        {
+          id: "boom",
+          type: "transform",
+          name: "Boom",
+          inputs: [],
+          outputs: ["v"],
+          config: { expression: "(() => { throw new Error('boom') })()" },
+          continueOnError: true,
+        },
+        {
+          id: "after",
+          type: "transform",
+          name: "After",
+          inputs: [
+            { from: "nodes.ok.outputs.v", to: "ok" },
+          ],
+          outputs: ["done"],
+          config: { expression: "({ done: true })" },
+        },
+      ],
+      edges: [
+        { from: "ok", to: "after" },
+        { from: "boom", to: "after" },
+      ],
+    };
+
+    const opts = makeSchedulerOptions(registry);
+    const scheduler = new Scheduler(workflow, makeState("soft-fail"), opts);
+    const result = await scheduler.execute();
+
+    // Workflow completes despite the boom failure
+    expect(result.status).toBe("completed");
+    expect(result.steps["ok"].status).toBe("completed");
+    expect(result.steps["boom"].status).toBe("failed");
+    expect(result.steps["boom"].error?.message).toContain("boom");
+    // Downstream ran
+    expect(result.steps["after"].status).toBe("completed");
+    expect(result.steps["after"].outputs.done).toBe(true);
+  });
+
+  it("without continueOnError: a failure aborts the workflow", async () => {
+    const registry = new NodeRegistry();
+    registry.register("transform", transformHandler);
+
+    const workflow: WorkflowDefinition = {
+      id: "hard-fail",
+      name: "Hard Fail",
+      version: "1",
+      nodes: [
+        {
+          id: "boom",
+          type: "transform",
+          name: "Boom",
+          inputs: [],
+          outputs: ["v"],
+          config: { expression: "(() => { throw new Error('nope') })()" },
+        },
+        {
+          id: "after",
+          type: "transform",
+          name: "After",
+          inputs: [{ from: "nodes.boom.outputs.v", to: "v" }],
+          outputs: ["done"],
+          config: { expression: "({ done: true })" },
+        },
+      ],
+      edges: [{ from: "boom", to: "after" }],
+    };
+
+    const opts = makeSchedulerOptions(registry);
+    const scheduler = new Scheduler(workflow, makeState("hard-fail"), opts);
+    const result = await scheduler.execute();
+
+    expect(result.status).toBe("failed");
+    expect(result.steps["boom"].status).toBe("failed");
+    // Downstream should NOT have run
+    expect(result.steps["after"]).toBeUndefined();
+  });
 });

@@ -13,3 +13,4 @@ src/ui/dist/
 plugins/premium/
 deploy/
 *-workspace/
+idea-to-launch-output/

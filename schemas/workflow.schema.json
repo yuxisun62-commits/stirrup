@@ -130,6 +130,10 @@
             "type": "array",
             "items": { "type": "string" }
           }
+        },
+        "continueOnError": {
+          "type": "boolean",
+          "description": "If true, a failed node lets execution continue. Downstream can inspect the failed step's error field."
         }
       },
       "additionalProperties": false
