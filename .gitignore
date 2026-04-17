@@ -15,3 +15,5 @@ deploy/
 *-workspace/
 idea-to-launch-output/
 deploy-smoke-output/
+plugins/public/*.js
+plugins/public/*.d.ts

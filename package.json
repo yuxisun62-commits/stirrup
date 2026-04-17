@@ -1,6 +1,6 @@
 {
   "name": "stirrup-ai",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "DAG workflow engine with AI-powered nodes — design, run, and deploy workflows from CLI, UI, or code",
   "type": "module",
   "main": "./dist/index.js",
@@ -26,7 +26,7 @@
     "stirrup-mcp": "./bin/stirrup-mcp.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc -p tsconfig.plugins.json && node scripts/clean-plugin-build.mjs",
     "build:ui": "cd ui && npm run build",
     "build:all": "npm run build:ui && tsc",
     "test": "vitest run",

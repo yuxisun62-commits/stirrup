@@ -77,7 +77,6 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
   }
 
   // Build the provider router — routes by model prefix (gemini-*, claude-*)
-  // At least one provider must be available for AI nodes to register.
   const hasAnyProvider = !!(anthropicApiKey || geminiApiKey);
 
   if (hasAnyProvider) {
@@ -93,6 +92,25 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
     registry.register("agent-tool-use", createAgentToolUseHandler(router, toolManager));
     registry.register("decision-routing", createDecisionRoutingHandler(router));
     registry.register("code-generation", createCodeGenerationHandler(router));
+  } else {
+    // No AI provider configured. Register stub handlers so that running a
+    // workflow with AI nodes fails with an actionable message at the node
+    // level ("set ANTHROPIC_API_KEY or connect via Connections panel")
+    // instead of the cryptic "No handler registered for node type"
+    // engine-level error — which hides the real cause of "I have no API key".
+    if (config.verbose) {
+      console.log("  [ai] no provider configured — set ANTHROPIC_API_KEY or GEMINI_API_KEY, or connect via the UI Connections panel");
+    }
+    const missingProviderError = () => {
+      throw new Error(
+        "No AI provider configured. Set ANTHROPIC_API_KEY or GEMINI_API_KEY " +
+        "in your environment, or connect a provider in the Connections panel of the UI."
+      );
+    };
+    registry.register("llm-prompt", missingProviderError);
+    registry.register("agent-tool-use", missingProviderError);
+    registry.register("decision-routing", missingProviderError);
+    registry.register("code-generation", missingProviderError);
   }
 
   // Auto-load built-in plugins (zero-dep ones load immediately, peer-dep on demand)

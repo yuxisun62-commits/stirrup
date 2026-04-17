@@ -1,0 +1,28 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // rootDir spans both src/ (for type-only imports of PluginContext) and
+    // plugins/ (for the files we actually want to emit). outDir mirrors
+    // the same tree, so plugin files end up at plugins/public/*.js while
+    // the type-only src/ references get type-checked but not emitted
+    // (they're excluded from `include`).
+    "rootDir": ".",
+    "outDir": ".",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": false,
+    "isolatedModules": true
+  },
+  "include": ["plugins/public/*.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "plugins/**/*.js",
+    "plugins/**/*.d.ts",
+    "plugins/public/redis.ts",
+    "plugins/public/s3.ts",
+    "plugins/public/postgres.ts",
+    "plugins/public/email.ts"
+  ]
+}

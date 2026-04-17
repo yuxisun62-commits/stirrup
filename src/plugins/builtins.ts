@@ -37,13 +37,17 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
 ];
 
 function resolvePluginPath(name: string): string | null {
+  // Prefer .js over .ts: the published package ships both, but Node < 22.6
+  // cannot import .ts natively, so the compiled .js is the only path that
+  // works on every supported runtime. .ts remains as a fallback so local
+  // dev in this repo still works when `npm run build` hasn't been run yet.
   const candidates = [
-    resolve(__dirname, `../../plugins/public/${name}.ts`),
     resolve(__dirname, `../../plugins/public/${name}.js`),
-    resolve(__dirname, `../../../plugins/public/${name}.ts`),
+    resolve(__dirname, `../../plugins/public/${name}.ts`),
     resolve(__dirname, `../../../plugins/public/${name}.js`),
-    resolve(process.cwd(), `plugins/public/${name}.ts`),
+    resolve(__dirname, `../../../plugins/public/${name}.ts`),
     resolve(process.cwd(), `plugins/public/${name}.js`),
+    resolve(process.cwd(), `plugins/public/${name}.ts`),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;

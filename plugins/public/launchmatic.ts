@@ -180,23 +180,19 @@ export default function register(ctx: PluginContext) {
     // Idempotent: if a service with this slug already exists in the project,
     // reuse it and just trigger a new deployment. Avoids 500s on the service
     // POST when the unique constraint on (projectId, slug) collides.
-    let service = await findServiceBySlug(api, projectId, serviceSlug);
-    let reused = false;
-    if (service) {
-      reused = true;
-    } else {
-      service = await api("POST", "/services", {
-        name,
-        slug: serviceSlug,
-        type: "WEB",
-        projectId,
-        repoOwner,
-        repoName,
-        repoBranch: branch ?? "main",
-        port: port ?? 3000,
-        framework,
-      });
-    }
+    const existingService = await findServiceBySlug(api, projectId, serviceSlug);
+    const reused = !!existingService;
+    const service: Record<string, unknown> = existingService ?? await api("POST", "/services", {
+      name,
+      slug: serviceSlug,
+      type: "WEB",
+      projectId,
+      repoOwner,
+      repoName,
+      repoBranch: branch ?? "main",
+      port: port ?? 3000,
+      framework,
+    });
 
     const deployment = await api("POST", "/deployments", {
       serviceId: service.id,
@@ -346,7 +342,7 @@ export default function register(ctx: PluginContext) {
     const connString = (creds.connectionString as string) || (creds.externalUrl as string);
     if (!connString) throw new Error("Could not retrieve connection string from /credentials");
 
-    const pg = await import("pg").catch(() => { throw new Error("pg required: npm install pg"); });
+    const pg: any = await import("pg" as any).catch(() => { throw new Error("pg required: npm install pg"); });
     const Pool = pg.default?.Pool ?? (pg as any).Pool;
     const pool = new Pool({ connectionString: connString });
     try {
@@ -361,7 +357,7 @@ export default function register(ctx: PluginContext) {
     const creds = await api("GET", `/databases/${databaseId}/credentials`);
     const connString = (creds.connectionString as string) || (creds.externalUrl as string);
     if (!connString) throw new Error("Could not retrieve connection string from /credentials");
-    const pg = await import("pg").catch(() => { throw new Error("pg required"); });
+    const pg: any = await import("pg" as any).catch(() => { throw new Error("pg required"); });
     const Pool = pg.default?.Pool ?? (pg as any).Pool;
     const pool = new Pool({ connectionString: connString });
     try {
@@ -627,7 +623,7 @@ export default function register(ctx: PluginContext) {
       const creds = await api("GET", `/databases/${input.databaseId}/credentials`);
       const connString = (creds.connectionString as string) || (creds.externalUrl as string);
       if (!connString) throw new Error("Could not retrieve connection string from /credentials");
-      const pg = await import("pg").catch(() => { throw new Error("pg required"); });
+      const pg: any = await import("pg" as any).catch(() => { throw new Error("pg required"); });
       const Pool = pg.default?.Pool ?? (pg as any).Pool;
       const pool = new Pool({ connectionString: connString });
       try {
