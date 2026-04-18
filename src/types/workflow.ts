@@ -14,7 +14,9 @@ export type NodeType =
   | "agent-tool-use"
   | "decision-routing"
   | "code-generation"
-  | "iterate";
+  | "iterate"
+  | "passthrough"
+  | "fail";
 
 /** Retry policy for a node */
 export interface RetryPolicy {

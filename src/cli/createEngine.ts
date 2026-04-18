@@ -5,6 +5,8 @@ import { SqliteStateStore } from "../persistence/SqliteStateStore.js";
 import { FileStateStore } from "../persistence/FileStateStore.js";
 import { transformHandler } from "../nodes/TransformNode.js";
 import { conditionHandler } from "../nodes/ConditionNode.js";
+import { passthroughHandler } from "../nodes/PassthroughNode.js";
+import { failHandler } from "../nodes/FailNode.js";
 import { httpHandler } from "../nodes/HttpNode.js";
 import { scriptHandler } from "../nodes/ScriptNode.js";
 import { createIterateHandler } from "../nodes/IterateNode.js";
@@ -48,6 +50,8 @@ export async function createEngine(config: AppConfig): Promise<CreateEngineResul
   registry.register("condition", conditionHandler);
   registry.register("http", httpHandler);
   registry.register("script", scriptHandler);
+  registry.register("passthrough", passthroughHandler);
+  registry.register("fail", failHandler);
   // Iterate needs the registry itself so it can dispatch to child node types
   registry.register("iterate", createIterateHandler(registry));
 

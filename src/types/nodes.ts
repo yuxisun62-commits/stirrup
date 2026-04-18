@@ -94,3 +94,30 @@ export interface IterateConfig {
    */
   continueOnIterationError?: boolean;
 }
+
+/**
+ * Passthrough node — forwards inputs to outputs with optional metadata merge.
+ * Useful as a structural placeholder (triggers, no-op connectors) or as a
+ * stub for foreign nodes that haven't been fully mapped (the n8n importer
+ * emits passthroughs for unmapped node types, carrying the original config
+ * under `metadata.original` so the user can inspect and replace them later).
+ */
+export interface PassthroughConfig {
+  /** Label shown on the canvas. If the node is a stub for an unmapped foreign
+   * type, include the original type here so the user knows what to swap in. */
+  label?: string;
+  /** Arbitrary metadata merged into the node's output alongside inputs.
+   * The importer puts the source node's original config here. */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Fail node — always throws. Used when an upstream workflow needs to
+ * terminate a branch with an explicit error (n8n's stopAndError, Make's
+ * break module). The thrown message propagates through the engine like any
+ * other node failure.
+ */
+export interface FailConfig {
+  /** Error message. Defaults to "Workflow explicitly failed". */
+  message?: string;
+}

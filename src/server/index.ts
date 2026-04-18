@@ -14,6 +14,7 @@ import { generateRoutes } from "./routes/generate.js";
 import { exportRoutes } from "./routes/export.js";
 import { authRoutes } from "./routes/auth.js";
 import { debugRoutes } from "./routes/debug.js";
+import { importRoutes } from "./routes/import.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { authMiddleware, hostCheckMiddleware, csrfMiddleware } from "./middleware/auth.js";
 
@@ -58,6 +59,7 @@ export function createServer(options: ServerOptions) {
   app.use("/api/export", exportRoutes(engine));
   app.use("/api/auth", authRoutes());
   app.use("/api/debug", debugRoutes(engine));
+  app.use("/api/import", importRoutes(engine, workflowsDir));
 
   // Serve React UI static files if they exist
   const uiDistDir = resolve(__dirname, "../../src/ui/dist");

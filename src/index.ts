@@ -49,6 +49,8 @@ export { conditionHandler } from "./nodes/ConditionNode.js";
 export { httpHandler } from "./nodes/HttpNode.js";
 export { scriptHandler } from "./nodes/ScriptNode.js";
 export { createIterateHandler } from "./nodes/IterateNode.js";
+export { passthroughHandler } from "./nodes/PassthroughNode.js";
+export { failHandler } from "./nodes/FailNode.js";
 
 // AI node handler factories
 export { createLlmPromptHandler } from "./nodes/LlmPromptNode.js";
