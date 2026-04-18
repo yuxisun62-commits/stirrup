@@ -296,6 +296,32 @@ export interface TemplateInfo {
 export const listTemplates = () => request<TemplateInfo[]>('/templates');
 export const getTemplate = (id: string) => request<WorkflowDefinition>(`/templates/${id}`);
 
+// Import (foreign formats)
+export interface ImportReport {
+  sourceName: string;
+  nodeCount: number;
+  edgeCount: number;
+  mapped: Record<string, number>;
+  stubbed: Record<string, number>;
+  dropped: Record<string, number>;
+  warnings: string[];
+}
+export interface ImportResponse {
+  workflow: WorkflowDefinition;
+  report: ImportReport;
+  persisted: boolean;
+}
+/**
+ * Import an n8n workflow JSON. Pass `dryRun: true` to preview the report
+ * without writing the workflow to disk. Non-dryRun persists to workflowsDir
+ * and registers in the engine; the response includes the final workflow id.
+ */
+export const importN8n = (source: unknown, options: { dryRun?: boolean } = {}) =>
+  request<ImportResponse>(`/import/n8n${options.dryRun ? '?dryRun=1' : ''}`, {
+    method: 'POST',
+    body: JSON.stringify({ source }),
+  });
+
 // SSE
 export function subscribeToExecution(executionId: string, onEvent: (type: string, data: unknown) => void): () => void {
   const source = new EventSource(`${BASE}/executions/${executionId}/events`);

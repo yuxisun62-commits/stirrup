@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { listTemplates, getTemplate, type TemplateInfo, type WorkflowDefinition } from '../api/client';
+import { useState, useEffect, useRef } from 'react';
+import { listTemplates, getTemplate, importN8n, type TemplateInfo, type WorkflowDefinition, type ImportReport } from '../api/client';
 import { tokens } from './ui/styles';
 
 interface Props {
@@ -28,6 +28,9 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadingTemplate, setLoadingTemplate] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState<ImportReport | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     listTemplates()
@@ -47,6 +50,24 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
       alert(`Failed to load template: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoadingTemplate(false);
+    }
+  };
+
+  const handleImportFile = async (file: File) => {
+    setImporting(true);
+    setImportReport(null);
+    try {
+      const text = await file.text();
+      const source = JSON.parse(text);
+      const result = await importN8n(source);
+      setImportReport(result.report);
+      // Load the imported workflow onto the canvas
+      onSelect(result.workflow);
+    } catch (err) {
+      alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -75,17 +96,67 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Workflow Templates</div>
             <div style={{ fontSize: 12, color: tokens.text.muted, marginTop: 2 }}>
-              Start from a pre-built workflow and customize it
+              Start from a pre-built workflow or import one from n8n
             </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', color: tokens.text.muted,
-              fontSize: 20, cursor: 'pointer', padding: '4px 8px',
-            }}
-          >x</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportFile(file);
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              title="Import an n8n workflow JSON export"
+              style={{
+                padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6,
+                border: `1px solid ${tokens.border.default}`,
+                backgroundColor: tokens.bg.raised,
+                color: tokens.text.primary, cursor: importing ? 'default' : 'pointer',
+                opacity: importing ? 0.6 : 1,
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              {importing ? 'Importing…' : 'Import n8n…'}
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                background: 'none', border: 'none', color: tokens.text.muted,
+                fontSize: 20, cursor: 'pointer', padding: '4px 8px',
+              }}
+            >x</button>
+          </div>
         </div>
+
+        {/* Import report banner */}
+        {importReport && (
+          <div style={{
+            padding: '12px 20px', borderBottom: `1px solid ${tokens.border.subtle}`,
+            backgroundColor: `${tokens.border.focus}08`,
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: tokens.text.primary, marginBottom: 4 }}>
+              Imported: {importReport.sourceName}
+            </div>
+            <div style={{ fontSize: 11, color: tokens.text.secondary, lineHeight: 1.5 }}>
+              {importReport.nodeCount} nodes, {importReport.edgeCount} edges ·{' '}
+              {Object.values(importReport.mapped).reduce((a, b) => a + b, 0)} mapped ·{' '}
+              <span style={{ color: Object.keys(importReport.stubbed).length > 0 ? '#f59e0b' : tokens.text.secondary }}>
+                {Object.values(importReport.stubbed).reduce((a, b) => a + b, 0)} stubbed
+              </span>
+              {Object.keys(importReport.stubbed).length > 0 && (
+                <> · needs manual mapping: {Object.keys(importReport.stubbed).sort().slice(0, 8).join(', ')}
+                {Object.keys(importReport.stubbed).length > 8 ? '…' : ''}</>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Template grid */}
         <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
