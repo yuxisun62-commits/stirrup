@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { importN8nWorkflow } from "../../import/n8n.js";
+import { importMakeBlueprint } from "../../import/make.js";
 import { validateWorkflow } from "../../validation/WorkflowValidator.js";
 import { loadConfig } from "../config.js";
 import { success, error, info } from "../output.js";
@@ -27,7 +28,7 @@ export const importCommand: CommandModule<{}, ImportArgs> = {
       .option("format", {
         type: "string",
         default: "n8n",
-        choices: ["n8n"],
+        choices: ["n8n", "make"],
         describe: "Source format to import from",
       })
       .option("workflows-dir", {
@@ -54,12 +55,9 @@ export const importCommand: CommandModule<{}, ImportArgs> = {
       process.exit(1);
     }
 
-    if (argv.format !== "n8n") {
-      error(`Unsupported format: ${argv.format}`);
-      process.exit(1);
-    }
-
-    const { workflow, report } = importN8nWorkflow(source as any);
+    const { workflow, report } = argv.format === "make"
+      ? importMakeBlueprint(source as any)
+      : importN8nWorkflow(source as any);
 
     try {
       validateWorkflow(workflow);

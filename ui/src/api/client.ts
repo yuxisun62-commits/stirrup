@@ -312,12 +312,18 @@ export interface ImportResponse {
   persisted: boolean;
 }
 /**
- * Import an n8n workflow JSON. Pass `dryRun: true` to preview the report
- * without writing the workflow to disk. Non-dryRun persists to workflowsDir
- * and registers in the engine; the response includes the final workflow id.
+ * Import a foreign workflow. `format` selects the parser; `dryRun: true`
+ * previews the report without persisting. Non-dryRun persists to
+ * workflowsDir and registers the workflow in the engine.
  */
 export const importN8n = (source: unknown, options: { dryRun?: boolean } = {}) =>
   request<ImportResponse>(`/import/n8n${options.dryRun ? '?dryRun=1' : ''}`, {
+    method: 'POST',
+    body: JSON.stringify({ source }),
+  });
+
+export const importMake = (source: unknown, options: { dryRun?: boolean } = {}) =>
+  request<ImportResponse>(`/import/make${options.dryRun ? '?dryRun=1' : ''}`, {
     method: 'POST',
     body: JSON.stringify({ source }),
   });

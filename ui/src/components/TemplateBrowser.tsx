@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { listTemplates, getTemplate, importN8n, type TemplateInfo, type WorkflowDefinition, type ImportReport } from '../api/client';
+import { listTemplates, getTemplate, importN8n, importMake, type TemplateInfo, type WorkflowDefinition, type ImportReport } from '../api/client';
 import { tokens } from './ui/styles';
 
 interface Props {
@@ -30,6 +30,7 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
   const [loadingTemplate, setLoadingTemplate] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importReport, setImportReport] = useState<ImportReport | null>(null);
+  const [importFormat, setImportFormat] = useState<'n8n' | 'make'>('n8n');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -59,9 +60,10 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
     try {
       const text = await file.text();
       const source = JSON.parse(text);
-      const result = await importN8n(source);
+      const result = importFormat === 'make'
+        ? await importMake(source)
+        : await importN8n(source);
       setImportReport(result.report);
-      // Load the imported workflow onto the canvas
       onSelect(result.workflow);
     } catch (err) {
       alert(`Import failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -96,7 +98,7 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Workflow Templates</div>
             <div style={{ fontSize: 12, color: tokens.text.muted, marginTop: 2 }}>
-              Start from a pre-built workflow or import one from n8n
+              Start from a pre-built workflow or import one from n8n / Make.com
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -110,21 +112,46 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
                 if (file) handleImportFile(file);
               }}
             />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={importing}
-              title="Import an n8n workflow JSON export"
-              style={{
-                padding: '6px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6,
-                border: `1px solid ${tokens.border.default}`,
-                backgroundColor: tokens.bg.raised,
-                color: tokens.text.primary, cursor: importing ? 'default' : 'pointer',
-                opacity: importing ? 0.6 : 1,
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}
-            >
-              {importing ? 'Importing…' : 'Import n8n…'}
-            </button>
+            <div style={{ display: 'flex', gap: 0, alignItems: 'stretch' }}>
+              <select
+                value={importFormat}
+                onChange={(e) => setImportFormat(e.target.value as 'n8n' | 'make')}
+                disabled={importing}
+                title="Source format of the JSON you're importing"
+                style={{
+                  padding: '6px 8px', fontSize: 11, fontWeight: 500,
+                  borderRadius: '6px 0 0 6px',
+                  border: `1px solid ${tokens.border.default}`, borderRight: 'none',
+                  backgroundColor: tokens.bg.raised,
+                  color: tokens.text.secondary, cursor: importing ? 'default' : 'pointer',
+                  opacity: importing ? 0.6 : 1,
+                  appearance: 'none',
+                  paddingRight: 22,
+                  backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' stroke='${encodeURIComponent(tokens.text.muted)}' stroke-width='1.5' fill='none'/></svg>")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 6px center',
+                }}
+              >
+                <option value="n8n">n8n</option>
+                <option value="make">Make.com</option>
+              </select>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+                title={`Import a ${importFormat === 'make' ? 'Make.com blueprint' : 'n8n workflow'} JSON export`}
+                style={{
+                  padding: '6px 12px', fontSize: 11, fontWeight: 600,
+                  borderRadius: '0 6px 6px 0',
+                  border: `1px solid ${tokens.border.default}`,
+                  backgroundColor: tokens.bg.raised,
+                  color: tokens.text.primary, cursor: importing ? 'default' : 'pointer',
+                  opacity: importing ? 0.6 : 1,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
+                {importing ? 'Importing…' : 'Import…'}
+              </button>
+            </div>
             <button
               onClick={onClose}
               style={{
