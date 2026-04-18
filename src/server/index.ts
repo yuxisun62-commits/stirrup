@@ -35,7 +35,11 @@ export function createServer(options: ServerOptions) {
   const app = express();
 
   app.use(cors({ origin: process.env.STIRRUP_CORS_ORIGIN ?? "http://localhost:3710" }));
-  app.use(express.json());
+  // 10mb is generous for hand-authored workflows but necessary for imports:
+  // real-world n8n exports and Make.com blueprints regularly exceed the
+  // express default of 100kb (seen 259KB on a single Make scenario). Still
+  // well below a DoS threshold on a localhost service.
+  app.use(express.json({ limit: "10mb" }));
 
   // DNS rebinding protection — rejects requests with unexpected Host headers.
   // Runs before authMiddleware so it applies to health check too (except /health).
@@ -49,6 +53,12 @@ export function createServer(options: ServerOptions) {
   // endpoints like /api/auth/cli-login (which spawns subprocesses) or
   // /api/auth/token/:service (which persists credentials).
   app.use("/api/auth", csrfMiddleware);
+
+  // CSRF for import routes — defense in depth. The host-header check is the
+  // primary barrier, but if a user sets STIRRUP_HOST to a public domain the
+  // check opens up, and /api/import/* writes YAML to disk and registers
+  // workflows. An Origin/Referer check is cheap insurance.
+  app.use("/api/import", csrfMiddleware);
 
   // API routes
   app.use("/api/workflows", workflowRoutes(engine, workflowsDir));

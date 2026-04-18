@@ -72,6 +72,13 @@ export interface ImportReport {
   mapped: Record<string, number>;
   stubbed: Record<string, number>;
   dropped: Record<string, number>;
+  /**
+   * Count of nodes that will execute arbitrary code at run-time (type:
+   * "script"). Surfaces in the UI as a "review before running" warning
+   * — importing a foreign workflow can bring in hostile code, and our
+   * vm sandbox provides only scope isolation, not privilege isolation.
+   */
+  scriptNodeCount: number;
   warnings: string[];
 }
 
@@ -354,6 +361,7 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     mapped: {},
     stubbed: {},
     dropped: {},
+    scriptNodeCount: 0,
     warnings: [],
   };
 
@@ -406,6 +414,10 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
       report.warnings.push(`Node "${n.name}" was disabled in n8n; set continueOnError=true`);
     }
 
+    if (stirrupNode.type === "script") {
+      report.scriptNodeCount += 1;
+    }
+
     nodes.push(stirrupNode);
   }
 
@@ -450,6 +462,11 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
 
   report.nodeCount = nodes.length;
   report.edgeCount = edges.length;
+  if (report.scriptNodeCount > 0) {
+    report.warnings.push(
+      `${report.scriptNodeCount} script node(s) contain executable code from the imported source; review before running.`,
+    );
+  }
 
   const workflow: WorkflowDefinition = {
     id: opts.workflowId ?? `n8n-${slugify(src.name ?? "imported")}-${Date.now().toString(36)}`,

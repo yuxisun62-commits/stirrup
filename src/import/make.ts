@@ -66,6 +66,8 @@ export interface MakeImportReport {
   mapped: Record<string, number>;
   stubbed: Record<string, number>;
   dropped: Record<string, number>;
+  /** Nodes that will execute arbitrary code at run-time. See n8n importer. */
+  scriptNodeCount: number;
   warnings: string[];
 }
 
@@ -367,6 +369,10 @@ function walkFlow(
       ctx.report.warnings.push(`Module "${moduleLabel(m)}" has an inline filter; preserved in metadata`);
     }
 
+    if (stirrupNode.type === "script") {
+      ctx.report.scriptNodeCount += 1;
+    }
+
     ctx.nodes.push(stirrupNode);
 
     // Edge from the previous node in this linear sub-flow to this one
@@ -438,6 +444,7 @@ export function importMakeBlueprint(
     mapped: {},
     stubbed: {},
     dropped: {},
+    scriptNodeCount: 0,
     warnings: [],
   };
 
@@ -465,6 +472,11 @@ export function importMakeBlueprint(
 
   report.nodeCount = ctx.nodes.length;
   report.edgeCount = ctx.edges.length;
+  if (report.scriptNodeCount > 0) {
+    report.warnings.push(
+      `${report.scriptNodeCount} script node(s) contain executable code from the imported source; review before running.`,
+    );
+  }
 
   const workflow: WorkflowDefinition = {
     id: opts.workflowId ?? `make-${slugify(src.name ?? "imported")}-${Date.now().toString(36)}`,

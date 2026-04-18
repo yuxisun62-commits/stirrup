@@ -304,6 +304,8 @@ export interface ImportReport {
   mapped: Record<string, number>;
   stubbed: Record<string, number>;
   dropped: Record<string, number>;
+  /** Nodes with executable user code; review before Run. */
+  scriptNodeCount: number;
   warnings: string[];
 }
 export interface ImportResponse {

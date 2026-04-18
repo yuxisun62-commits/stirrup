@@ -182,6 +182,17 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
                 {Object.keys(importReport.stubbed).length > 8 ? '…' : ''}</>
               )}
             </div>
+            {importReport.scriptNodeCount > 0 && (
+              <div style={{
+                marginTop: 8, padding: '6px 10px', borderRadius: 4,
+                border: '1px solid #f59e0b',
+                backgroundColor: '#f59e0b10',
+                fontSize: 11, color: '#f59e0b', fontWeight: 500,
+              }}>
+                ⚠ {importReport.scriptNodeCount} script node{importReport.scriptNodeCount === 1 ? '' : 's'} contain{importReport.scriptNodeCount === 1 ? 's' : ''} code from the imported source.
+                Review the code before running — Stirrup's sandbox is scope-isolation only, not a security boundary.
+              </div>
+            )}
           </div>
         )}
 
