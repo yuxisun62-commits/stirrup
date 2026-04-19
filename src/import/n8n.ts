@@ -83,6 +83,12 @@ export interface ImportReport {
    * vm sandbox provides only scope isolation, not privilege isolation.
    */
   scriptNodeCount: number;
+  /**
+   * Service credentials the imported workflow references (derived from
+   * n8n credential refs + service-mapper hints). The UI uses this list
+   * to prompt the user: "connect Slack, GitHub, and OpenAI before running."
+   */
+  credentialsNeeded: string[];
   warnings: string[];
 }
 
@@ -91,9 +97,15 @@ export interface ImportResult {
   report: ImportReport;
 }
 
-/** Strip the `n8n-nodes-base.` prefix so mapping keys are readable. */
+/**
+ * Strip the vendor prefix (`n8n-nodes-base.` for built-ins,
+ * `@n8n/n8n-nodes-langchain.` for the LangChain bundle) so NODE_MAPPINGS
+ * keys can ignore which package a node comes from.
+ */
 function bareType(t: string): string {
-  return t.replace(/^n8n-nodes-base\./, "");
+  return t
+    .replace(/^n8n-nodes-base\./, "")
+    .replace(/^@n8n\/n8n-nodes-langchain\./, "");
 }
 
 /**
@@ -348,7 +360,347 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
       metadata: { kind: "email-send", original: n.parameters },
     },
   }),
+
+  // ── Service integrations ──────────────────────────────────────────
+  // Every service mapper below follows the same pattern: translate the
+  // n8n operation → the closest Stirrup plugin node, forward the params
+  // n8n already extracted under its own field names, and leave a token
+  // placeholder that the user fills via the Connections panel. Service
+  // tokens are auto-injected at execute time for any param whose
+  // declared `service` matches an authenticated entry in the token store.
+
+  slack: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? p.resource ?? "postMessage");
+    if (op === "postMessage" || op === "message" || p.resource === "message") {
+      return {
+        type: "slack-send" as NodeType,
+        config: {
+          channel: p.channel ?? p.channelId ?? "#general",
+          text: p.text ?? p.messageText ?? "",
+          threadTs: p.thread_ts ?? p.otherOptions?.thread_ts,
+          metadata: { credentials: "slack", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Slack ${op} (stub — only postMessage is mapped)`,
+        metadata: { credentials: "slack", original: p },
+      },
+    };
+  },
+
+  // OpenAI direct and LangChain OpenAI variants. Chat-completion style
+  // calls become llm-prompt; everything else falls through with a
+  // credentials hint.
+  openAi: (n) => mapOpenAi(n),
+  // n8n packages the LangChain nodes under a different package prefix;
+  // we look them up by bareType which strips both prefixes.
+
+  anthropic: (n) => ({
+    type: "llm-prompt" as NodeType,
+    config: {
+      prompt: (n.parameters as any)?.prompt ?? (n.parameters as any)?.messages ?? "",
+      model: (n.parameters as any)?.model ?? "claude-sonnet-4-6",
+      metadata: { credentials: "anthropic", original: n.parameters },
+    },
+  }),
+
+  postgres: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? "executeQuery").toLowerCase();
+    if (op === "executequery" || op === "query") {
+      return {
+        type: "pg-query" as NodeType,
+        config: {
+          query: p.query ?? p.sql ?? "",
+          params: p.additionalFields?.queryParams ?? p.queryParams,
+          connectionString: p.connectionString ?? undefined,
+          metadata: { credentials: "postgres", original: p },
+        },
+      };
+    }
+    if (op === "insert") {
+      return {
+        type: "pg-insert" as NodeType,
+        config: {
+          table: p.table ?? p.schema ?? "",
+          data: p.columns ?? p.data ?? p.additionalFields,
+          metadata: { credentials: "postgres", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Postgres ${op} (stub)`,
+        metadata: { credentials: "postgres", original: p },
+      },
+    };
+  },
+
+  redis: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? "get").toLowerCase();
+    if (op === "get") {
+      return {
+        type: "redis-get" as NodeType,
+        config: { key: p.key, metadata: { credentials: "redis", original: p } },
+      };
+    }
+    if (op === "set") {
+      return {
+        type: "redis-set" as NodeType,
+        config: {
+          key: p.key,
+          value: p.value,
+          expire: p.expire ?? p.ttl,
+          metadata: { credentials: "redis", original: p },
+        },
+      };
+    }
+    if (op === "publish") {
+      return {
+        type: "redis-publish" as NodeType,
+        config: {
+          channel: p.channel,
+          message: p.messageData ?? p.message,
+          metadata: { credentials: "redis", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Redis ${op} (stub)`,
+        metadata: { credentials: "redis", original: p },
+      },
+    };
+  },
+
+  awsS3: (n) => mapS3(n),
+  s3: (n) => mapS3(n),
+
+  github: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const resource = String(p.resource ?? "").toLowerCase();
+    const op = String(p.operation ?? "").toLowerCase();
+    if (resource === "issue" && (op === "create" || op === "")) {
+      return {
+        type: "github-create-issue" as NodeType,
+        config: {
+          owner: p.owner,
+          repo: p.repository,
+          title: p.title,
+          body: p.body,
+          labels: p.labels,
+          metadata: { credentials: "github", original: p },
+        },
+      };
+    }
+    if (resource === "issue" && op === "createcomment") {
+      return {
+        type: "github-post-comment" as NodeType,
+        config: {
+          owner: p.owner,
+          repo: p.repository,
+          issueNumber: p.issueNumber,
+          body: p.body,
+          metadata: { credentials: "github", original: p },
+        },
+      };
+    }
+    if (resource === "pullrequest" && op === "get") {
+      return {
+        type: "github-get-pr" as NodeType,
+        config: {
+          owner: p.owner,
+          repo: p.repository,
+          prNumber: p.pullRequestNumber,
+          metadata: { credentials: "github", original: p },
+        },
+      };
+    }
+    if (resource === "repository" && op === "create") {
+      return {
+        type: "github-create-repo" as NodeType,
+        config: {
+          name: p.name ?? p.repoName,
+          description: p.description,
+          private: p.private ?? false,
+          reuseIfExists: true,
+          metadata: { credentials: "github", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `GitHub ${resource}.${op} (stub)`,
+        metadata: { credentials: "github", original: p },
+      },
+    };
+  },
+
+  telegram: (n) => {
+    // n8n's Telegram "send message" node → a raw HTTP call to Telegram Bot API.
+    // We emit an http node with the URL interpolated; the user's stored
+    // token (service: telegram) fills in at execute time.
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? "sendMessage");
+    if (op === "sendMessage" || p.resource === "message") {
+      return {
+        type: "http" as NodeType,
+        config: {
+          url: "={{ 'https://api.telegram.org/bot' + $parameter.telegramToken + '/sendMessage' }}",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: {
+            chat_id: p.chatId,
+            text: p.text ?? p.message,
+            parse_mode: p.parse_mode ?? p.additionalFields?.parse_mode,
+          },
+          _n8nExpressions: true,
+          metadata: { credentials: "telegram", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Telegram ${op} (stub)`,
+        metadata: { credentials: "telegram", original: p },
+      },
+    };
+  },
+
+  telegramTrigger: (n) => ({
+    type: "passthrough",
+    config: {
+      label: "Telegram trigger — wired via workflow.triggers.telegram",
+      metadata: {
+        triggerKind: "telegram",
+        credentials: "telegram",
+        original: n.parameters,
+      },
+    },
+  }),
+
+  discord: (n) => ({
+    type: "webhook-send" as NodeType,
+    config: {
+      url: (n.parameters as any)?.webhookUri ?? "",
+      method: "POST",
+      payload: {
+        content: (n.parameters as any)?.text ?? (n.parameters as any)?.content,
+        username: (n.parameters as any)?.options?.username,
+      },
+      metadata: { credentials: "discord", original: n.parameters },
+    },
+  }),
 };
+
+function mapOpenAi(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const resource = String(p.resource ?? "").toLowerCase();
+  const op = String(p.operation ?? "").toLowerCase();
+
+  // Chat completions — by far the most common pattern.
+  if (
+    resource === "chat" ||
+    resource === "text" ||
+    op === "message" ||
+    op === "complete" ||
+    op === "" // LangChain wrapper often omits resource/operation
+  ) {
+    const messages = p.messages?.values ?? p.messages ?? p.prompt;
+    return {
+      type: "llm-prompt" as NodeType,
+      config: {
+        prompt:
+          typeof messages === "string"
+            ? messages
+            : Array.isArray(messages)
+            ? messages.map((m: any) => `${m.role ?? "user"}: ${m.content ?? m.message ?? ""}`).join("\n")
+            : "",
+        model: p.model ?? p.modelId ?? "gpt-4o-mini",
+        temperature: p.temperature ?? p.options?.temperature,
+        maxTokens: p.maxTokens ?? p.options?.maxTokens,
+        metadata: { credentials: "openai", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `OpenAI ${resource}.${op} (stub — only chat/text is mapped)`,
+      metadata: { credentials: "openai", original: p },
+    },
+  };
+}
+
+function mapS3(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const op = String(p.operation ?? "").toLowerCase();
+  if (op === "upload" || op === "put") {
+    return {
+      type: "s3-put" as NodeType,
+      config: {
+        bucket: p.bucketName ?? p.bucket,
+        key: p.fileKey ?? p.key ?? p.objectKey,
+        body: p.fileContent ?? p.body,
+        contentType: p.contentType,
+        metadata: { credentials: "aws", original: p },
+      },
+    };
+  }
+  if (op === "download" || op === "get") {
+    return {
+      type: "s3-get" as NodeType,
+      config: {
+        bucket: p.bucketName ?? p.bucket,
+        key: p.fileKey ?? p.key,
+        metadata: { credentials: "aws", original: p },
+      },
+    };
+  }
+  if (op === "list" || op === "getall") {
+    return {
+      type: "s3-list" as NodeType,
+      config: {
+        bucket: p.bucketName ?? p.bucket,
+        prefix: p.prefix,
+        metadata: { credentials: "aws", original: p },
+      },
+    };
+  }
+  if (op === "delete") {
+    return {
+      type: "s3-delete" as NodeType,
+      config: {
+        bucket: p.bucketName ?? p.bucket,
+        key: p.fileKey ?? p.key,
+        metadata: { credentials: "aws", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `S3 ${op} (stub)`,
+      metadata: { credentials: "aws", original: p },
+    },
+  };
+}
+
+// Aliases — after bareType() strips both vendor prefixes, LangChain's
+// openAi arrives under the same key as the base. These cover the other
+// chat-model variants that appear in real workflows.
+NODE_MAPPINGS.lmChatOpenAi = NODE_MAPPINGS.openAi;
+NODE_MAPPINGS.openAiChat = NODE_MAPPINGS.openAi;
+NODE_MAPPINGS.lmChatAnthropic = NODE_MAPPINGS.anthropic;
 
 function arrayToObject(arr: unknown): Record<string, unknown> | undefined {
   if (!Array.isArray(arr)) return undefined;
@@ -359,6 +711,44 @@ function arrayToObject(arr: unknown): Record<string, unknown> | undefined {
     }
   }
   return out;
+}
+
+/**
+ * Narrow helper — pulls `metadata` off a Stirrup node config, returns
+ * undefined if absent. Used when probing a mapper's emitted metadata
+ * for credential hints, without repeating the cast pattern everywhere.
+ */
+function mappedConfig(config: Record<string, unknown>): { metadata?: Record<string, any> } | undefined {
+  if (!config) return undefined;
+  const md = config.metadata;
+  if (md && typeof md === "object") return { metadata: md as Record<string, any> };
+  return undefined;
+}
+
+/**
+ * Map an n8n credential type name to a Stirrup service key. Returns
+ * undefined when there's no direct mapping — the importer falls back
+ * to whatever `metadata.credentials` hint the service mapper emitted.
+ *
+ * Keep this list aligned with ENV_FALLBACKS in tokenStore.ts so users
+ * who already have the right env var set don't need to re-authenticate.
+ */
+function n8nCredentialToService(credType: string): string | undefined {
+  const c = credType.toLowerCase();
+  if (c.startsWith("slack")) return "slack";
+  if (c.startsWith("github")) return "github";
+  if (c.startsWith("openai") || c.startsWith("openaiapi")) return "openai";
+  if (c.startsWith("anthropic")) return "anthropic";
+  if (c.startsWith("gemini") || c.startsWith("googlepalm")) return "gemini";
+  if (c.startsWith("postgres")) return "postgres";
+  if (c.startsWith("redis")) return "redis";
+  if (c.startsWith("aws") || c === "s3") return "aws";
+  if (c.startsWith("telegram")) return "telegram";
+  if (c.startsWith("discord")) return "discord";
+  if (c.startsWith("stripe")) return "stripe";
+  if (c.startsWith("linkedin")) return "linkedin";
+  if (c.startsWith("gmail") || c.startsWith("smtp") || c.startsWith("email")) return "email";
+  return undefined;
 }
 
 /**
@@ -376,6 +766,7 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     stubbed: {},
     dropped: {},
     scriptNodeCount: 0,
+    credentialsNeeded: [],
     warnings: [],
   };
 
@@ -383,6 +774,7 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
   const nameToId = new Map<string, string>();
   const nodes: WorkflowNode[] = [];
   const droppedNames = new Set<string>();
+  const credentialsNeeded = new Set<string>();
 
   for (const n of src.nodes ?? []) {
     const bare = bareType(n.type);
@@ -430,6 +822,25 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
 
     if (stirrupNode.type === "script") {
       report.scriptNodeCount += 1;
+    }
+
+    // Record which n8n credentials this node referenced so the import
+    // report can tell the user which Connections to wire up. n8n stores
+    // them as `credentials: { githubApi: {id, name} }` — the KEY is the
+    // credential type. We normalize those to our service names.
+    if (n.credentials && typeof n.credentials === "object") {
+      const mapped = mappedConfig(stirrupNode.config);
+      const serviceFromConfig = mapped?.metadata?.credentials;
+      for (const credType of Object.keys(n.credentials)) {
+        const svc = n8nCredentialToService(credType) ?? serviceFromConfig;
+        if (svc) credentialsNeeded.add(svc);
+      }
+    } else {
+      // Even without an explicit credentials ref, a service mapper's
+      // metadata.credentials hint counts toward the needed-credentials set.
+      const mapped = mappedConfig(stirrupNode.config);
+      const svc = mapped?.metadata?.credentials;
+      if (svc) credentialsNeeded.add(svc);
     }
 
     // Flag configs with n8n `{{ }}` expressions so the Runner evaluates
@@ -550,9 +961,15 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
 
   report.nodeCount = nodes.length;
   report.edgeCount = edges.length;
+  report.credentialsNeeded = [...credentialsNeeded].sort();
   if (report.scriptNodeCount > 0) {
     report.warnings.push(
       `${report.scriptNodeCount} script node(s) contain executable code from the imported source; review before running.`,
+    );
+  }
+  if (report.credentialsNeeded.length > 0) {
+    report.warnings.push(
+      `Connect ${report.credentialsNeeded.join(", ")} in the Connections panel before running.`,
     );
   }
 

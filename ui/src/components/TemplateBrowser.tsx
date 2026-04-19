@@ -193,6 +193,16 @@ export function TemplateBrowser({ onSelect, onClose }: Props) {
                 Review the code before running — Stirrup's sandbox is scope-isolation only, not a security boundary.
               </div>
             )}
+            {importReport.credentialsNeeded && importReport.credentialsNeeded.length > 0 && (
+              <div style={{
+                marginTop: 8, padding: '6px 10px', borderRadius: 4,
+                border: '1px solid #3b82f6',
+                backgroundColor: '#3b82f610',
+                fontSize: 11, color: '#60a5fa', fontWeight: 500,
+              }}>
+                🔑 Connect before running: {importReport.credentialsNeeded.join(', ')}
+              </div>
+            )}
           </div>
         )}
 

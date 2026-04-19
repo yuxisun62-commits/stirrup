@@ -68,6 +68,12 @@ export interface MakeImportReport {
   dropped: Record<string, number>;
   /** Nodes that will execute arbitrary code at run-time. See n8n importer. */
   scriptNodeCount: number;
+  /**
+   * Service credentials referenced by the scenario. Empty until Make-side
+   * credential inspection lands — kept here so the UI ImportReport shape
+   * stays uniform across importers.
+   */
+  credentialsNeeded: string[];
   warnings: string[];
 }
 
@@ -445,6 +451,7 @@ export function importMakeBlueprint(
     stubbed: {},
     dropped: {},
     scriptNodeCount: 0,
+    credentialsNeeded: [],
     warnings: [],
   };
 

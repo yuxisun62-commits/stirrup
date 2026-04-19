@@ -306,6 +306,8 @@ export interface ImportReport {
   dropped: Record<string, number>;
   /** Nodes with executable user code; review before Run. */
   scriptNodeCount: number;
+  /** Services the workflow needs authenticated before it can run. */
+  credentialsNeeded: string[];
   warnings: string[];
 }
 export interface ImportResponse {
