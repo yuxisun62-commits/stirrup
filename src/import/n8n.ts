@@ -201,6 +201,28 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
     type: "passthrough",
     config: { label: "Sub-workflow entry", metadata: { triggerKind: "sub-workflow" } },
   }),
+
+  // The node that CALLS another workflow. n8n's `executeWorkflow` node has
+  // a `workflowId` param (+ optional input data). We map to the built-in
+  // sub-workflow handler which delegates into engine.execute(). The child
+  // workflow must already be registered with the same engine.
+  executeWorkflow: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const workflowId =
+      p.workflowId?.value ?? p.workflowId ?? p.source?.value ?? "";
+    return {
+      type: "sub-workflow" as NodeType,
+      config: {
+        workflowId,
+        // n8n's inputData shapes: `workflowInputs.values` is a field-value
+        // array; `inputData` is a loose object. Pass whichever we find.
+        inputs: p.workflowInputs?.values
+          ? arrayToObject(p.workflowInputs.values)
+          : p.inputData ?? p.extraParameters,
+        metadata: { kind: "execute-workflow", original: p },
+      },
+    };
+  },
   respondToWebhook: (n) => ({
     type: "passthrough",
     config: {
@@ -294,10 +316,28 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
       branches,
     };
   },
-  merge: () => ({
-    type: "passthrough",
-    config: { label: "Merge (awaits upstream inputs)" },
-  }),
+  merge: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    // n8n's mode values: "append" | "combine" | "mergeByKey" | "multiplex" | ...
+    // Some versions use "mode" directly; older versions split into "mode"
+    // + "joinMode". We pull whichever is present and lowercase for the
+    // merge handler's case-insensitive matching.
+    const modeRaw = String(p.mode ?? p.joinMode ?? "append");
+    const normalized =
+      modeRaw === "combineByPosition" ? "combine" :
+      modeRaw === "enrichInput1" || modeRaw === "enrichInput2" ? "mergeByKey" :
+      modeRaw;
+    const mergeByKey =
+      p.mergeByFields?.values?.[0]?.field1 ?? p.mergeByKey ?? p.propertyName1;
+    return {
+      type: "merge" as NodeType,
+      config: {
+        mode: normalized,
+        ...(mergeByKey ? { mergeByKey } : {}),
+        metadata: { original: p, kind: "merge" },
+      },
+    };
+  },
   splitInBatches: (n) => ({
     type: "passthrough",
     config: {
@@ -1622,6 +1662,21 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
         edges.push(condition ? { from: srcId, to: dstId, condition } : { from: srcId, to: dstId });
       }
     }
+  }
+
+  // Merge nodes need numbered input mappings so the merge handler can tell
+  // upstream sources apart at runtime. We emit one `__n8nMerge_<i>` per
+  // incoming edge, ordered by the edge position the user wired up. This is
+  // independent of the per-node $json/$node mappings below.
+  for (const node of nodes) {
+    if (node.type !== "merge") continue;
+    const incoming = edges.filter((e) => e.to === node.id);
+    const existing = new Set(node.inputs.map((m) => m.to));
+    incoming.forEach((edge, idx) => {
+      const key = `__n8nMerge_${idx}`;
+      if (existing.has(key)) return;
+      node.inputs.push({ from: `nodes.${edge.from}.outputs`, to: key });
+    });
   }
 
   // Second pass: for nodes that have n8n expressions, emit input mappings

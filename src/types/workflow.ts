@@ -16,7 +16,9 @@ export type NodeType =
   | "code-generation"
   | "iterate"
   | "passthrough"
-  | "fail";
+  | "fail"
+  | "sub-workflow"
+  | "merge";
 
 /** Retry policy for a node */
 export interface RetryPolicy {
