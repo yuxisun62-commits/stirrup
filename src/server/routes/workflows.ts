@@ -3,10 +3,16 @@ import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import type { WorkflowEngine } from "../../engine/Engine.js";
+import type { TriggerManager } from "../../triggers/TriggerManager.js";
+import type { WorkflowDefinition } from "../../types/workflow.js";
 import { validateWorkflow, WorkflowValidationError } from "../../validation/WorkflowValidator.js";
 import { assertSafeId, assertPathContained } from "../../validation/pathSafety.js";
 
-export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Router {
+export function workflowRoutes(
+  engine: WorkflowEngine,
+  workflowsDir: string,
+  triggerManager?: TriggerManager,
+): Router {
   const router = Router();
 
   // List all workflows
@@ -44,6 +50,7 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
       return;
     }
     engine.registerWorkflow(workflow);
+    triggerManager?.refreshWorkflow(workflow as WorkflowDefinition);
 
     const filePath = resolve(workflowsDir, `${workflow.id}.yaml`);
     assertPathContained(workflowsDir, filePath);
@@ -72,6 +79,7 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
     }
     workflow.id = id;
     engine.registerWorkflow(workflow);
+    triggerManager?.refreshWorkflow(workflow as WorkflowDefinition);
 
     const filePath = resolve(workflowsDir, `${id}.yaml`);
     assertPathContained(workflowsDir, filePath);
@@ -94,6 +102,7 @@ export function workflowRoutes(engine: WorkflowEngine, workflowsDir: string): Ro
     }
 
     workflows.delete(id);
+    triggerManager?.unregisterWorkflow(id);
     const filePath = resolve(workflowsDir, `${id}.yaml`);
     assertPathContained(workflowsDir, filePath);
     if (existsSync(filePath)) unlinkSync(filePath);

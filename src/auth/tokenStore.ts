@@ -78,6 +78,7 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   linkedin: ["LINKEDIN_ACCESS_TOKEN"],
   typefully: ["TYPEFULLY_API_KEY"],
   buffer: ["BUFFER_ACCESS_TOKEN"],
+  telegram: ["TELEGRAM_BOT_TOKEN"],
 };
 
 export function getToken(service: string): StoredToken | null {

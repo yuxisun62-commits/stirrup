@@ -330,6 +330,26 @@ export const importMake = (source: unknown, options: { dryRun?: boolean } = {}) 
     body: JSON.stringify({ source }),
   });
 
+// Triggers
+export type TriggerKind = 'http' | 'webhook' | 'cron' | 'telegram';
+export interface TriggerStatus {
+  workflowId: string;
+  kind: TriggerKind;
+  label: string;
+  enabled: boolean;
+  fireCount: number;
+  lastFiredAt?: string;
+  lastExecutionId?: string;
+  lastError?: { message: string; at: string };
+}
+export const listTriggers = () =>
+  request<{ triggers: TriggerStatus[] }>('/triggers');
+export const testTrigger = (workflowId: string, context: Record<string, unknown> = {}) =>
+  request<{ ok: boolean; executionId: string; status: string }>(
+    `/triggers/test/${encodeURIComponent(workflowId)}`,
+    { method: 'POST', body: JSON.stringify(context) },
+  );
+
 // SSE
 export function subscribeToExecution(executionId: string, onEvent: (type: string, data: unknown) => void): () => void {
   const source = new EventSource(`${BASE}/executions/${executionId}/events`);

@@ -189,6 +189,10 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://aistudio.google.com/apikey",
     instructions: "Open Google AI Studio → Get API Key → Create API Key. Paste it here. Set `model: gemini-2.5-flash` (or any gemini-* model) in node config to use Gemini instead of Claude.",
   },
+  telegram: {
+    url: "https://core.telegram.org/bots#how-do-i-create-a-bot",
+    instructions: "Message @BotFather on Telegram, run /newbot, and paste the token it gives you (format: `123456789:ABCdef...`). Then declare `triggers.telegram: {}` in any workflow and Stirrup will long-poll for messages. Optional filters: `allowedChatIds` (only these chats), `commands` (e.g. [\"/run\", \"/start\"]).",
+  },
 };
 
 export function authRoutes(): Router {

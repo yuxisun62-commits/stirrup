@@ -112,6 +112,24 @@ export interface WorkflowTrigger {
     /** Events to trigger on */
     events?: Array<"create" | "change" | "delete">;
   };
+  /**
+   * Telegram bot trigger — long-polls getUpdates and fires the workflow for
+   * every incoming message. The bot token is pulled from the token store
+   * (service: "telegram"). Context passed to the workflow:
+   * { chatId, from, text, messageId, update }.
+   */
+  telegram?: {
+    /**
+     * Optional chat-id allowlist. If set, messages from chats not in this
+     * list are ignored. Use to scope a public bot to a single group.
+     */
+    allowedChatIds?: Array<number | string>;
+    /**
+     * Optional command filter (e.g., ["/run", "/start"]). When set, only
+     * messages that begin with one of these commands fire the workflow.
+     */
+    commands?: string[];
+  };
 }
 
 /** Top-level workflow definition (stored as YAML/JSON) */

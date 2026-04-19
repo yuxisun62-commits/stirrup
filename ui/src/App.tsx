@@ -48,6 +48,9 @@ const WorkflowParamsEditor = lazy(() =>
 const TutorialWizard = lazy(() =>
   import('./components/tutorial/TutorialWizard').then((m) => ({ default: m.TutorialWizard })),
 );
+const TriggersPanel = lazy(() =>
+  import('./components/TriggersPanel').then((m) => ({ default: m.TriggersPanel })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -77,6 +80,7 @@ function App() {
   const [showExport, setShowExport] = useState(false);
   const [showAuth, setShowAuth] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [showTriggers, setShowTriggers] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isMobile = useIsMobile();
 
@@ -296,6 +300,11 @@ function App() {
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
               color: tokens.text.muted, cursor: 'pointer',
             }}>Connections</button>
+            <button onClick={() => setShowTriggers(true)} style={{
+              padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+              border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+              color: tokens.text.muted, cursor: 'pointer',
+            }}>Triggers</button>
             {!isMobile && (
               <button onClick={() => setShowPlugins(true)} style={{
                 padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
@@ -439,6 +448,7 @@ function App() {
             />
           )}
           {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
+          {showTriggers && <TriggersPanel onClose={() => setShowTriggers(false)} />}
           {showParams && (
             <WorkflowParamsEditor
               params={(workflow.params ?? []) as any[]}
