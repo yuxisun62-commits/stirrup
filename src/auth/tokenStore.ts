@@ -98,6 +98,14 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   supabase: ["SUPABASE_CREDENTIALS"],
   openai: ["OPENAI_API_KEY"],
   "openai-extras": ["OPENAI_API_KEY"],
+  resend: ["RESEND_API_KEY"],
+  "google-drive": ["GOOGLE_ACCESS_TOKEN", "DRIVE_ACCESS_TOKEN"],
+  "google-calendar": ["GOOGLE_ACCESS_TOKEN", "GCAL_ACCESS_TOKEN"],
+  hubspot: ["HUBSPOT_ACCESS_TOKEN", "HUBSPOT_API_KEY"],
+  shopify: ["SHOPIFY_CREDENTIALS"],
+  elevenlabs: ["ELEVENLABS_API_KEY"],
+  pinecone: ["PINECONE_API_KEY"],
+  huggingface: ["HF_API_TOKEN", "HUGGINGFACE_API_TOKEN"],
 };
 
 export function getToken(service: string): StoredToken | null {

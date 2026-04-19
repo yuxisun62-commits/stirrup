@@ -51,6 +51,15 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "mongodb", description: "MongoDB: find/insert/update/delete/aggregate/count", category: "database", peerDep: "mongodb", installHint: "npm install mongodb" },
   { name: "supabase", description: "Supabase: select/insert/update/upsert/delete via PostgREST, plus auth signup/signin and RPC", category: "database" },
   { name: "openai-extras", description: "OpenAI: image generation, embeddings, TTS, Whisper transcription, moderations", category: "integration" },
+  // ── Expanded ecosystem batch (0.7.10) ───────────────────────────────
+  { name: "resend", description: "Resend: transactional email (send + batch + list)", category: "integration" },
+  { name: "google-drive", description: "Google Drive: list, upload, download, delete, create folder, share", category: "integration" },
+  { name: "google-calendar", description: "Google Calendar: list/create/update/delete events, list calendars", category: "integration" },
+  { name: "hubspot", description: "HubSpot CRM: contacts, deals, engagements (notes, calls, emails, meetings, tasks)", category: "integration" },
+  { name: "shopify", description: "Shopify: list/get/create/update products and orders, list customers", category: "integration" },
+  { name: "elevenlabs", description: "ElevenLabs: TTS, voice cloning, list voices, speech-to-text", category: "integration" },
+  { name: "pinecone", description: "Pinecone vector DB: upsert, query, fetch, delete, index stats", category: "database" },
+  { name: "huggingface", description: "Hugging Face Inference API: text-gen, classification, summarization, Q&A, embeddings, zero-shot", category: "integration" },
 ];
 
 function resolvePluginPath(name: string): string | null {

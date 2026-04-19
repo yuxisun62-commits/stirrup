@@ -157,10 +157,6 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://dashboard.stripe.com/apikeys",
     instructions: "Get a secret API key from your Stripe dashboard.",
   },
-  hubspot: {
-    url: "https://app.hubspot.com/private-apps",
-    instructions: "Create a private app in HubSpot to generate an access token.",
-  },
   typefully: {
     url: "https://typefully.com/settings/integrations",
     instructions: "Open Typefully → Settings → Integrations → API Keys, then create a key and paste it here. Powers the typefully-create-draft node for X/Twitter threads and LinkedIn posts.",
@@ -236,6 +232,38 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
   supabase: {
     url: "https://supabase.com/dashboard/project/_/settings/api",
     instructions: "From your Supabase project dashboard → Settings → API, copy the Project URL and service_role (or anon) key. Paste as `<projectUrl>|<apiKey>` (one string, pipe-separated). Individual supabase-* nodes can also supply projectUrl and apiKey as per-node config.",
+  },
+  resend: {
+    url: "https://resend.com/api-keys",
+    instructions: "Create an API key at resend.com/api-keys. Paste the `re_...` token here. Your `from` address must be on a verified domain (or @resend.dev during testing).",
+  },
+  "google-drive": {
+    url: "https://console.cloud.google.com/apis/credentials",
+    instructions: "Run a Google OAuth 2.0 flow with scope `https://www.googleapis.com/auth/drive` (or `drive.file` for per-file access) and paste the access token here. Reuse the generic `google` token if you authenticated with a broader scope list.",
+  },
+  "google-calendar": {
+    url: "https://console.cloud.google.com/apis/credentials",
+    instructions: "Run the Google OAuth flow with scope `https://www.googleapis.com/auth/calendar` (or `calendar.events`) and paste the access token here. Shares the same generic `google` service if you're already authenticated.",
+  },
+  hubspot: {
+    url: "https://app.hubspot.com/private-apps",
+    instructions: "Create a Private App at HubSpot → Settings → Integrations → Private Apps. Select scopes (crm.objects.contacts.*, crm.objects.deals.*, crm.engagements.*) and paste the Access Token here.",
+  },
+  shopify: {
+    url: "https://admin.shopify.com",
+    instructions: "In the Shopify admin: Apps → Develop apps → Create an app → API credentials → Install app → Admin API access token. Then paste here as `<shop-name>|<access-token>` (one string, pipe-separated) — shop-name is whatever goes before `.myshopify.com`.",
+  },
+  elevenlabs: {
+    url: "https://elevenlabs.io/app/settings/api-keys",
+    instructions: "Create an API key at elevenlabs.io/app/settings/api-keys. Paste it here. ElevenLabs charges by character for TTS and supports voice cloning from short audio samples.",
+  },
+  pinecone: {
+    url: "https://app.pinecone.io",
+    instructions: "In the Pinecone console: API Keys → create one. Paste the `pcsk_...` key here. Each pinecone-* node also needs an `indexHost` config (your index's DNS name, e.g. `my-index-abc123.svc.us-east-1.pinecone.io`).",
+  },
+  huggingface: {
+    url: "https://huggingface.co/settings/tokens",
+    instructions: "Create a token at huggingface.co/settings/tokens. A 'read' scope is sufficient for the Inference API. Paste the `hf_...` token here. Dedicated Inference Endpoints can be called by passing the endpoint URL to hf-inference.",
   },
 };
 
