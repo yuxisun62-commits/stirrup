@@ -29,7 +29,9 @@ import type {
   WorkflowNode,
   WorkflowEdge,
   NodeType,
+  InputMapping,
 } from "../types/workflow.js";
+import { configHasExpressions, collectNodeReferences } from "./n8nExpression.js";
 
 export interface N8nNode {
   id?: string;
@@ -418,6 +420,14 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
       report.scriptNodeCount += 1;
     }
 
+    // Flag configs with n8n `{{ }}` expressions so the Runner evaluates
+    // them before the handler sees them. We also collect `$node["X"]`
+    // references here — they become input mappings later, once every
+    // node's id has been allocated (second pass below).
+    if (configHasExpressions(stirrupNode.config)) {
+      (stirrupNode.config as Record<string, unknown>)._n8nExpressions = true;
+    }
+
     nodes.push(stirrupNode);
   }
 
@@ -458,6 +468,51 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
         edges.push(condition ? { from: srcId, to: dstId, condition } : { from: srcId, to: dstId });
       }
     }
+  }
+
+  // Second pass: for nodes that have n8n expressions, emit input mappings
+  // so the engine materializes the referenced upstream outputs BEFORE the
+  // runtime evaluator runs. Two kinds of mapping:
+  //   1. `$json`        → output of the primary (first incoming) edge source
+  //   2. `$node["X"]`   → output of the node whose display name is "X"
+  //
+  // The Runner reads these mapped values off execCtx.inputs, rebuilds the
+  // n8n expression context, and replaces `{{ }}` tokens with their results
+  // before invoking the handler. Handlers never see raw expression strings.
+  for (const node of nodes) {
+    const config = node.config as Record<string, unknown>;
+    if (config._n8nExpressions !== true) continue;
+
+    const referenced = collectNodeReferences(config);
+    const existingMappings = new Set(node.inputs.map((m) => m.to));
+    const newMappings: InputMapping[] = [];
+
+    // Primary upstream for $json — first edge that targets this node.
+    // If there's no upstream, $json resolves to undefined at eval time,
+    // which matches n8n's behavior for trigger nodes.
+    const primaryEdge = edges.find((e) => e.to === node.id);
+    if (primaryEdge && !existingMappings.has("__n8nJson")) {
+      newMappings.push({
+        from: `nodes.${primaryEdge.from}.outputs`,
+        to: "__n8nJson",
+      });
+    }
+
+    // $node["X"] — we stored every node name in nameToId earlier.
+    for (const referencedName of referenced) {
+      const refId = nameToId.get(referencedName);
+      if (!refId) {
+        report.warnings.push(
+          `Node "${node.name}" references $node["${referencedName}"] but that node wasn't imported — expression will resolve to undefined`,
+        );
+        continue;
+      }
+      const key = `__n8nNode_${refId}`;
+      if (existingMappings.has(key)) continue;
+      newMappings.push({ from: `nodes.${refId}.outputs`, to: key });
+    }
+
+    node.inputs = [...node.inputs, ...newMappings];
   }
 
   report.nodeCount = nodes.length;

@@ -137,6 +137,12 @@ export class WorkflowEngine extends EventEmitter {
 
     const mergedContext: Record<string, unknown> = { ...paramDefaults, ...(workflow.context ?? {}), ...(initialContext ?? {}) };
 
+    // Expose workflow/execution metadata under reserved keys so the n8n
+    // expression evaluator can resolve `$workflow.id` / `$execution.id`.
+    // Underscore prefix signals "internal; don't use in your own mappings".
+    mergedContext._workflowId = workflowId;
+    mergedContext._workflowName = workflow.name;
+
     // Auto-inject stored OAuth tokens for params with a declared service
     if (workflow.params) {
       try {
@@ -163,6 +169,7 @@ export class WorkflowEngine extends EventEmitter {
     }
 
     const executionId = uuidv4();
+    mergedContext._executionId = executionId;
     const state: ExecutionState = {
       executionId,
       workflowId,

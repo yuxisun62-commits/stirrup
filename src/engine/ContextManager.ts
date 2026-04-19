@@ -41,16 +41,20 @@ export class ContextManager {
   resolveInputs(mappings: InputMapping[]): Record<string, unknown> {
     const resolved: Record<string, unknown> = {};
     for (const { from, to } of mappings) {
-      if (from.startsWith("context.")) {
+      if (from === "context") {
+        resolved[to] = this.context;
+      } else if (from.startsWith("context.")) {
         resolved[to] = getByPath(this.context, from.slice(8));
       } else if (from.startsWith("nodes.")) {
         // "nodes.<nodeId>.outputs.<field>" -> steps[nodeId].outputs[field]
+        // "nodes.<nodeId>.outputs"         -> the whole outputs object
+        //   (used by the n8n importer to materialize $node["X"] refs)
         const parts = from.split(".");
         const nodeId = parts[1];
         const field = parts.slice(3).join(".");
         const step = this.steps[nodeId];
         if (step?.status === "completed") {
-          resolved[to] = getByPath(step.outputs, field);
+          resolved[to] = field === "" ? step.outputs : getByPath(step.outputs, field);
         }
       }
     }
