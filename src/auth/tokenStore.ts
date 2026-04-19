@@ -106,6 +106,13 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   elevenlabs: ["ELEVENLABS_API_KEY"],
   pinecone: ["PINECONE_API_KEY"],
   huggingface: ["HF_API_TOKEN", "HUGGINGFACE_API_TOKEN"],
+  groq: ["GROQ_API_KEY"],
+  perplexity: ["PERPLEXITY_API_KEY"],
+  mistral: ["MISTRAL_API_KEY"],
+  zendesk: ["ZENDESK_CREDENTIALS"],
+  trello: ["TRELLO_CREDENTIALS"],
+  calendly: ["CALENDLY_API_KEY"],
+  mailchimp: ["MAILCHIMP_API_KEY"],
 };
 
 export function getToken(service: string): StoredToken | null {

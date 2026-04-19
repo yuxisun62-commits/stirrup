@@ -60,6 +60,14 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "elevenlabs", description: "ElevenLabs: TTS, voice cloning, list voices, speech-to-text", category: "integration" },
   { name: "pinecone", description: "Pinecone vector DB: upsert, query, fetch, delete, index stats", category: "database" },
   { name: "huggingface", description: "Hugging Face Inference API: text-gen, classification, summarization, Q&A, embeddings, zero-shot", category: "integration" },
+  // ── Expanded AI + ops batch (0.7.11) ────────────────────────────────
+  { name: "groq", description: "Groq ultra-fast LLM inference (Llama, Mixtral) + Whisper transcription/translation", category: "integration" },
+  { name: "perplexity", description: "Perplexity AI — LLM with live web search and citations (sonar models)", category: "integration" },
+  { name: "mistral", description: "Mistral AI chat completions + embeddings", category: "integration" },
+  { name: "zendesk", description: "Zendesk Support: tickets (create/update/get/search), comments, users", category: "integration" },
+  { name: "trello", description: "Trello: cards (CRUD), lists, comments", category: "integration" },
+  { name: "calendly", description: "Calendly: list/get/cancel events, invitees, event types, single-use scheduling links", category: "integration" },
+  { name: "mailchimp", description: "Mailchimp: list members (add/update/unsubscribe), campaigns (create/list/send)", category: "integration" },
 ];
 
 function resolvePluginPath(name: string): string | null {

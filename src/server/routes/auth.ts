@@ -265,6 +265,34 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://huggingface.co/settings/tokens",
     instructions: "Create a token at huggingface.co/settings/tokens. A 'read' scope is sufficient for the Inference API. Paste the `hf_...` token here. Dedicated Inference Endpoints can be called by passing the endpoint URL to hf-inference.",
   },
+  groq: {
+    url: "https://console.groq.com/keys",
+    instructions: "Create an API key at console.groq.com/keys. Paste the `gsk_...` token here. Powers groq-chat (OpenAI-compatible chat completions with Llama/Mixtral/DeepSeek) and groq-transcribe / groq-translate (fast Whisper).",
+  },
+  perplexity: {
+    url: "https://www.perplexity.ai/settings/api",
+    instructions: "Create an API key at perplexity.ai/settings/api. Paste the `pplx-...` token here. Use the `sonar` models (default) for live web search + citations; use `sonar-small` for cheaper queries.",
+  },
+  mistral: {
+    url: "https://console.mistral.ai/api-keys/",
+    instructions: "Create a key at console.mistral.ai/api-keys. Paste it here. Default chat model is mistral-large-latest; embeddings use mistral-embed.",
+  },
+  zendesk: {
+    url: "https://support.zendesk.com/hc/en-us/articles/4408889192858",
+    instructions: "Generate an API Token from your Zendesk admin area (Admin → Channels → API). Paste as `<subdomain>|<email>|<api-token>` (three parts, pipe-separated). Subdomain is whatever goes before `.zendesk.com`, e.g. `acme`.",
+  },
+  trello: {
+    url: "https://trello.com/power-ups/admin",
+    instructions: "From trello.com/power-ups/admin, create a Power-Up and grab its API Key. Then visit `https://trello.com/1/authorize?expiration=never&scope=read,write,account&response_type=token&key=<YOUR_KEY>` to get a Manual Token. Paste as `<key>|<token>` (pipe-separated).",
+  },
+  calendly: {
+    url: "https://calendly.com/integrations/api_webhooks",
+    instructions: "Create a Personal Access Token at calendly.com/integrations/api_webhooks. Paste the `eyJ...` JWT token here. All V2 API resources use URIs rather than UUIDs.",
+  },
+  mailchimp: {
+    url: "https://admin.mailchimp.com/account/api/",
+    instructions: "Create an API key at admin.mailchimp.com/account/api/. Paste the key (ends with `-us14` or your data center) here — Stirrup extracts the DC suffix to build the per-account URL automatically.",
+  },
 };
 
 export function authRoutes(): Router {
