@@ -720,7 +720,353 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
       },
     };
   },
+
+  googleSheets: (n) => mapGoogleSheets(n),
+  notion: (n) => mapNotion(n),
+  airtable: (n) => mapAirtable(n),
+  linear: (n) => mapLinear(n),
+  jira: (n) => mapJira(n),
+  // Alias variants that appear in real n8n exports.
+  jiraSoftwareCloud: (n) => mapJira(n),
 };
+
+function mapGoogleSheets(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const op = String(p.operation ?? p.resource ?? "").toLowerCase();
+  const spreadsheetId =
+    p.documentId?.value ?? p.documentId ?? p.spreadsheetId ?? p.sheetId;
+  // n8n references the sheet tab separately; we assemble an A1 range.
+  const sheetName = p.sheetName?.value ?? p.sheetName ?? p.sheet;
+  const range = p.range ?? (sheetName ? `${sheetName}!A:Z` : "A:Z");
+
+  if (op === "read" || op === "readrows" || op === "lookup") {
+    return {
+      type: "sheets-read" as NodeType,
+      config: {
+        spreadsheetId, range,
+        metadata: { credentials: "google-sheets", original: p },
+      },
+    };
+  }
+  if (op === "append" || op === "appendrow") {
+    return {
+      type: "sheets-append" as NodeType,
+      config: {
+        spreadsheetId, range,
+        values: p.values ?? p.rows ?? p.data,
+        metadata: { credentials: "google-sheets", original: p },
+      },
+    };
+  }
+  if (op === "update" || op === "updaterow") {
+    return {
+      type: "sheets-update" as NodeType,
+      config: {
+        spreadsheetId, range,
+        values: p.values ?? p.rows ?? p.data,
+        metadata: { credentials: "google-sheets", original: p },
+      },
+    };
+  }
+  if (op === "clear") {
+    return {
+      type: "sheets-clear" as NodeType,
+      config: { spreadsheetId, range, metadata: { credentials: "google-sheets", original: p } },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Google Sheets ${op} (stub)`,
+      metadata: { credentials: "google-sheets", original: p },
+    },
+  };
+}
+
+function mapNotion(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const resource = String(p.resource ?? "").toLowerCase();
+  const op = String(p.operation ?? "").toLowerCase();
+
+  if (resource === "page" && (op === "create" || op === "")) {
+    const parent = p.parentId ?? p.parentPageId ?? p.databaseId;
+    const isDb = p.parentType === "database" || p.databaseId;
+    return {
+      type: "notion-create-page" as NodeType,
+      config: {
+        parentDatabaseId: isDb ? parent : undefined,
+        parentPageId: isDb ? undefined : parent,
+        title: p.title,
+        properties: p.propertiesUi?.propertyValues ?? p.properties,
+        children: p.blocksUi?.blockValues ?? p.children ?? p.body,
+        metadata: { credentials: "notion", original: p },
+      },
+    };
+  }
+  if (resource === "page" && op === "update") {
+    return {
+      type: "notion-update-page" as NodeType,
+      config: {
+        pageId: p.pageId,
+        properties: p.propertiesUi?.propertyValues ?? p.properties,
+        archived: p.archived,
+        metadata: { credentials: "notion", original: p },
+      },
+    };
+  }
+  if (resource === "databasepage" || (resource === "database" && op === "getall")) {
+    return {
+      type: "notion-query-database" as NodeType,
+      config: {
+        databaseId: p.databaseId,
+        filter: p.filters ?? p.filter,
+        sorts: p.sorts,
+        pageSize: p.limit ?? 100,
+        metadata: { credentials: "notion", original: p },
+      },
+    };
+  }
+  if (resource === "page" && op === "get") {
+    return {
+      type: "notion-get-page" as NodeType,
+      config: { pageId: p.pageId, metadata: { credentials: "notion", original: p } },
+    };
+  }
+  if (resource === "block" && op === "append") {
+    return {
+      type: "notion-append-block" as NodeType,
+      config: {
+        blockId: p.blockId,
+        children: p.blockUi?.blockValues ?? p.children,
+        metadata: { credentials: "notion", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Notion ${resource}.${op} (stub)`,
+      metadata: { credentials: "notion", original: p },
+    },
+  };
+}
+
+function mapAirtable(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const op = String(p.operation ?? "").toLowerCase();
+  const baseId = p.application?.value ?? p.application ?? p.baseId;
+  const tableId = p.table?.value ?? p.table ?? p.tableId;
+  const common = { baseId, tableId };
+
+  if (op === "list" || op === "getall" || op === "read") {
+    return {
+      type: "airtable-list" as NodeType,
+      config: {
+        ...common,
+        view: p.view?.value ?? p.view,
+        filterByFormula: p.filterByFormula ?? p.additionalOptions?.filterByFormula,
+        maxRecords: p.limit ?? p.maxRecords,
+        fields: p.fields?.fields,
+        metadata: { credentials: "airtable", original: p },
+      },
+    };
+  }
+  if (op === "get" || op === "read") {
+    return {
+      type: "airtable-get" as NodeType,
+      config: { ...common, recordId: p.id ?? p.recordId, metadata: { credentials: "airtable", original: p } },
+    };
+  }
+  if (op === "create" || op === "append") {
+    return {
+      type: "airtable-create" as NodeType,
+      config: {
+        ...common,
+        records: p.fields ?? p.records ?? p.data,
+        typecast: p.options?.typecast,
+        metadata: { credentials: "airtable", original: p },
+      },
+    };
+  }
+  if (op === "update") {
+    return {
+      type: "airtable-update" as NodeType,
+      config: {
+        ...common,
+        recordId: p.id ?? p.recordId,
+        fields: p.fields ?? p.updateFields,
+        typecast: p.options?.typecast,
+        metadata: { credentials: "airtable", original: p },
+      },
+    };
+  }
+  if (op === "delete") {
+    return {
+      type: "airtable-delete" as NodeType,
+      config: { ...common, recordId: p.id ?? p.recordId, metadata: { credentials: "airtable", original: p } },
+    };
+  }
+  if (op === "upsert") {
+    return {
+      type: "airtable-upsert" as NodeType,
+      config: {
+        ...common,
+        records: p.records ?? p.fields,
+        fieldsToMergeOn: p.fieldsToMergeOn ?? p.mergeKeys,
+        typecast: p.options?.typecast,
+        metadata: { credentials: "airtable", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Airtable ${op} (stub)`,
+      metadata: { credentials: "airtable", original: p },
+    },
+  };
+}
+
+function mapLinear(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const resource = String(p.resource ?? "issue").toLowerCase();
+  const op = String(p.operation ?? "create").toLowerCase();
+
+  if (resource === "issue" && (op === "create" || op === "")) {
+    return {
+      type: "linear-create-issue" as NodeType,
+      config: {
+        teamId: p.teamId,
+        title: p.title,
+        description: p.description ?? p.additionalFields?.description,
+        priority: p.priority ?? p.additionalFields?.priority,
+        stateId: p.stateId ?? p.additionalFields?.stateId,
+        assigneeId: p.assigneeId ?? p.additionalFields?.assigneeId,
+        labels: p.labels ?? p.additionalFields?.labels,
+        projectId: p.projectId ?? p.additionalFields?.projectId,
+        metadata: { credentials: "linear", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && op === "update") {
+    return {
+      type: "linear-update-issue" as NodeType,
+      config: {
+        issueId: p.issueId,
+        ...p.updateFields,
+        metadata: { credentials: "linear", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && (op === "search" || op === "getall")) {
+    return {
+      type: "linear-search" as NodeType,
+      config: {
+        query: p.searchQuery ?? p.query,
+        first: p.limit,
+        metadata: { credentials: "linear", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && op === "get") {
+    return {
+      type: "linear-get-issue" as NodeType,
+      config: { issueId: p.issueId, metadata: { credentials: "linear", original: p } },
+    };
+  }
+  if (resource === "comment" && (op === "create" || op === "add")) {
+    return {
+      type: "linear-create-comment" as NodeType,
+      config: {
+        issueId: p.issueId,
+        body: p.comment ?? p.body,
+        metadata: { credentials: "linear", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Linear ${resource}.${op} (stub)`,
+      metadata: { credentials: "linear", original: p },
+    },
+  };
+}
+
+function mapJira(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const resource = String(p.resource ?? "issue").toLowerCase();
+  const op = String(p.operation ?? "create").toLowerCase();
+
+  if (resource === "issue" && (op === "create" || op === "")) {
+    return {
+      type: "jira-create-issue" as NodeType,
+      config: {
+        baseUrl: p.baseUrl ?? p.additionalFields?.baseUrl,
+        projectKey: p.project?.value ?? p.project ?? p.projectKey,
+        issueType: p.issueType?.value ?? p.issueType,
+        summary: p.summary,
+        description: p.description ?? p.additionalFields?.description,
+        labels: p.additionalFields?.labels,
+        assigneeAccountId: p.additionalFields?.assignee,
+        priority: p.additionalFields?.priority,
+        metadata: { credentials: "jira", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && op === "update") {
+    return {
+      type: "jira-update-issue" as NodeType,
+      config: {
+        baseUrl: p.baseUrl,
+        issueKey: p.issueKey,
+        fields: p.updateFields,
+        metadata: { credentials: "jira", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && op === "get") {
+    return {
+      type: "jira-get-issue" as NodeType,
+      config: {
+        baseUrl: p.baseUrl,
+        issueKey: p.issueKey,
+        fields: p.options?.fields,
+        metadata: { credentials: "jira", original: p },
+      },
+    };
+  }
+  if (resource === "issue" && (op === "search" || op === "getall")) {
+    return {
+      type: "jira-search" as NodeType,
+      config: {
+        baseUrl: p.baseUrl,
+        jql: p.jql ?? p.jqlQuery ?? p.query,
+        fields: p.options?.fields,
+        maxResults: p.limit ?? p.maxResults,
+        metadata: { credentials: "jira", original: p },
+      },
+    };
+  }
+  if (resource === "issuecomment" || (resource === "issue" && op === "addcomment")) {
+    return {
+      type: "jira-add-comment" as NodeType,
+      config: {
+        baseUrl: p.baseUrl,
+        issueKey: p.issueKey,
+        body: p.comment ?? p.body,
+        metadata: { credentials: "jira", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Jira ${resource}.${op} (stub)`,
+      metadata: { credentials: "jira", original: p },
+    },
+  };
+}
 
 function mapOpenAi(n: N8nNode): MapResult {
   const p = (n.parameters ?? {}) as any;
@@ -868,6 +1214,13 @@ function n8nCredentialToService(credType: string): string | undefined {
   if (c.startsWith("stripe")) return "stripe";
   if (c.startsWith("linkedin")) return "linkedin";
   if (c.startsWith("gmail") || c.startsWith("smtp") || c.startsWith("email")) return "email";
+  if (c.startsWith("googlesheets") || c.startsWith("sheets")) return "google-sheets";
+  if (c.startsWith("notion")) return "notion";
+  if (c.startsWith("airtable")) return "airtable";
+  if (c.startsWith("linear")) return "linear";
+  if (c.startsWith("jira") || c.startsWith("atlassian")) return "jira";
+  if (c.startsWith("sendgrid")) return "sendgrid";
+  if (c.startsWith("twilio")) return "twilio";
   return undefined;
 }
 

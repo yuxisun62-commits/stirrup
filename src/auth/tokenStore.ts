@@ -87,6 +87,13 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   // We accept either the combined form (TWILIO_CREDENTIALS) or assemble from the
   // split env vars that Twilio's own docs recommend.
   twilio: ["TWILIO_CREDENTIALS"],
+  "google-sheets": ["GOOGLE_ACCESS_TOKEN", "SHEETS_ACCESS_TOKEN"],
+  sheets: ["GOOGLE_ACCESS_TOKEN", "SHEETS_ACCESS_TOKEN"],
+  notion: ["NOTION_TOKEN", "NOTION_API_KEY"],
+  airtable: ["AIRTABLE_TOKEN", "AIRTABLE_API_KEY"],
+  linear: ["LINEAR_API_KEY"],
+  // Jira creds are "<email>:<apiToken>" — same pattern as Twilio.
+  jira: ["JIRA_CREDENTIALS"],
 };
 
 export function getToken(service: string): StoredToken | null {

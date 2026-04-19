@@ -153,10 +153,6 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://app.launchmatic.io",
     instructions: "Install the Launchmatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste the value here.",
   },
-  jira: {
-    url: "https://id.atlassian.com/manage-profile/security/api-tokens",
-    instructions: "Create an API token from your Atlassian account settings.",
-  },
   stripe: {
     url: "https://dashboard.stripe.com/apikeys",
     instructions: "Get a secret API key from your Stripe dashboard.",
@@ -208,6 +204,26 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
   twilio: {
     url: "https://console.twilio.com",
     instructions: "Grab your Account SID and Auth Token from the Twilio Console dashboard and paste them as `<AccountSID>:<AuthToken>` (one string separated by a colon). Twilio's REST API uses Basic auth with the SID as username and Token as password — we combine and split internally.",
+  },
+  "google-sheets": {
+    url: "https://console.cloud.google.com/apis/credentials",
+    instructions: "Create an OAuth 2.0 Client ID in Google Cloud Console, run the OAuth flow with scope `https://www.googleapis.com/auth/spreadsheets`, and paste the access token here. Tokens expire; rotate or use a service account for long-running workflows.",
+  },
+  notion: {
+    url: "https://www.notion.so/my-integrations",
+    instructions: "Create a new internal integration at notion.so/my-integrations, copy the 'Internal Integration Token' (starts with `secret_` or `ntn_`), and paste it here. You must also share each target page/database with the integration from Notion's UI.",
+  },
+  airtable: {
+    url: "https://airtable.com/create/tokens",
+    instructions: "Create a Personal Access Token with the scopes you need — typically data.records:read and data.records:write. Choose which bases it can access, then paste the token (starts with `pat...`) here.",
+  },
+  linear: {
+    url: "https://linear.app/settings/api",
+    instructions: "Create a personal API key at linear.app/settings/api. Paste it here — Linear accepts the key directly (no Bearer prefix needed).",
+  },
+  jira: {
+    url: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    instructions: "Generate an Atlassian Cloud API token at id.atlassian.com/manage-profile/security/api-tokens. Paste it as `<your-email>:<apiToken>` (one string, colon-separated). Each jira-* node in your workflow also needs a `baseUrl` config (e.g. https://acme.atlassian.net).",
   },
 };
 

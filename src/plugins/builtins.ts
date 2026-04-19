@@ -40,6 +40,12 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "telegram", description: "Telegram bot: send messages, photos, edit, delete, webhooks", category: "integration" },
   { name: "sendgrid", description: "SendGrid transactional email: send, templates, contacts", category: "integration" },
   { name: "twilio", description: "Twilio SMS, WhatsApp, voice calls, and Verify 2FA codes", category: "integration" },
+  // ── Productivity batch (0.7.5) ──────────────────────────────────────
+  { name: "google-sheets", description: "Google Sheets: read, append, update, clear ranges, create spreadsheets", category: "integration" },
+  { name: "notion", description: "Notion: create/update pages, query databases, append blocks, search", category: "integration" },
+  { name: "airtable", description: "Airtable: list, get, create, update, delete, and upsert records", category: "integration" },
+  { name: "linear", description: "Linear: create/update/search issues and add comments via GraphQL", category: "integration" },
+  { name: "jira", description: "Jira Cloud: create/update/search issues, add comments, transition status", category: "integration" },
 ];
 
 function resolvePluginPath(name: string): string | null {
