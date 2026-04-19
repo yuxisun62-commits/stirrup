@@ -46,6 +46,11 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "airtable", description: "Airtable: list, get, create, update, delete, and upsert records", category: "integration" },
   { name: "linear", description: "Linear: create/update/search issues and add comments via GraphQL", category: "integration" },
   { name: "jira", description: "Jira Cloud: create/update/search issues, add comments, transition status", category: "integration" },
+  // ── Commerce / data / AI extras batch (0.7.6) ───────────────────────
+  { name: "stripe", description: "Stripe: customers, charges, payment intents, invoices, subscriptions, checkout sessions", category: "integration" },
+  { name: "mongodb", description: "MongoDB: find/insert/update/delete/aggregate/count", category: "database", peerDep: "mongodb", installHint: "npm install mongodb" },
+  { name: "supabase", description: "Supabase: select/insert/update/upsert/delete via PostgREST, plus auth signup/signin and RPC", category: "database" },
+  { name: "openai-extras", description: "OpenAI: image generation, embeddings, TTS, Whisper transcription, moderations", category: "integration" },
 ];
 
 function resolvePluginPath(name: string): string | null {

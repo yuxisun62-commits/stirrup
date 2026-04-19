@@ -94,6 +94,10 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   linear: ["LINEAR_API_KEY"],
   // Jira creds are "<email>:<apiToken>" — same pattern as Twilio.
   jira: ["JIRA_CREDENTIALS"],
+  mongodb: ["MONGODB_URI", "MONGO_URI"],
+  supabase: ["SUPABASE_CREDENTIALS"],
+  openai: ["OPENAI_API_KEY"],
+  "openai-extras": ["OPENAI_API_KEY"],
 };
 
 export function getToken(service: string): StoredToken | null {

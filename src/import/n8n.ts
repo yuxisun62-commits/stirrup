@@ -728,6 +728,10 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
   jira: (n) => mapJira(n),
   // Alias variants that appear in real n8n exports.
   jiraSoftwareCloud: (n) => mapJira(n),
+
+  stripe: (n) => mapStripe(n),
+  mongoDb: (n) => mapMongoDb(n),
+  supabase: (n) => mapSupabase(n),
 };
 
 function mapGoogleSheets(n: N8nNode): MapResult {
@@ -993,6 +997,239 @@ function mapLinear(n: N8nNode): MapResult {
   };
 }
 
+function mapStripe(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const resource = String(p.resource ?? "customer").toLowerCase();
+  const op = String(p.operation ?? "create").toLowerCase();
+
+  if (resource === "customer" && (op === "create" || op === "")) {
+    return {
+      type: "stripe-create-customer" as NodeType,
+      config: {
+        email: p.email ?? p.additionalFields?.email,
+        name: p.name ?? p.additionalFields?.name,
+        phone: p.additionalFields?.phone,
+        description: p.additionalFields?.description,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if (resource === "charge" && op === "create") {
+    return {
+      type: "stripe-create-charge" as NodeType,
+      config: {
+        amount: p.amount, currency: p.currency,
+        customer: p.customerId, source: p.source,
+        description: p.description,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if ((resource === "paymentintent" || resource === "paymentintents") && op === "create") {
+    return {
+      type: "stripe-create-payment-intent" as NodeType,
+      config: {
+        amount: p.amount, currency: p.currency,
+        customer: p.customerId,
+        paymentMethod: p.paymentMethodId,
+        confirm: p.confirm,
+        description: p.description,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if (resource === "invoice" && op === "create") {
+    return {
+      type: "stripe-create-invoice" as NodeType,
+      config: {
+        customer: p.customerId,
+        collectionMethod: p.collectionMethod,
+        daysUntilDue: p.daysUntilDue,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if (resource === "checkoutsession" || (resource === "checkout" && op === "create")) {
+    return {
+      type: "stripe-create-checkout-session" as NodeType,
+      config: {
+        mode: p.mode ?? "payment",
+        successUrl: p.successUrl,
+        cancelUrl: p.cancelUrl,
+        lineItems: p.lineItems?.itemsUi ?? p.lineItems,
+        customerEmail: p.customerEmail,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if (op === "get" || op === "retrieve") {
+    return {
+      type: "stripe-retrieve" as NodeType,
+      config: {
+        resource: p.resource ?? "customers",
+        id: p.id ?? p.customerId ?? p.chargeId,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  if (op === "getall" || op === "list") {
+    return {
+      type: "stripe-list" as NodeType,
+      config: {
+        resource: p.resource ?? "customers",
+        limit: p.limit,
+        metadata: { credentials: "stripe", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Stripe ${resource}.${op} (stub)`,
+      metadata: { credentials: "stripe", original: p },
+    },
+  };
+}
+
+function mapMongoDb(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const op = String(p.operation ?? "find").toLowerCase();
+  const common = {
+    database: p.database?.value ?? p.database,
+    collection: p.collection?.value ?? p.collection,
+  };
+  if (op === "find") {
+    return {
+      type: "mongo-find" as NodeType,
+      config: {
+        ...common,
+        filter: p.query ?? p.filter,
+        projection: p.options?.projection,
+        sort: p.options?.sort,
+        limit: p.options?.limit ?? p.limit,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  if (op === "findone") {
+    return {
+      type: "mongo-find-one" as NodeType,
+      config: {
+        ...common,
+        filter: p.query ?? p.filter,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  if (op === "insert") {
+    return {
+      type: "mongo-insert" as NodeType,
+      config: {
+        ...common,
+        documents: p.fields ?? p.documents ?? p.data,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  if (op === "update") {
+    return {
+      type: "mongo-update" as NodeType,
+      config: {
+        ...common,
+        filter: p.query ?? p.filter,
+        update: p.update ?? p.updateFields,
+        upsert: p.upsert,
+        many: p.updateAll ?? p.many,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  if (op === "delete") {
+    return {
+      type: "mongo-delete" as NodeType,
+      config: {
+        ...common,
+        filter: p.query ?? p.filter,
+        many: p.deleteAll ?? p.many,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  if (op === "aggregate") {
+    return {
+      type: "mongo-aggregate" as NodeType,
+      config: {
+        ...common,
+        pipeline: p.pipeline,
+        metadata: { credentials: "mongodb", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `MongoDB ${op} (stub)`,
+      metadata: { credentials: "mongodb", original: p },
+    },
+  };
+}
+
+function mapSupabase(n: N8nNode): MapResult {
+  const p = (n.parameters ?? {}) as any;
+  const op = String(p.operation ?? "getAll").toLowerCase();
+  if (op === "getall" || op === "select" || op === "read") {
+    return {
+      type: "supabase-select" as NodeType,
+      config: {
+        table: p.tableId?.value ?? p.tableId ?? p.table,
+        filters: p.filters ?? p.where,
+        select: p.select ?? p.columns,
+        limit: p.limit,
+        order: p.order,
+        metadata: { credentials: "supabase", original: p },
+      },
+    };
+  }
+  if (op === "create" || op === "insert") {
+    return {
+      type: "supabase-insert" as NodeType,
+      config: {
+        table: p.tableId?.value ?? p.tableId ?? p.table,
+        records: p.fieldsUi?.fieldValues ?? p.records ?? p.data,
+        metadata: { credentials: "supabase", original: p },
+      },
+    };
+  }
+  if (op === "update") {
+    return {
+      type: "supabase-update" as NodeType,
+      config: {
+        table: p.tableId?.value ?? p.tableId ?? p.table,
+        filters: p.filters ?? p.where,
+        updates: p.fieldsUi?.fieldValues ?? p.updates ?? p.data,
+        metadata: { credentials: "supabase", original: p },
+      },
+    };
+  }
+  if (op === "delete") {
+    return {
+      type: "supabase-delete" as NodeType,
+      config: {
+        table: p.tableId?.value ?? p.tableId ?? p.table,
+        filters: p.filters ?? p.where,
+        metadata: { credentials: "supabase", original: p },
+      },
+    };
+  }
+  return {
+    type: "passthrough",
+    config: {
+      label: `Supabase ${op} (stub)`,
+      metadata: { credentials: "supabase", original: p },
+    },
+  };
+}
+
 function mapJira(n: N8nNode): MapResult {
   const p = (n.parameters ?? {}) as any;
   const resource = String(p.resource ?? "issue").toLowerCase();
@@ -1221,6 +1458,8 @@ function n8nCredentialToService(credType: string): string | undefined {
   if (c.startsWith("jira") || c.startsWith("atlassian")) return "jira";
   if (c.startsWith("sendgrid")) return "sendgrid";
   if (c.startsWith("twilio")) return "twilio";
+  if (c.startsWith("mongo")) return "mongodb";
+  if (c.startsWith("supabase")) return "supabase";
   return undefined;
 }
 

@@ -225,6 +225,18 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://id.atlassian.com/manage-profile/security/api-tokens",
     instructions: "Generate an Atlassian Cloud API token at id.atlassian.com/manage-profile/security/api-tokens. Paste it as `<your-email>:<apiToken>` (one string, colon-separated). Each jira-* node in your workflow also needs a `baseUrl` config (e.g. https://acme.atlassian.net).",
   },
+  openai: {
+    url: "https://platform.openai.com/api-keys",
+    instructions: "Create a secret API key at platform.openai.com/api-keys. Paste the `sk-...` key here. Powers llm-prompt (when model is set to a gpt-* / o* model) and every openai-* node: image generation, embeddings, TTS, Whisper, moderations.",
+  },
+  mongodb: {
+    url: "https://www.mongodb.com/docs/manual/reference/connection-string/",
+    instructions: "Paste your full MongoDB connection string, e.g. `mongodb+srv://user:pass@cluster.mongodb.net/mydb`. All auth options (replica set, TLS, auth source) live in the URI.",
+  },
+  supabase: {
+    url: "https://supabase.com/dashboard/project/_/settings/api",
+    instructions: "From your Supabase project dashboard → Settings → API, copy the Project URL and service_role (or anon) key. Paste as `<projectUrl>|<apiKey>` (one string, pipe-separated). Individual supabase-* nodes can also supply projectUrl and apiKey as per-node config.",
+  },
 };
 
 export function authRoutes(): Router {
