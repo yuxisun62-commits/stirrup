@@ -34,6 +34,12 @@ export const BUILTIN_PLUGINS: BuiltinPluginDef[] = [
   { name: "redis", description: "Redis get, set, publish, and list operations", category: "database", peerDep: "ioredis", installHint: "npm install ioredis" },
   { name: "email", description: "Send emails via SMTP", category: "integration", peerDep: "nodemailer", installHint: "npm install nodemailer" },
   { name: "s3", description: "AWS S3 get, put, list, and delete objects", category: "cloud", peerDep: "@aws-sdk/client-s3", installHint: "npm install @aws-sdk/client-s3" },
+  // ── Communication batch (0.7.4) ─────────────────────────────────────
+  { name: "gmail", description: "Send and search Gmail messages via the Google API", category: "integration" },
+  { name: "discord", description: "Discord bot: send/edit/delete messages, reactions, list history", category: "integration" },
+  { name: "telegram", description: "Telegram bot: send messages, photos, edit, delete, webhooks", category: "integration" },
+  { name: "sendgrid", description: "SendGrid transactional email: send, templates, contacts", category: "integration" },
+  { name: "twilio", description: "Twilio SMS, WhatsApp, voice calls, and Verify 2FA codes", category: "integration" },
 ];
 
 function resolvePluginPath(name: string): string | null {

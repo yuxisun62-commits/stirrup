@@ -545,24 +545,28 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
   },
 
   telegram: (n) => {
-    // n8n's Telegram "send message" node → a raw HTTP call to Telegram Bot API.
-    // We emit an http node with the URL interpolated; the user's stored
-    // token (service: telegram) fills in at execute time.
     const p = (n.parameters ?? {}) as any;
-    const op = String(p.operation ?? "sendMessage");
-    if (op === "sendMessage" || p.resource === "message") {
+    const op = String(p.operation ?? p.resource ?? "sendMessage").toLowerCase();
+    if (op === "sendmessage" || op === "message") {
       return {
-        type: "http" as NodeType,
+        type: "telegram-send" as NodeType,
         config: {
-          url: "={{ 'https://api.telegram.org/bot' + $parameter.telegramToken + '/sendMessage' }}",
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: {
-            chat_id: p.chatId,
-            text: p.text ?? p.message,
-            parse_mode: p.parse_mode ?? p.additionalFields?.parse_mode,
-          },
-          _n8nExpressions: true,
+          chatId: p.chatId,
+          text: p.text ?? p.message,
+          parseMode: p.parse_mode ?? p.additionalFields?.parse_mode,
+          disableWebPagePreview: p.additionalFields?.disable_web_page_preview,
+          replyToMessageId: p.additionalFields?.reply_to_message_id,
+          metadata: { credentials: "telegram", original: p },
+        },
+      };
+    }
+    if (op === "sendphoto" || op === "photo") {
+      return {
+        type: "telegram-send-photo" as NodeType,
+        config: {
+          chatId: p.chatId,
+          photoUrl: p.photo ?? p.file,
+          caption: p.caption ?? p.additionalFields?.caption,
           metadata: { credentials: "telegram", original: p },
         },
       };
@@ -588,18 +592,134 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
     },
   }),
 
-  discord: (n) => ({
-    type: "webhook-send" as NodeType,
-    config: {
-      url: (n.parameters as any)?.webhookUri ?? "",
-      method: "POST",
-      payload: {
-        content: (n.parameters as any)?.text ?? (n.parameters as any)?.content,
-        username: (n.parameters as any)?.options?.username,
+  // n8n's Discord node has two very different modes: webhook (URL only, no
+  // bot) and api (bot token). We map both — webhook → webhook-send,
+  // bot-api → discord-send.
+  discord: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const auth = String(p.authentication ?? "webhook").toLowerCase();
+    if (auth === "webhook" || p.webhookUri || p.webhookUrl) {
+      return {
+        type: "webhook-send" as NodeType,
+        config: {
+          url: p.webhookUri ?? p.webhookUrl ?? "",
+          method: "POST",
+          payload: {
+            content: p.text ?? p.content,
+            username: p.options?.username,
+            embeds: p.embeds,
+          },
+          metadata: { credentials: "discord", original: p },
+        },
+      };
+    }
+    const op = String(p.operation ?? "sendMessage").toLowerCase();
+    if (op === "sendmessage" || op === "message.send" || op === "send") {
+      return {
+        type: "discord-send" as NodeType,
+        config: {
+          channelId: p.channelId ?? p.channel,
+          content: p.content ?? p.text,
+          embeds: p.embeds,
+          metadata: { credentials: "discord", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Discord ${op} (stub)`,
+        metadata: { credentials: "discord", original: p },
       },
-      metadata: { credentials: "discord", original: n.parameters },
-    },
-  }),
+    };
+  },
+
+  gmail: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? p.resource ?? "send").toLowerCase();
+    if (op === "send" || op === "message.send") {
+      return {
+        type: "gmail-send" as NodeType,
+        config: {
+          to: p.toList ?? p.toEmail ?? p.to,
+          subject: p.subject,
+          body: p.message ?? p.body ?? p.htmlBody,
+          html: Boolean(p.htmlBody) || p.emailType === "html",
+          cc: p.ccList ?? p.cc,
+          bcc: p.bccList ?? p.bcc,
+          metadata: { credentials: "gmail", original: p },
+        },
+      };
+    }
+    if (op === "getall" || op === "list" || op === "search") {
+      return {
+        type: "gmail-list-messages" as NodeType,
+        config: {
+          query: p.q ?? p.query ?? p.searchQuery,
+          maxResults: p.limit ?? p.maxResults ?? 10,
+          metadata: { credentials: "gmail", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Gmail ${op} (stub)`,
+        metadata: { credentials: "gmail", original: p },
+      },
+    };
+  },
+
+  sendGrid: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? "send").toLowerCase();
+    if (op === "send" || op === "mail.send") {
+      return {
+        type: "sendgrid-send" as NodeType,
+        config: {
+          from: p.fromEmail ?? p.from,
+          fromName: p.fromName,
+          to: p.toEmail ?? p.to,
+          subject: p.subject,
+          text: p.contentValue ?? p.text,
+          html: p.html,
+          metadata: { credentials: "sendgrid", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `SendGrid ${op} (stub)`,
+        metadata: { credentials: "sendgrid", original: p },
+      },
+    };
+  },
+
+  twilio: (n) => {
+    const p = (n.parameters ?? {}) as any;
+    const op = String(p.operation ?? "send").toLowerCase();
+    const isWhatsApp = p.toWhatsapp === true || String(p.channel ?? "").toLowerCase() === "whatsapp";
+    if (op === "send" || op === "sms") {
+      return {
+        type: (isWhatsApp ? "twilio-whatsapp" : "twilio-sms") as NodeType,
+        config: {
+          from: p.from,
+          to: p.to,
+          body: p.message ?? p.body,
+          mediaUrl: p.mediaUrl,
+          metadata: { credentials: "twilio", original: p },
+        },
+      };
+    }
+    return {
+      type: "passthrough",
+      config: {
+        label: `Twilio ${op} (stub)`,
+        metadata: { credentials: "twilio", original: p },
+      },
+    };
+  },
 };
 
 function mapOpenAi(n: N8nNode): MapResult {

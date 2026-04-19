@@ -79,6 +79,14 @@ const ENV_FALLBACKS: Record<string, string[]> = {
   typefully: ["TYPEFULLY_API_KEY"],
   buffer: ["BUFFER_ACCESS_TOKEN"],
   telegram: ["TELEGRAM_BOT_TOKEN"],
+  gmail: ["GMAIL_ACCESS_TOKEN", "GOOGLE_ACCESS_TOKEN"],
+  google: ["GOOGLE_ACCESS_TOKEN"],
+  discord: ["DISCORD_BOT_TOKEN"],
+  sendgrid: ["SENDGRID_API_KEY"],
+  // Twilio creds travel as "<AccountSID>:<AuthToken>" — see plugins/public/twilio.ts.
+  // We accept either the combined form (TWILIO_CREDENTIALS) or assemble from the
+  // split env vars that Twilio's own docs recommend.
+  twilio: ["TWILIO_CREDENTIALS"],
 };
 
 export function getToken(service: string): StoredToken | null {

@@ -193,6 +193,22 @@ const TOKEN_DOCS: Record<string, { url: string; instructions: string }> = {
     url: "https://core.telegram.org/bots#how-do-i-create-a-bot",
     instructions: "Message @BotFather on Telegram, run /newbot, and paste the token it gives you (format: `123456789:ABCdef...`). Then declare `triggers.telegram: {}` in any workflow and Stirrup will long-poll for messages. Optional filters: `allowedChatIds` (only these chats), `commands` (e.g. [\"/run\", \"/start\"]).",
   },
+  gmail: {
+    url: "https://console.cloud.google.com/apis/credentials",
+    instructions: "Create an OAuth 2.0 Client ID in Google Cloud Console, run the OAuth flow to get an access token with scopes `https://www.googleapis.com/auth/gmail.send` and `gmail.readonly`, and paste the access token here. Access tokens expire — rotate periodically or use a service account with domain-wide delegation.",
+  },
+  discord: {
+    url: "https://discord.com/developers/applications",
+    instructions: "Create a bot application at discord.com/developers/applications → your app → Bot → Reset Token. Paste that bot token here. Invite the bot to your server via the OAuth2 URL generator with at least the Send Messages, Read Message History, and Add Reactions permissions.",
+  },
+  sendgrid: {
+    url: "https://app.sendgrid.com/settings/api_keys",
+    instructions: "Create a Full Access API key at SendGrid → Settings → API Keys. Paste the resulting `SG....` token here. Before sending, verify your From address or domain under Sender Authentication.",
+  },
+  twilio: {
+    url: "https://console.twilio.com",
+    instructions: "Grab your Account SID and Auth Token from the Twilio Console dashboard and paste them as `<AccountSID>:<AuthToken>` (one string separated by a colon). Twilio's REST API uses Basic auth with the SID as username and Token as password — we combine and split internally.",
+  },
 };
 
 export function authRoutes(): Router {
