@@ -1568,6 +1568,20 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     // _n8nCondition is set by the compileN8nCondition / compileN8nSwitch
     // mappings above.
 
+    // Opt into per-item execution for every imported node that isn't a
+    // branch selector, fail gate, or passthrough-only trigger entry.
+    // At runtime the Runner only iterates if the primary upstream is
+    // actually array-shaped — so flagging single-shot nodes is harmless
+    // (the iteration short-circuits back to a single handler call).
+    const skipPerItem =
+      stirrupNode.type === "condition" ||
+      stirrupNode.type === "fail" ||
+      (stirrupNode.type === "passthrough" &&
+        (stirrupNode.config as any)?.metadata?.triggerKind !== undefined);
+    if (!skipPerItem) {
+      (stirrupNode.config as Record<string, unknown>)._n8nPerItem = true;
+    }
+
     nodes.push(stirrupNode);
   }
 
@@ -1623,7 +1637,10 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     const config = node.config as Record<string, unknown>;
     const hasTemplates = config._n8nExpressions === true;
     const hasCompiledCondition = config._n8nCondition === true;
-    if (!hasTemplates && !hasCompiledCondition) continue;
+    const hasPerItem = config._n8nPerItem === true;
+    // Per-item nodes need the `__n8nJson` input mapping too, even with no
+    // expressions, so the Runner can discover the iteration source.
+    if (!hasTemplates && !hasCompiledCondition && !hasPerItem) continue;
 
     // For compiled conditions, referenced nodes were collected at compile
     // time and stashed under _n8nReferencedNodes — use those. For template
