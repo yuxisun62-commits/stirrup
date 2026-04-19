@@ -30,8 +30,10 @@ import type {
   WorkflowEdge,
   NodeType,
   InputMapping,
+  WorkflowTrigger,
 } from "../types/workflow.js";
 import { configHasExpressions, collectNodeReferences } from "./n8nExpression.js";
+import { compileN8nCondition, compileN8nSwitch } from "./n8nConditions.js";
 
 export interface N8nNode {
   id?: string;
@@ -239,34 +241,44 @@ const NODE_MAPPINGS: Record<string, MapBuilder> = {
       language: "javascript",
     },
   }),
-  if: (n) => ({
-    type: "condition",
-    config: {
-      // n8n conditions are structural (value1, value2, operation). We can't
-      // always translate them to a JS expression without the runtime data
-      // shape, so we embed the original rules and default to passing-through.
-      expression: "true",
-      metadata: { original: n.parameters },
-    },
-    branches: { true: [], false: [] },
-  }),
-  filter: (n) => ({
-    type: "condition",
-    config: {
-      expression: "true",
-      metadata: { original: n.parameters, kind: "filter" },
-    },
-    branches: { true: [], false: [] },
-  }),
-  switch: (n) => {
-    const p = (n.parameters ?? {}) as any;
-    const ruleCount = Array.isArray(p.rules?.values) ? p.rules.values.length : 2;
-    const branches: Record<string, string[]> = {};
-    for (let i = 0; i < ruleCount; i++) branches[`branch${i}`] = [];
-    branches.fallback = [];
+  if: (n) => {
+    const compiled = compileN8nCondition(n.parameters);
     return {
       type: "condition",
-      config: { expression: "'branch0'", metadata: { original: n.parameters } },
+      config: {
+        expression: compiled.expression,
+        _n8nCondition: true,
+        _n8nReferencedNodes: compiled.referencedNodes,
+        metadata: { original: n.parameters, warnings: compiled.warnings },
+      },
+      branches: { true: [], false: [] },
+    };
+  },
+  filter: (n) => {
+    const compiled = compileN8nCondition(n.parameters);
+    return {
+      type: "condition",
+      config: {
+        expression: compiled.expression,
+        _n8nCondition: true,
+        _n8nReferencedNodes: compiled.referencedNodes,
+        metadata: { original: n.parameters, kind: "filter", warnings: compiled.warnings },
+      },
+      branches: { true: [], false: [] },
+    };
+  },
+  switch: (n) => {
+    const compiled = compileN8nSwitch(n.parameters);
+    const branches: Record<string, string[]> = {};
+    for (const name of compiled.branches) branches[name] = [];
+    return {
+      type: "condition",
+      config: {
+        expression: compiled.expression,
+        _n8nCondition: true,
+        _n8nReferencedNodes: compiled.referencedNodes,
+        metadata: { original: n.parameters, warnings: compiled.warnings },
+      },
       branches,
     };
   },
@@ -427,6 +439,11 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     if (configHasExpressions(stirrupNode.config)) {
       (stirrupNode.config as Record<string, unknown>)._n8nExpressions = true;
     }
+    // Compiled conditions (if/filter/switch) reference $json / $node
+    // directly from raw JS — they also need the input mappings that
+    // the second pass emits for $node["X"].
+    // _n8nCondition is set by the compileN8nCondition / compileN8nSwitch
+    // mappings above.
 
     nodes.push(stirrupNode);
   }
@@ -481,9 +498,17 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
   // before invoking the handler. Handlers never see raw expression strings.
   for (const node of nodes) {
     const config = node.config as Record<string, unknown>;
-    if (config._n8nExpressions !== true) continue;
+    const hasTemplates = config._n8nExpressions === true;
+    const hasCompiledCondition = config._n8nCondition === true;
+    if (!hasTemplates && !hasCompiledCondition) continue;
 
-    const referenced = collectNodeReferences(config);
+    // For compiled conditions, referenced nodes were collected at compile
+    // time and stashed under _n8nReferencedNodes — use those. For template
+    // configs, rescan the (possibly deep) config for {{ $node["X"] }} refs.
+    const referenced = hasCompiledCondition
+      ? ((config._n8nReferencedNodes as string[]) ?? [])
+      : collectNodeReferences(config);
+
     const existingMappings = new Set(node.inputs.map((m) => m.to));
     const newMappings: InputMapping[] = [];
 
@@ -515,6 +540,14 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
     node.inputs = [...node.inputs, ...newMappings];
   }
 
+  // Third pass: extract trigger configurations. n8n represents triggers as
+  // nodes (webhook / scheduleTrigger / cron); Stirrup represents them as a
+  // workflow-level `triggers:` block consumed by the TriggerManager. We
+  // keep the original nodes as passthrough entry points so downstream
+  // data flow still works, but the actual firing is driven by the
+  // trigger subsystem.
+  const triggers = extractTriggers(src.nodes ?? [], nameToId, report);
+
   report.nodeCount = nodes.length;
   report.edgeCount = edges.length;
   if (report.scriptNodeCount > 0) {
@@ -540,7 +573,120 @@ export function importN8nWorkflow(src: N8nWorkflow, opts: { workflowId?: string 
       },
     ],
     edges,
+    ...(triggers ? { triggers } : {}),
   };
 
   return { workflow, report };
+}
+
+/**
+ * Build a WorkflowTrigger from whichever trigger-style n8n nodes are
+ * present. Returns undefined when there are none. Supports:
+ *
+ *  - webhook           → triggers.http (path + method come from params)
+ *  - scheduleTrigger   → triggers.cron (from rule.interval[0])
+ *  - cron (legacy)     → triggers.cron (from cronExpression)
+ *
+ * Multiple trigger nodes of the same kind: we take the first and warn.
+ * formTrigger / executeWorkflowTrigger / manualTrigger: no mapping; they
+ * stay as passthrough entry nodes.
+ */
+function extractTriggers(
+  n8nNodes: N8nNode[],
+  _nameToId: Map<string, string>,
+  report: ImportReport,
+): WorkflowTrigger | undefined {
+  const result: WorkflowTrigger = {};
+  let found = false;
+
+  for (const n of n8nNodes) {
+    const bare = bareType(n.type);
+    const params = (n.parameters ?? {}) as Record<string, unknown>;
+
+    if (bare === "webhook") {
+      if (result.http) {
+        report.warnings.push(`Multiple webhook triggers found; using first only`);
+      } else {
+        const rawPath = String(params.path ?? n.name ?? "webhook");
+        const httpMethod = String(params.httpMethod ?? "POST").toUpperCase();
+        const method = httpMethod === "GET" ? "GET" : "POST";
+        result.http = {
+          path: rawPath.startsWith("/") ? rawPath : `/${rawPath}`,
+          method,
+        };
+        found = true;
+      }
+    } else if (bare === "scheduleTrigger") {
+      if (result.cron) {
+        report.warnings.push(`Multiple schedule triggers found; using first only`);
+      } else {
+        const schedule = scheduleTriggerToCron(params, report);
+        if (schedule) {
+          result.cron = { schedule };
+          found = true;
+        }
+      }
+    } else if (bare === "cron") {
+      if (result.cron) {
+        report.warnings.push(`Multiple cron triggers found; using first only`);
+      } else {
+        const expr = String(params.cronExpression ?? "").trim();
+        if (expr) {
+          result.cron = { schedule: expr };
+          found = true;
+        } else {
+          report.warnings.push(`Cron trigger "${n.name}" has no cronExpression; skipping`);
+        }
+      }
+    }
+  }
+
+  return found ? result : undefined;
+}
+
+/**
+ * n8n's scheduleTrigger has two param shapes:
+ *   1. `{rule: {interval: [{field: "cronExpression", expression: "..."}]}}`
+ *   2. `{rule: {interval: [{field: "hours", hoursInterval: 2}]}}`
+ *      — numeric intervals for seconds/minutes/hours/days.
+ * We translate (1) verbatim and (2) into a cron string. Anything else
+ * (weekly on specific weekdays, etc.) falls through with a warning.
+ */
+function scheduleTriggerToCron(
+  params: Record<string, unknown>,
+  report: ImportReport,
+): string | null {
+  const rule = params.rule as { interval?: unknown[] } | undefined;
+  const intervals = Array.isArray(rule?.interval) ? rule!.interval : [];
+  if (intervals.length === 0) return null;
+
+  const first = intervals[0] as Record<string, unknown>;
+  const field = String(first.field ?? "");
+
+  if (field === "cronExpression" && typeof first.expression === "string") {
+    return first.expression;
+  }
+  if (field === "seconds" && typeof first.secondsInterval === "number") {
+    report.warnings.push(
+      "Second-level schedules approximated as every-minute cron (node-cron minimum granularity)",
+    );
+    return "* * * * *";
+  }
+  if (field === "minutes" && typeof first.minutesInterval === "number") {
+    const n = first.minutesInterval as number;
+    return n === 1 ? "* * * * *" : `*/${n} * * * *`;
+  }
+  if (field === "hours" && typeof first.hoursInterval === "number") {
+    const n = first.hoursInterval as number;
+    return n === 1 ? "0 * * * *" : `0 */${n} * * *`;
+  }
+  if (field === "days" && typeof first.daysInterval === "number") {
+    const n = first.daysInterval as number;
+    return n === 1 ? "0 0 * * *" : `0 0 */${n} * *`;
+  }
+
+  report.warnings.push(
+    `scheduleTrigger interval field "${field}" not translated; schedule skipped`,
+  );
+  return null;
 }

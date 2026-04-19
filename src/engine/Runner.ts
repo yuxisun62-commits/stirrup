@@ -22,29 +22,23 @@ async function maybeEvaluateN8nConfig(
   config: Record<string, unknown>,
   execCtx: NodeExecutionContext,
 ): Promise<Record<string, unknown>> {
-  if (config._n8nExpressions !== true) return config;
+  const hasTemplates = config._n8nExpressions === true;
+  const hasCompiledCondition = config._n8nCondition === true;
+  if (!hasTemplates && !hasCompiledCondition) return config;
 
-  const { evaluateConfig } = await import("../import/n8nExpression.js");
+  const { evaluateConfig, evaluateRawJs } = await import("../import/n8nExpression.js");
 
   // Pull n8n-specific inputs out so they don't leak into the handler's
   // own input set. Everything else stays on inputs for handler use.
   const nodeOutputs: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(execCtx.inputs)) {
     if (k.startsWith("__n8nNode_")) {
-      // Strip the prefix to re-expose by original n8n node name. The
-      // importer mapped `$node["X"]` → a key derived from X's Stirrup id,
-      // so we can't recover the original name here — but we can expose
-      // both the id-suffixed form and the bare id form. Real n8n workflows
-      // use display names; ours uses the Stirrup id. The importer docs
-      // note this so users writing new expressions know what to reference.
       nodeOutputs[k.replace("__n8nNode_", "")] = v;
     }
   }
 
-  const primaryJson = execCtx.inputs.__n8nJson ?? {};
-
-  const resolved = evaluateConfig(config, {
-    json: primaryJson,
+  const n8nContext = {
+    json: execCtx.inputs.__n8nJson ?? {},
     nodeOutputs,
     parameter: execCtx.context,
     workflow: {
@@ -52,13 +46,28 @@ async function maybeEvaluateN8nConfig(
       name: (execCtx.context._workflowName as string) ?? "",
     },
     execution: { id: (execCtx.context._executionId as string) ?? "" },
-  });
+  };
 
-  const out = resolved as Record<string, unknown>;
-  // Strip the marker so it doesn't confuse handlers that happen to
-  // iterate their own config (ScriptNode, TransformNode).
-  delete out._n8nExpressions;
-  return out;
+  let resolved: Record<string, unknown> = hasTemplates
+    ? (evaluateConfig(config, n8nContext) as Record<string, unknown>)
+    : { ...config };
+
+  // Compiled conditions emit raw JS that references $json / $node directly.
+  // Evaluate them here and replace `expression` with a JSON-literal string
+  // that the ConditionNode's own sandbox can re-evaluate — effectively
+  // freezing the branch decision at the n8n-eval boundary.
+  if (hasCompiledCondition && typeof resolved.expression === "string") {
+    const result = evaluateRawJs(resolved.expression, n8nContext);
+    // Coerce booleans to branch names ("true"/"false") — the legacy n8n
+    // branches map uses those exact strings. Preserve strings as-is (for
+    // switch which already returns a branch name like "branch0").
+    const asString = typeof result === "boolean" ? String(result) : String(result ?? "");
+    resolved.expression = JSON.stringify(asString);
+  }
+
+  delete resolved._n8nExpressions;
+  delete resolved._n8nCondition;
+  return resolved;
 }
 
 function sleep(ms: number): Promise<void> {

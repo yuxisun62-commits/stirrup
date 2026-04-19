@@ -204,3 +204,17 @@ export function configHasExpressions(config: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * Evaluate a raw JS expression (no `{{ }}` wrapping) against the n8n sandbox.
+ * Used by the Runner to resolve compiled if/filter/switch conditions — those
+ * emit plain JS that already references $json / $node / $if directly.
+ * Returns the raw result (preserving type).
+ */
+export function evaluateRawJs(
+  expression: string,
+  context: ExpressionContext,
+): unknown {
+  const sandbox = buildSandbox(context);
+  return runInSandbox(`(${expression})`, sandbox, { timeout: 2000 });
+}
