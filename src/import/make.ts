@@ -33,7 +33,14 @@ import type {
   WorkflowNode,
   WorkflowEdge,
   NodeType,
+  InputMapping,
+  WorkflowTrigger,
 } from "../types/workflow.js";
+import {
+  configHasMakeExpressions,
+  collectMakeModuleReferences,
+} from "./makeExpression.js";
+import { compileMakeCondition } from "./makeConditions.js";
 
 export interface MakeModule {
   id: number;
@@ -143,31 +150,56 @@ const MODULE_MAPPINGS: Record<string, MapBuilder> = {
 
   // Flow control
   "builtin:BasicRouter": (m) => {
-    const routeCount = Array.isArray(m.routes) ? m.routes.length : 2;
+    // Each route can carry its own filter. We compile them into one IIFE
+    // that short-circuits to the first satisfied route, else "fallback".
+    // Routes with no filter match unconditionally (just like Make).
+    const routes = Array.isArray(m.routes) ? m.routes : [];
     const branches: Record<string, string[]> = {};
-    for (let i = 0; i < routeCount; i++) branches[`route${i}`] = [];
+    const warnings: string[] = [];
+    const refs = new Set<number>();
+    const clauses: string[] = [];
+    routes.forEach((route, idx) => {
+      const name = `route${idx}`;
+      branches[name] = [];
+      const filter = (route as any).filter ?? (route.parameters as any)?.filter;
+      if (filter) {
+        const compiled = compileMakeCondition(filter);
+        compiled.referencedModules.forEach((r) => refs.add(r));
+        warnings.push(...compiled.warnings);
+        clauses.push(`if (${compiled.expression}) return ${JSON.stringify(name)};`);
+      } else {
+        // Unconditional route — first one wins in n8n semantics if we hit
+        // an else. In Make, routers fan out to every matched filter; our
+        // condition node picks one. For imports that use several
+        // unconditional routes, only the first runs.
+        clauses.push(`return ${JSON.stringify(name)};`);
+      }
+    });
+    branches.fallback = [];
     return {
       type: "condition",
       config: {
-        // Router evaluates every route in sequence; for a literal translation
-        // we default to the first branch and preserve route filters below.
-        expression: "'route0'",
-        metadata: {
-          kind: "router",
-          routes: (m.routes ?? []).map((r) => r.parameters ?? {}),
-        },
+        expression: `(function(){ ${clauses.join(" ")} return "fallback"; })()`,
+        _makeCondition: true,
+        _makeReferencedModules: [...refs],
+        metadata: { kind: "router", warnings },
       },
       branches,
     };
   },
-  "builtin:BasicFilter": (m) => ({
-    type: "condition",
-    config: {
-      expression: "true",
-      metadata: { kind: "filter", original: m.filter ?? m.parameters },
-    },
-    branches: { true: [], false: [] },
-  }),
+  "builtin:BasicFilter": (m) => {
+    const compiled = compileMakeCondition(m.filter ?? {});
+    return {
+      type: "condition",
+      config: {
+        expression: compiled.expression,
+        _makeCondition: true,
+        _makeReferencedModules: compiled.referencedModules,
+        metadata: { kind: "filter", warnings: compiled.warnings, original: m.filter ?? m.parameters },
+      },
+      branches: { true: [], false: [] },
+    };
+  },
   "builtin:Iterator": (m) => ({
     type: "passthrough",
     config: {
@@ -274,6 +306,309 @@ const MODULE_MAPPINGS: Record<string, MapBuilder> = {
   "placeholder:Placeholder": () => ({ type: "passthrough", drop: true }),
   "builtin:Ignore": () => ({ type: "passthrough", config: { label: "Ignore (discards bundle)" } }),
   "builtin:NoOp": () => ({ type: "passthrough", config: { label: "No-op" } }),
+
+  // ── Service integrations ──────────────────────────────────────────
+  // Each mapper attaches `metadata.credentials: "<service>"` so the
+  // import report can prompt users to wire up the right tokens.
+
+  "slack:CreateMessage": (m) => ({
+    type: "slack-send" as NodeType,
+    config: {
+      channel: (m.mapper as any)?.channel ?? (m.mapper as any)?.channelUid ?? "#general",
+      text: (m.mapper as any)?.text ?? "",
+      threadTs: (m.mapper as any)?.thread_ts,
+      metadata: { credentials: "slack", original: m.mapper },
+    },
+  }),
+  "slack:PostMessage": (m) => ({
+    type: "slack-send" as NodeType,
+    config: {
+      channel: (m.mapper as any)?.channel ?? "#general",
+      text: (m.mapper as any)?.text ?? "",
+      metadata: { credentials: "slack", original: m.mapper },
+    },
+  }),
+
+  "gmail:ActionSendEmail": (m) => ({
+    type: "gmail-send" as NodeType,
+    config: {
+      to: (m.mapper as any)?.to ?? (m.mapper as any)?.recipients,
+      subject: (m.mapper as any)?.subject,
+      body: (m.mapper as any)?.html ?? (m.mapper as any)?.content ?? (m.mapper as any)?.text,
+      html: Boolean((m.mapper as any)?.html) || (m.mapper as any)?.type === "html",
+      cc: (m.mapper as any)?.cc,
+      bcc: (m.mapper as any)?.bcc,
+      metadata: { credentials: "gmail", original: m.mapper },
+    },
+  }),
+  "gmail:ListEmails": (m) => ({
+    type: "gmail-list-messages" as NodeType,
+    config: {
+      query: (m.mapper as any)?.query ?? (m.mapper as any)?.searchQuery,
+      maxResults: (m.mapper as any)?.limit ?? 10,
+      metadata: { credentials: "gmail", original: m.mapper },
+    },
+  }),
+
+  "google-sheets:addRow": (m) => ({
+    type: "sheets-append" as NodeType,
+    config: {
+      spreadsheetId: (m.mapper as any)?.spreadsheetId ?? (m.mapper as any)?.sheet,
+      range: (m.mapper as any)?.sheetId ?? (m.mapper as any)?.sheet ?? "A:Z",
+      values: [(m.mapper as any)?.values ?? []],
+      metadata: { credentials: "google-sheets", original: m.mapper },
+    },
+  }),
+  "google-sheets:getAllValues": (m) => ({
+    type: "sheets-read" as NodeType,
+    config: {
+      spreadsheetId: (m.mapper as any)?.spreadsheetId,
+      range: (m.mapper as any)?.range ?? "A:Z",
+      metadata: { credentials: "google-sheets", original: m.mapper },
+    },
+  }),
+
+  "airtable:ActionSearchRecords": (m) => ({
+    type: "airtable-list" as NodeType,
+    config: {
+      baseId: (m.mapper as any)?.base ?? (m.mapper as any)?.baseId,
+      tableId: (m.mapper as any)?.table ?? (m.mapper as any)?.tableId,
+      filterByFormula: (m.mapper as any)?.formula,
+      maxRecords: (m.mapper as any)?.maxRecords,
+      metadata: { credentials: "airtable", original: m.mapper },
+    },
+  }),
+  "airtable:ActionCreateRecord": (m) => ({
+    type: "airtable-create" as NodeType,
+    config: {
+      baseId: (m.mapper as any)?.base ?? (m.mapper as any)?.baseId,
+      tableId: (m.mapper as any)?.table ?? (m.mapper as any)?.tableId,
+      records: (m.mapper as any)?.record ?? (m.mapper as any)?.fields,
+      typecast: (m.mapper as any)?.typecast,
+      metadata: { credentials: "airtable", original: m.mapper },
+    },
+  }),
+  "airtable:ActionUpdateRecord": (m) => ({
+    type: "airtable-update" as NodeType,
+    config: {
+      baseId: (m.mapper as any)?.base,
+      tableId: (m.mapper as any)?.table,
+      recordId: (m.mapper as any)?.recordId,
+      fields: (m.mapper as any)?.record ?? (m.mapper as any)?.fields,
+      metadata: { credentials: "airtable", original: m.mapper },
+    },
+  }),
+
+  "notion:createPage": (m) => ({
+    type: "notion-create-page" as NodeType,
+    config: {
+      parentDatabaseId: (m.mapper as any)?.databaseId,
+      parentPageId: (m.mapper as any)?.parentPageId,
+      title: (m.mapper as any)?.title,
+      properties: (m.mapper as any)?.properties,
+      metadata: { credentials: "notion", original: m.mapper },
+    },
+  }),
+  "notion:searchObjects": (m) => ({
+    type: "notion-search" as NodeType,
+    config: {
+      query: (m.mapper as any)?.query,
+      metadata: { credentials: "notion", original: m.mapper },
+    },
+  }),
+  "notion:queryDatabase": (m) => ({
+    type: "notion-query-database" as NodeType,
+    config: {
+      databaseId: (m.mapper as any)?.databaseId,
+      filter: (m.mapper as any)?.filter,
+      sorts: (m.mapper as any)?.sorts,
+      pageSize: (m.mapper as any)?.pageSize ?? 100,
+      metadata: { credentials: "notion", original: m.mapper },
+    },
+  }),
+
+  "openai-gpt-3:CreateCompletion": (m) => ({
+    type: "llm-prompt" as NodeType,
+    config: {
+      prompt: (m.mapper as any)?.prompt ?? "",
+      model: (m.mapper as any)?.model ?? "gpt-4o-mini",
+      temperature: (m.mapper as any)?.temperature,
+      maxTokens: (m.mapper as any)?.max_tokens,
+      metadata: { credentials: "openai", original: m.mapper },
+    },
+  }),
+  "openai-gpt-3:CreateChatCompletion": (m) => ({
+    type: "llm-prompt" as NodeType,
+    config: {
+      prompt: Array.isArray((m.mapper as any)?.messages)
+        ? ((m.mapper as any).messages as any[])
+            .map((x) => `${x.role ?? "user"}: ${x.content ?? ""}`)
+            .join("\n")
+        : ((m.mapper as any)?.prompt ?? ""),
+      model: (m.mapper as any)?.model ?? "gpt-4o-mini",
+      temperature: (m.mapper as any)?.temperature,
+      maxTokens: (m.mapper as any)?.max_tokens,
+      metadata: { credentials: "openai", original: m.mapper },
+    },
+  }),
+  "openai:CreateChatCompletion": (m) => ({
+    type: "llm-prompt" as NodeType,
+    config: {
+      prompt: Array.isArray((m.mapper as any)?.messages)
+        ? ((m.mapper as any).messages as any[])
+            .map((x) => `${x.role ?? "user"}: ${x.content ?? ""}`)
+            .join("\n")
+        : ((m.mapper as any)?.prompt ?? ""),
+      model: (m.mapper as any)?.model ?? "gpt-4o-mini",
+      metadata: { credentials: "openai", original: m.mapper },
+    },
+  }),
+  "anthropic-claude:CreateChatCompletion": (m) => ({
+    type: "llm-prompt" as NodeType,
+    config: {
+      prompt: (m.mapper as any)?.prompt ?? "",
+      model: (m.mapper as any)?.model ?? "claude-sonnet-4-6",
+      metadata: { credentials: "anthropic", original: m.mapper },
+    },
+  }),
+
+  "stripe:createCustomer": (m) => ({
+    type: "stripe-create-customer" as NodeType,
+    config: {
+      email: (m.mapper as any)?.email,
+      name: (m.mapper as any)?.name,
+      description: (m.mapper as any)?.description,
+      metadata: { credentials: "stripe", original: m.mapper },
+    },
+  }),
+  "stripe:createCharge": (m) => ({
+    type: "stripe-create-charge" as NodeType,
+    config: {
+      amount: (m.mapper as any)?.amount,
+      currency: (m.mapper as any)?.currency,
+      customer: (m.mapper as any)?.customer,
+      description: (m.mapper as any)?.description,
+      metadata: { credentials: "stripe", original: m.mapper },
+    },
+  }),
+
+  "postgres:executeQuery": (m) => ({
+    type: "pg-query" as NodeType,
+    config: {
+      query: (m.mapper as any)?.query ?? (m.mapper as any)?.sql,
+      params: (m.mapper as any)?.params,
+      metadata: { credentials: "postgres", original: m.mapper },
+    },
+  }),
+
+  "mongodb:findDocument": (m) => ({
+    type: "mongo-find" as NodeType,
+    config: {
+      database: (m.mapper as any)?.database,
+      collection: (m.mapper as any)?.collection,
+      filter: (m.mapper as any)?.filter ?? (m.mapper as any)?.query,
+      metadata: { credentials: "mongodb", original: m.mapper },
+    },
+  }),
+  "mongodb:insertDocument": (m) => ({
+    type: "mongo-insert" as NodeType,
+    config: {
+      database: (m.mapper as any)?.database,
+      collection: (m.mapper as any)?.collection,
+      documents: (m.mapper as any)?.document ?? (m.mapper as any)?.documents,
+      metadata: { credentials: "mongodb", original: m.mapper },
+    },
+  }),
+
+  "discord:sendMessage": (m) => ({
+    type: "discord-send" as NodeType,
+    config: {
+      channelId: (m.mapper as any)?.channelId,
+      content: (m.mapper as any)?.content ?? (m.mapper as any)?.text,
+      metadata: { credentials: "discord", original: m.mapper },
+    },
+  }),
+  "telegram-bot:sendTextMessage": (m) => ({
+    type: "telegram-send" as NodeType,
+    config: {
+      chatId: (m.mapper as any)?.chatId,
+      text: (m.mapper as any)?.text ?? (m.mapper as any)?.message,
+      parseMode: (m.mapper as any)?.parseMode,
+      metadata: { credentials: "telegram", original: m.mapper },
+    },
+  }),
+  "sendgrid:sendMail": (m) => ({
+    type: "sendgrid-send" as NodeType,
+    config: {
+      from: (m.mapper as any)?.from,
+      to: (m.mapper as any)?.to,
+      subject: (m.mapper as any)?.subject,
+      text: (m.mapper as any)?.text,
+      html: (m.mapper as any)?.html,
+      metadata: { credentials: "sendgrid", original: m.mapper },
+    },
+  }),
+  "twilio:ActionSendSMS": (m) => ({
+    type: "twilio-sms" as NodeType,
+    config: {
+      from: (m.mapper as any)?.from,
+      to: (m.mapper as any)?.to,
+      body: (m.mapper as any)?.body ?? (m.mapper as any)?.message,
+      metadata: { credentials: "twilio", original: m.mapper },
+    },
+  }),
+  "github:createIssue": (m) => ({
+    type: "github-create-issue" as NodeType,
+    config: {
+      owner: (m.mapper as any)?.owner,
+      repo: (m.mapper as any)?.repo,
+      title: (m.mapper as any)?.title,
+      body: (m.mapper as any)?.body,
+      labels: (m.mapper as any)?.labels,
+      metadata: { credentials: "github", original: m.mapper },
+    },
+  }),
+  "github:createRepo": (m) => ({
+    type: "github-create-repo" as NodeType,
+    config: {
+      name: (m.mapper as any)?.name,
+      description: (m.mapper as any)?.description,
+      private: (m.mapper as any)?.private,
+      reuseIfExists: true,
+      metadata: { credentials: "github", original: m.mapper },
+    },
+  }),
+  "redis:get": (m) => ({
+    type: "redis-get" as NodeType,
+    config: { key: (m.mapper as any)?.key, metadata: { credentials: "redis", original: m.mapper } },
+  }),
+  "redis:set": (m) => ({
+    type: "redis-set" as NodeType,
+    config: {
+      key: (m.mapper as any)?.key,
+      value: (m.mapper as any)?.value,
+      expire: (m.mapper as any)?.expire,
+      metadata: { credentials: "redis", original: m.mapper },
+    },
+  }),
+  "aws-s3:UploadFile": (m) => ({
+    type: "s3-put" as NodeType,
+    config: {
+      bucket: (m.mapper as any)?.bucket,
+      key: (m.mapper as any)?.key,
+      body: (m.mapper as any)?.data,
+      contentType: (m.mapper as any)?.contentType,
+      metadata: { credentials: "aws", original: m.mapper },
+    },
+  }),
+  "aws-s3:DownloadAFile": (m) => ({
+    type: "s3-get" as NodeType,
+    config: {
+      bucket: (m.mapper as any)?.bucket,
+      key: (m.mapper as any)?.key,
+      metadata: { credentials: "aws", original: m.mapper },
+    },
+  }),
 };
 
 function mapperListToObject(list: unknown): Record<string, unknown> | undefined {
@@ -317,6 +652,7 @@ function walkFlow(
     edges: WorkflowEdge[];
     idsByModule: Map<MakeModule, string>;
     usedIds: Set<string>;
+    credentialsNeeded: Set<string>;
     report: MakeImportReport;
   },
   parentId?: string,
@@ -377,6 +713,21 @@ function walkFlow(
 
     if (stirrupNode.type === "script") {
       ctx.report.scriptNodeCount += 1;
+    }
+
+    // Flag configs that contain Make `{{ N.field }}` references so the
+    // Runner evaluates them against the module-output map at runtime.
+    // Compiled condition nodes already set _makeCondition in their mapper.
+    if (configHasMakeExpressions(stirrupNode.config)) {
+      (stirrupNode.config as Record<string, unknown>)._makeExpressions = true;
+    }
+
+    // Credentials hint: every service mapper above attaches
+    // `metadata.credentials: "<service>"`. Harvest that so the import
+    // report can nudge the user to wire up Connections before running.
+    const credHint = (stirrupNode.config as any)?.metadata?.credentials;
+    if (typeof credHint === "string") {
+      ctx.credentialsNeeded.add(credHint);
     }
 
     ctx.nodes.push(stirrupNode);
@@ -460,6 +811,7 @@ export function importMakeBlueprint(
     edges: [] as WorkflowEdge[],
     idsByModule: new Map<MakeModule, string>(),
     usedIds: new Set<string>(),
+    credentialsNeeded: new Set<string>(),
     report,
   };
 
@@ -477,11 +829,67 @@ export function importMakeBlueprint(
 
   walkFlow(flow, ctx);
 
+  // Second pass: wire up `__makeModule_<id>` input mappings for every
+  // Stirrup node whose config contains `{{ N.field }}` or a compiled
+  // condition that references module N. The Runner reads those inputs at
+  // eval time to resolve `module[N].field`.
+  //
+  // Map by numeric Make module id → Stirrup node id using the id string
+  // convention (`m<number>`), which makeId() generates for modules with
+  // integer ids. Fall back to scanning the nodes list if the convention
+  // was overridden (rare — only when a slug collision pushed the id to
+  // something else).
+  const nodeIdByModuleNum = new Map<number, string>();
+  for (const [m, id] of ctx.idsByModule.entries()) {
+    if (typeof m.id === "number") nodeIdByModuleNum.set(m.id, id);
+  }
+
+  for (const node of ctx.nodes) {
+    const config = node.config as Record<string, unknown>;
+    const hasExpr = config._makeExpressions === true;
+    const hasCond = config._makeCondition === true;
+    if (!hasExpr && !hasCond) continue;
+
+    const referenced = hasCond
+      ? ((config._makeReferencedModules as number[]) ?? [])
+      : collectMakeModuleReferences(config);
+
+    const existing = new Set(node.inputs.map((m) => m.to));
+    const newMappings: InputMapping[] = [];
+
+    for (const moduleNum of referenced) {
+      const refId = nodeIdByModuleNum.get(moduleNum);
+      if (!refId) {
+        report.warnings.push(
+          `Module ${moduleNum} referenced via {{ ${moduleNum}.* }} but wasn't imported — expression will resolve to undefined`,
+        );
+        continue;
+      }
+      const key = `__makeModule_${moduleNum}`;
+      if (existing.has(key)) continue;
+      newMappings.push({ from: `nodes.${refId}.outputs`, to: key });
+    }
+    node.inputs = [...node.inputs, ...newMappings];
+  }
+
+  // Third pass: lift webhook / schedule trigger modules into
+  // `workflow.triggers` so the TriggerManager can fire the workflow
+  // automatically. The trigger entry node stays in place as a passthrough
+  // — downstream data flow still works — but actual firing is now driven
+  // by the subsystem shipped in 0.7.0.
+  const triggers = extractMakeTriggers(flow, report);
+
   report.nodeCount = ctx.nodes.length;
   report.edgeCount = ctx.edges.length;
+  report.credentialsNeeded = [...ctx.credentialsNeeded].sort();
   if (report.scriptNodeCount > 0) {
     report.warnings.push(
       `${report.scriptNodeCount} script node(s) contain executable code from the imported source; review before running.`,
+    );
+  }
+  if (report.credentialsNeeded.length > 0) {
+    report.warnings.push(
+      `Connect ${report.credentialsNeeded.join(", ")} in the Connections panel before running.`,
     );
   }
 
@@ -501,7 +909,66 @@ export function importMakeBlueprint(
       },
     ],
     edges: ctx.edges,
+    ...(triggers ? { triggers } : {}),
   };
 
   return { workflow, report };
+}
+
+/**
+ * Walk the (possibly nested) flow looking for trigger modules and lift
+ * them into a WorkflowTrigger. Supports:
+ *   - gateway:CustomWebHook / webhook:CustomWebHook → triggers.http
+ *     (path from the hook's name or id, method defaults to POST)
+ *   - scheduler:*, schedule:* modules — approximate into cron
+ *
+ * Triggers nested inside routers are uncommon; we scan the top level
+ * only, which matches how Make scenarios are built in practice.
+ */
+function extractMakeTriggers(
+  flow: MakeModule[],
+  report: MakeImportReport,
+): WorkflowTrigger | undefined {
+  const result: WorkflowTrigger = {};
+  let found = false;
+
+  for (const m of flow) {
+    const mod = String(m.module ?? "");
+    if (mod === "gateway:CustomWebHook" || mod === "webhook:CustomWebHook") {
+      if (result.http) {
+        report.warnings.push("Multiple webhook triggers found; using first only");
+        continue;
+      }
+      const p = (m.parameters ?? {}) as Record<string, unknown>;
+      const hook = (p.hook as Record<string, unknown> | undefined) ?? {};
+      const rawPath = String(
+        (p.path as string | undefined) ??
+          (hook.name as string | undefined) ??
+          `make-${m.id}`,
+      );
+      result.http = {
+        path: rawPath.startsWith("/") ? rawPath : `/${rawPath}`,
+        method: "POST",
+      };
+      found = true;
+    } else if (mod.startsWith("scheduler:") || mod === "util:Sleep") {
+      if (result.cron) continue;
+      const p = (m.parameters ?? {}) as Record<string, unknown>;
+      // Make's scheduling parameters are poorly standardized across module
+      // versions; if we can't translate to cron cleanly we warn and skip.
+      const interval = (p.interval as number | undefined) ?? (p.minutes as number | undefined);
+      if (typeof interval === "number") {
+        result.cron = {
+          schedule: interval === 1 ? "* * * * *" : `*/${interval} * * * *`,
+        };
+        found = true;
+      } else {
+        report.warnings.push(
+          `Scheduler module "${mod}" uses unsupported parameters; cron schedule skipped`,
+        );
+      }
+    }
+  }
+
+  return found ? result : undefined;
 }

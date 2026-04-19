@@ -33,6 +33,26 @@ function buildN8nContext(execCtx: NodeExecutionContext, json: unknown) {
 }
 
 /**
+ * Build the Make.com expression context. Input mappings emitted by the
+ * Make importer look like `__makeModule_<n>` and carry the outputs of
+ * module id `n`. We translate that flat map into a numeric-keyed object
+ * so `{{1.email}}` can resolve as `module[1].email`.
+ */
+function buildMakeContext(execCtx: NodeExecutionContext) {
+  const modules: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(execCtx.inputs)) {
+    if (k.startsWith("__makeModule_")) {
+      const id = k.replace("__makeModule_", "");
+      modules[id] = v;
+    }
+  }
+  return {
+    modules,
+    execution: { id: (execCtx.context._executionId as string) ?? "" },
+  };
+}
+
+/**
  * Evaluate `{{ }}` templates in every config string and, if the config is
  * an imported condition, freeze its compiled JS result into a string
  * literal the ConditionNode can re-evaluate in its own sandbox. Returns a
@@ -66,6 +86,37 @@ async function evaluateN8nConfig(
 }
 
 /**
+ * Make.com counterpart to `evaluateN8nConfig`. Same idea: walk every string
+ * in the config, evaluate `{{N.field}}` / `{{lower(1.x)}}` templates, and
+ * handle compiled conditions by freezing the boolean result into a string
+ * literal the ConditionNode's own sandbox re-evaluates.
+ */
+async function evaluateMakeConfigRun(
+  config: Record<string, unknown>,
+  execCtx: NodeExecutionContext,
+): Promise<Record<string, unknown>> {
+  const { evaluateMakeConfig, evaluateMakeRawJs } = await import("../import/makeExpression.js");
+  const makeContext = buildMakeContext(execCtx);
+  const hasTemplates = config._makeExpressions === true;
+  const hasCompiledCondition = config._makeCondition === true;
+
+  let resolved: Record<string, unknown> = hasTemplates
+    ? (evaluateMakeConfig(config, makeContext) as Record<string, unknown>)
+    : { ...config };
+
+  if (hasCompiledCondition && typeof resolved.expression === "string") {
+    const result = evaluateMakeRawJs(resolved.expression, makeContext);
+    const asString = typeof result === "boolean" ? String(result) : String(result ?? "");
+    resolved.expression = JSON.stringify(asString);
+  }
+
+  delete resolved._makeExpressions;
+  delete resolved._makeCondition;
+  delete resolved._makeReferencedModules;
+  return resolved;
+}
+
+/**
  * Decide what the iteration list is, given the primary upstream mapping.
  * n8n workflows pass data as items — we treat both shapes as iterable:
  *
@@ -91,6 +142,13 @@ function hasN8nFlags(config: Record<string, unknown>): boolean {
     config._n8nExpressions === true ||
     config._n8nCondition === true ||
     config._n8nPerItem === true
+  );
+}
+
+function hasMakeFlags(config: Record<string, unknown>): boolean {
+  return (
+    config._makeExpressions === true ||
+    config._makeCondition === true
   );
 }
 
@@ -171,6 +229,14 @@ export class Runner {
     execCtx: NodeExecutionContext,
   ): Promise<Record<string, unknown>> {
     const config = node.config as Record<string, unknown>;
+
+    if (hasMakeFlags(config)) {
+      // Make.com imports don't ship a per-item semantics (Make's loop
+      // constructs are its own Iterator / Aggregator modules which we
+      // leave as passthrough). Single eval, single dispatch.
+      const resolved = await evaluateMakeConfigRun(config, execCtx);
+      return handler(resolved, execCtx);
+    }
 
     if (!hasN8nFlags(config)) {
       return handler(config, execCtx);
