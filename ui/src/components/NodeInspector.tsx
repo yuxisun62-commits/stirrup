@@ -25,6 +25,12 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
   const nodeColor = tokens.nodeColors[node.type] ?? meta.color;
   const hasResults = !!stepResult;
 
+  // Touch-friendly padding when rendered in the mobile bottom sheet.
+  // Desktop keeps the tight 8px for information density; mobile bumps to
+  // 12px vertical so tap targets hit ~44px.
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+  const tabPadY = isMobile ? 12 : 8;
+
   return (
     <div data-tutorial="node-inspector" style={{
       height: '100%', display: 'flex', flexDirection: 'column',
@@ -66,7 +72,7 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
               key={tab}
               onClick={() => setActiveTab(tab)}
               style={{
-                flex: 1, padding: '8px 0', fontSize: 11, fontWeight: 600,
+                flex: 1, padding: `${tabPadY}px 0`, fontSize: 11, fontWeight: 600,
                 border: 'none', cursor: 'pointer',
                 backgroundColor: activeTab === tab ? tokens.bg.raised : 'transparent',
                 color: isResults && hasResults

@@ -7,6 +7,12 @@ interface Props {
   workflow: WorkflowDefinition;
   onFixed: (wf: WorkflowDefinition) => void;
   onSelectNode: (nodeId: string) => void;
+  /**
+   * Emits the set of node IDs that have validation errors, so the
+   * canvas can highlight them directly. Invoked after every validate
+   * pass; emits an empty set when the workflow is valid.
+   */
+  onInvalidNodesChange?: (ids: Set<string>) => void;
 }
 
 /** Try to extract a node ID from a validation error message */
@@ -32,7 +38,7 @@ function extractNodeId(error: string, nodeIds: Set<string>): string | null {
   return null;
 }
 
-export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
+export function ValidationPanel({ workflow, onFixed, onSelectNode, onInvalidNodesChange }: Props) {
   const [errors, setErrors] = useState<string[]>([]);
   const [enrichedErrors, setEnrichedErrors] = useState<EnrichedError[]>([]);
   const [isValid, setIsValid] = useState<boolean | null>(null);
@@ -56,6 +62,19 @@ export function ValidationPanel({ workflow, onFixed, onSelectNode }: Props) {
       setErrors(result.errors);
       setEnrichedErrors(result.enriched ?? []);
       if (!result.valid && !expanded) setExpanded(true);
+
+      // Bubble up the set of node ids mentioned by errors so the canvas
+      // can outline them in red. Empty set when the workflow is valid.
+      if (onInvalidNodesChange) {
+        const ids = new Set<string>();
+        if (!result.valid) {
+          for (const err of result.errors) {
+            const id = extractNodeId(err, nodeIds);
+            if (id) ids.add(id);
+          }
+        }
+        onInvalidNodesChange(ids);
+      }
     } catch {
       // Silently fail
     }

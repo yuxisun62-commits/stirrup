@@ -12,6 +12,7 @@ import {
   addEdge,
   useNodesState,
   useEdgesState,
+  useReactFlow,
   Handle,
   Position,
 } from '@xyflow/react';
@@ -36,6 +37,7 @@ interface NodeData {
   outputCount: number;
   inputCount: number;
   step?: StepResult;
+  invalid?: boolean;
 }
 
 /**
@@ -50,7 +52,14 @@ function CustomNode({ data, selected }: { data: NodeData; selected?: boolean }) 
   const meta = getNodeMetadata(data.type);
   const color = tokens.nodeColors[data.type] ?? meta.color;
   const statusCfg = data.status ? STATUS_CONFIG[data.status] : null;
-  const borderColor = statusCfg ? statusCfg.color : selected ? '#60a5fa' : `${color}60`;
+  // Invalid nodes outrank selection/status borders so users can spot
+  // validation errors instantly — a red ring around an otherwise-normal
+  // node that says "this is why Run isn't working."
+  const borderColor = data.invalid
+    ? tokens.status.failed
+    : statusCfg
+    ? statusCfg.color
+    : selected ? '#60a5fa' : `${color}60`;
 
   const step = data.step;
   const duration = step?.startedAt && step?.completedAt
@@ -117,6 +126,17 @@ function CustomNode({ data, selected }: { data: NodeData; selected?: boolean }) 
           {meta.label}
         </span>
 
+        {data.invalid && !statusCfg && (
+          <span
+            title="This node has validation errors — open the Config tab to fix"
+            style={{
+              marginLeft: 'auto', fontSize: 9, fontWeight: 800,
+              color: tokens.status.failed, letterSpacing: 0.5,
+            }}
+          >
+            ⚠
+          </span>
+        )}
         {statusCfg && (
           <span style={{
             marginLeft: 'auto', fontSize: 8, fontWeight: 700, color: statusCfg.color,
@@ -228,6 +248,14 @@ interface Props {
    * the status pill from stepStatuses.
    */
   stepResults?: Record<string, StepResult>;
+  /**
+   * Node IDs to highlight as having validation errors. Rendered with a
+   * red border + warning accent; click routes to the inspector's config
+   * tab (standard canvas click behavior, nothing extra needed).
+   */
+  invalidNodeIds?: Set<string>;
+  /** The currently-selected node ID, so zoom-to-selected can target it. */
+  selectedNodeId?: string | null;
   onAddNode: (type: string, position: { x: number; y: number }) => string;
   onAddEdge: (from: string, to: string) => void;
   onRemoveNode: (nodeId: string) => void;
@@ -236,8 +264,12 @@ interface Props {
   onSelectNode: (nodeId: string | null) => void;
 }
 
-export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode, onAddEdge, onRemoveNode, onRemoveEdge, onUpdateEdgeCondition, onSelectNode }: Props) {
+export function WorkflowCanvas({
+  workflow, stepStatuses, stepResults, invalidNodeIds, selectedNodeId,
+  onAddNode, onAddEdge, onRemoveNode, onRemoveEdge, onUpdateEdgeCondition, onSelectNode,
+}: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const rf = useReactFlow();
 
   const initialNodes: Node[] = useMemo(
     () =>
@@ -252,9 +284,10 @@ export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode,
           outputCount: n.outputs.length,
           inputCount: n.inputs.length,
           step: stepResults?.[n.id],
+          invalid: invalidNodeIds?.has(n.id) ?? false,
         },
       })),
-    [workflow.nodes, stepStatuses, stepResults]
+    [workflow.nodes, stepStatuses, stepResults, invalidNodeIds]
   );
 
   const initialEdges: Edge[] = useMemo(
@@ -284,7 +317,10 @@ export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode,
     setEdges(initialEdges);
   }, [workflowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update node status + step result during execution.
+  // Update node status, step result, and validation flag during execution
+  // or after a validation re-check. React Flow's node state is the source
+  // of truth for the render, so we reach in and merge these fields rather
+  // than rebuilding from workflow.nodes every tick.
   useEffect(() => {
     setNodes((nds) =>
       nds.map((n) => ({
@@ -293,10 +329,42 @@ export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode,
           ...n.data,
           status: stepStatuses[n.id],
           step: stepResults?.[n.id],
+          invalid: invalidNodeIds?.has(n.id) ?? false,
         },
       }))
     );
-  }, [stepStatuses, stepResults, setNodes]);
+  }, [stepStatuses, stepResults, invalidNodeIds, setNodes]);
+
+  // Zoom / navigation shortcuts. Gated on not-in-input so typing in a
+  // config textarea doesn't trigger accidental pan/zoom.
+  //   F     — fit all nodes to the viewport
+  //   Z     — zoom to the selected node (no-op if nothing selected)
+  //   ⌘0    — reset zoom to 1x, centered on the graph
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        rf.fitView({ padding: 0.2, duration: 300 });
+        return;
+      }
+      if (e.key === 'z' || e.key === 'Z') {
+        if (!selectedNodeId) return;
+        e.preventDefault();
+        rf.fitView({ nodes: [{ id: selectedNodeId }], padding: 0.5, duration: 300 });
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === '0') {
+        e.preventDefault();
+        rf.fitView({ duration: 300 });
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [rf, selectedNodeId]);
 
   const onConnect: OnConnect = useCallback(
     (params) => {

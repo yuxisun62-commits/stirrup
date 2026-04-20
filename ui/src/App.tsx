@@ -94,6 +94,7 @@ function App() {
   const [showTriggerConfig, setShowTriggerConfig] = useState(false);
   const [showContext, setShowContext] = useState(false);
   const [zenMode, setZenMode] = useState(false);
+  const [invalidNodeIds, setInvalidNodeIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Global keyboard shortcuts. All of them are gated so that typing
@@ -458,6 +459,8 @@ function App() {
               workflow={workflow}
               stepStatuses={stepStatuses}
               stepResults={execution?.steps}
+              invalidNodeIds={invalidNodeIds}
+              selectedNodeId={selectedNode?.id ?? null}
               onAddNode={addNode}
               onAddEdge={addEdge}
               onRemoveNode={removeNode}
@@ -467,7 +470,12 @@ function App() {
             />
           </div>
 
-          <ValidationPanel workflow={workflow} onFixed={(wf) => loadWorkflow(wf)} onSelectNode={setSelectedNodeId} />
+          <ValidationPanel
+            workflow={workflow}
+            onFixed={(wf) => loadWorkflow(wf)}
+            onSelectNode={setSelectedNodeId}
+            onInvalidNodesChange={setInvalidNodeIds}
+          />
           <ExecutionPanel
             execution={execution}
             events={events}

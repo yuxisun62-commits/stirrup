@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
-  listWorkflows, deleteWorkflow, listExecutions,
+  listWorkflows, deleteWorkflow, listExecutions, createWorkflow, saveWorkflow,
   type WorkflowDefinition, type ExecutionState,
 } from '../api/client';
 import { tokens } from './ui/styles';
@@ -100,6 +100,53 @@ export function WorkflowList({ currentId, onSelect, onNew, onDeleted }: Props) {
       await deleteWorkflow(wf.id);
       setWorkflows((prev) => prev.filter((w) => w.id !== wf.id));
       if (wf.id === currentId) onDeleted?.(wf.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Duplicate makes a fresh copy with a unique id + "(copy)" suffix on
+   * the name. We persist the clone immediately so the user sees it in
+   * the list without a second round-trip. The clone inherits every
+   * other field — params, triggers, context, nodes, edges.
+   */
+  const handleDuplicate = async (e: React.MouseEvent, wf: WorkflowDefinition) => {
+    e.stopPropagation();
+    const baseId = `${wf.id}-copy`;
+    let newId = baseId;
+    const existing = new Set(workflows.map((w) => w.id));
+    let i = 2;
+    while (existing.has(newId)) {
+      newId = `${baseId}-${i++}`;
+    }
+    const clone: WorkflowDefinition = {
+      ...wf,
+      id: newId,
+      name: `${wf.name} (copy)`,
+    };
+    try {
+      await createWorkflow(clone);
+      setWorkflows((prev) => [...prev, clone]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Rename lives in the list rather than a separate modal — the inline
+   * prompt pattern mirrors what most users expect from a file tree
+   * ("rename file"). Changes the display name only; to change the
+   * stable id, users delete + create.
+   */
+  const handleRename = async (e: React.MouseEvent, wf: WorkflowDefinition) => {
+    e.stopPropagation();
+    const next = prompt(`Rename "${wf.name}" to:`, wf.name);
+    if (!next || next === wf.name) return;
+    const renamed: WorkflowDefinition = { ...wf, name: next };
+    try {
+      await saveWorkflow(renamed);
+      setWorkflows((prev) => prev.map((w) => (w.id === wf.id ? renamed : w)));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -266,26 +313,71 @@ export function WorkflowList({ currentId, onSelect, onNew, onDeleted }: Props) {
                     )}
                   </div>
                 </div>
-                <button
-                  onClick={(e) => handleDelete(e, wf)}
-                  title={`Delete ${wf.name}`}
-                  style={{
-                    padding: '2px 5px', fontSize: 10, lineHeight: 1,
-                    background: 'none', border: 'none',
-                    color: tokens.text.muted, cursor: 'pointer',
-                    borderRadius: 3, flexShrink: 0,
-                    opacity: 0.4, transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.4'; (e.currentTarget as HTMLElement).style.color = tokens.text.muted; }}
-                >
-                  x
-                </button>
+                <RowActions
+                  onRename={(e) => handleRename(e, wf)}
+                  onDuplicate={(e) => handleDuplicate(e, wf)}
+                  onDelete={(e) => handleDelete(e, wf)}
+                />
               </div>
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Per-row action cluster — rename, duplicate, delete.
+ *
+ * Shown only on hover so the row stays visually tidy in the default
+ * state. Rendered as three small buttons rather than a dropdown menu
+ * because on this surface (sidebar list, narrow column) a menu adds
+ * more click-layers than it saves.
+ */
+function RowActions({
+  onRename, onDuplicate, onDelete,
+}: {
+  onRename: (e: React.MouseEvent) => void;
+  onDuplicate: (e: React.MouseEvent) => void;
+  onDelete: (e: React.MouseEvent) => void;
+}) {
+  const btnStyle: React.CSSProperties = {
+    padding: '2px 5px', fontSize: 10, lineHeight: 1,
+    background: 'none', border: 'none',
+    color: tokens.text.muted, cursor: 'pointer',
+    borderRadius: 3, flexShrink: 0,
+    opacity: 0.35, transition: 'opacity 0.15s, color 0.15s',
+  };
+  return (
+    <div style={{ display: 'flex', gap: 1, flexShrink: 0 }}>
+      <button
+        onClick={onRename}
+        title="Rename"
+        style={btnStyle}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = tokens.text.accent; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.35'; (e.currentTarget as HTMLElement).style.color = tokens.text.muted; }}
+      >
+        ✎
+      </button>
+      <button
+        onClick={onDuplicate}
+        title="Duplicate"
+        style={btnStyle}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = tokens.text.accent; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.35'; (e.currentTarget as HTMLElement).style.color = tokens.text.muted; }}
+      >
+        ⎘
+      </button>
+      <button
+        onClick={onDelete}
+        title="Delete"
+        style={btnStyle}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.opacity = '1'; (e.currentTarget as HTMLElement).style.color = '#fca5a5'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.opacity = '0.35'; (e.currentTarget as HTMLElement).style.color = tokens.text.muted; }}
+      >
+        ×
+      </button>
     </div>
   );
 }
