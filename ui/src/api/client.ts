@@ -150,12 +150,23 @@ export const analyzeFailure = (executionId: string, nodeId: string) =>
     { method: 'POST' }
   );
 
+export interface WorkflowTrigger {
+  http?: { path?: string; method?: 'POST' | 'GET' };
+  webhook?: { source: string; events?: string[]; secret?: string };
+  cron?: { schedule: string; timezone?: string };
+  telegram?: {
+    allowedChatIds?: Array<number | string>;
+    commands?: string[];
+  };
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
   version: string;
   description?: string;
   params?: WorkflowParam[];
+  triggers?: WorkflowTrigger;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
   context?: Record<string, unknown>;

@@ -54,6 +54,9 @@ const TriggersPanel = lazy(() =>
 const CommandPalette = lazy(() =>
   import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })),
 );
+const TriggerConfigEditor = lazy(() =>
+  import('./components/TriggerConfigEditor').then((m) => ({ default: m.TriggerConfigEditor })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -69,7 +72,7 @@ function App() {
   const {
     workflow, selectedNode, dirty, loadWorkflow, addNode, updateNode,
     removeNode, addEdge, removeEdge, updateEdgeCondition, updateParams,
-    setSelectedNodeId, setDirty,
+    updateTriggers, setSelectedNodeId, setDirty,
   } = useWorkflow();
   const [showParams, setShowParams] = useState(false);
   const tutorial = useTutorial();
@@ -85,6 +88,7 @@ function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [showTriggers, setShowTriggers] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
+  const [showTriggerConfig, setShowTriggerConfig] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // ⌘K / Ctrl-K opens the command palette. Esc-to-close is handled
@@ -272,12 +276,16 @@ function App() {
 
         {/* ── Main area ── */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Toolbar */}
+          {/* Toolbar — wraps on narrow viewports so crowded headers stack
+              gracefully instead of clipping. Gap shrinks on mobile to keep
+              two rows of buttons tappable without extra scroll. */}
           <div style={{
             padding: isMobile ? '6px 8px' : '6px 14px',
             borderBottom: `1px solid ${tokens.border.subtle}`,
-            display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 10,
+            display: 'flex', alignItems: 'center', gap: isMobile ? 5 : 10,
             backgroundColor: tokens.bg.surface,
+            flexWrap: isMobile ? 'wrap' : 'nowrap',
+            rowGap: isMobile ? 6 : undefined,
           }}>
             {/* Mobile hamburger */}
             {isMobile && (
@@ -324,11 +332,27 @@ function App() {
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
               color: tokens.text.muted, cursor: 'pointer',
             }}>Connections</button>
+            <button
+              onClick={() => setShowTriggerConfig(true)}
+              title="Configure how this workflow fires (HTTP, webhook, cron, Telegram)"
+              style={{
+                padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: workflow.triggers && Object.keys(workflow.triggers).length > 0
+                  ? tokens.text.accent
+                  : tokens.text.muted,
+                cursor: 'pointer',
+              }}
+            >
+              Triggers{workflow.triggers && Object.keys(workflow.triggers).length > 0
+                ? ` (${Object.keys(workflow.triggers).length})`
+                : ''}
+            </button>
             <button onClick={() => setShowTriggers(true)} style={{
               padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
               color: tokens.text.muted, cursor: 'pointer',
-            }}>Triggers</button>
+            }} title="Live runtime status of every trigger">Live</button>
             {!isMobile && (
               <button onClick={() => setShowPlugins(true)} style={{
                 padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
@@ -474,6 +498,13 @@ function App() {
           )}
           {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
           {showTriggers && <TriggersPanel onClose={() => setShowTriggers(false)} />}
+          {showTriggerConfig && (
+            <TriggerConfigEditor
+              triggers={workflow.triggers}
+              onChange={updateTriggers}
+              onClose={() => setShowTriggerConfig(false)}
+            />
+          )}
           {showPalette && (
             <CommandPalette
               open={showPalette}
@@ -493,7 +524,9 @@ function App() {
                   run: () => setShowGenerate(true) },
                 { id: 'connections', label: 'Connections', hint: 'Manage service credentials', keywords: ['auth', 'tokens', 'services'],
                   run: () => setShowAuth(true) },
-                { id: 'triggers', label: 'Triggers', hint: 'Inspect live HTTP / cron / Telegram triggers', keywords: ['http', 'webhook', 'cron', 'telegram'],
+                { id: 'triggers-config', label: 'Configure triggers', hint: 'Set HTTP / webhook / cron / Telegram for this workflow', keywords: ['trigger', 'cron', 'webhook'],
+                  run: () => setShowTriggerConfig(true) },
+                { id: 'triggers-live', label: 'Live trigger status', hint: 'Runtime fire counts across all workflows', keywords: ['status'],
                   run: () => setShowTriggers(true) },
                 { id: 'plugins', label: 'Plugins', hint: 'Available integrations + load state', keywords: ['integrations'],
                   run: () => setShowPlugins(true) },

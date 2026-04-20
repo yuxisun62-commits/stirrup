@@ -89,6 +89,18 @@ export function useWorkflow() {
     setDirty(true);
   }, []);
 
+  const updateTriggers = useCallback((triggers: WorkflowDefinition['triggers']) => {
+    // Pass undefined to remove the block entirely — keeps emitted YAML
+    // clean when the user disables every trigger kind.
+    setWorkflow((prev) => {
+      const next = { ...prev } as WorkflowDefinition;
+      if (triggers) next.triggers = triggers;
+      else delete (next as { triggers?: unknown }).triggers;
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
   return {
     workflow,
     selectedNode,
@@ -103,6 +115,7 @@ export function useWorkflow() {
     removeEdge,
     updateEdgeCondition,
     updateParams,
+    updateTriggers,
     setSelectedNodeId,
     setDirty,
   };
