@@ -12,6 +12,7 @@
  * elevenlabs.io/app/settings/api-keys.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.elevenlabs.io/v1";
 
@@ -20,7 +21,7 @@ function apiKeyHeader(token: string): Record<string, string> {
 }
 
 async function callJson<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     ...init,
     headers: { ...apiKeyHeader(token), "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
@@ -39,7 +40,7 @@ export default function register(ctx: PluginContext) {
       outputFormat?: string;
     };
     const fmt = outputFormat ?? "mp3_44100_128";
-    const res = await fetch(`${API}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${fmt}`, {
+    const res = await safeFetch(`${API}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${fmt}`, {
       method: "POST",
       headers: { ...apiKeyHeader(token), "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -54,7 +55,7 @@ export default function register(ctx: PluginContext) {
       }),
     });
     if (!res.ok) throw new Error(`ElevenLabs TTS ${res.status}: ${await res.text()}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await safeArrayBuffer(res));
     return {
       audioBase64: buf.toString("base64"),
       format: fmt,
@@ -97,7 +98,7 @@ export default function register(ctx: PluginContext) {
         s.filename,
       );
     });
-    const res = await fetch(`${API}/voices/add`, {
+    const res = await safeFetch(`${API}/voices/add`, {
       method: "POST",
       headers: apiKeyHeader(token),
       body: form,
@@ -120,9 +121,9 @@ export default function register(ctx: PluginContext) {
     if (audioBase64) {
       buf = Buffer.from(audioBase64, "base64");
     } else if (audioUrl) {
-      const r = await fetch(audioUrl);
+      const r = await safeFetch(audioUrl);
       if (!r.ok) throw new Error(`Failed to fetch ${audioUrl}: ${r.status}`);
-      buf = Buffer.from(await r.arrayBuffer());
+      buf = Buffer.from(await safeArrayBuffer(r));
       mime = r.headers.get("content-type") ?? mime;
     } else {
       throw new Error("elevenlabs-speech-to-text requires audioBase64 or audioUrl");
@@ -131,7 +132,7 @@ export default function register(ctx: PluginContext) {
     form.append("file", new Blob([new Uint8Array(buf)], { type: mime }), filename ?? "audio.mp3");
     form.append("model_id", modelId ?? "scribe_v1");
 
-    const res = await fetch(`${API}/speech-to-text`, {
+    const res = await safeFetch(`${API}/speech-to-text`, {
       method: "POST",
       headers: apiKeyHeader(token),
       body: form,

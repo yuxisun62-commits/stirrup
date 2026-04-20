@@ -10,6 +10,7 @@
  * request.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.trello.com/1";
 
@@ -41,7 +42,7 @@ async function call<T>(
   extra.set("key", auth.key);
   extra.set("token", auth.token);
   const url = `${API}${path}${path.includes("?") ? "&" : "?"}${extra.toString()}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
   });

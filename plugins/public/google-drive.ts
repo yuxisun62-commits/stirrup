@@ -9,6 +9,7 @@
  * our handlers always use the API so the token is required.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
@@ -18,7 +19,7 @@ function authHeaders(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     ...init,
     headers: { ...authHeaders(token), ...(init.headers ?? {}) },
   });
@@ -78,7 +79,7 @@ export default function register(ctx: PluginContext) {
 
     const fullBody = Buffer.concat([Buffer.from(prefix, "utf-8"), body, Buffer.from(suffix, "utf-8")]);
 
-    const res = await fetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id,name,mimeType,webViewLink`, {
+    const res = await safeFetch(`${UPLOAD_API}/files?uploadType=multipart&fields=id,name,mimeType,webViewLink`, {
       method: "POST",
       headers: {
         ...authHeaders(token),
@@ -97,14 +98,14 @@ export default function register(ctx: PluginContext) {
     const { token, fileId, asText } = { ...execCtx.inputs, ...config } as {
       token: string; fileId: string; asText?: boolean;
     };
-    const res = await fetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media`, {
+    const res = await safeFetch(`${API}/files/${encodeURIComponent(fileId)}?alt=media`, {
       headers: authHeaders(token),
     });
     if (!res.ok) throw new Error(`Drive download ${res.status}: ${await res.text()}`);
     if (asText) {
       return { content: await res.text() };
     }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await safeArrayBuffer(res));
     return { contentBase64: buf.toString("base64"), byteLength: buf.length };
   });
 

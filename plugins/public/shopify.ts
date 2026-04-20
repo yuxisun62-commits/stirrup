@@ -11,6 +11,7 @@
  * reads both out to build the URL and Header respectively.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API_VERSION = "2024-10";
 
@@ -35,7 +36,7 @@ async function call<T>(
   init: RequestInit = {},
 ): Promise<T | null> {
   const url = `https://${auth.shop}.myshopify.com/admin/api/${API_VERSION}${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: {
       "X-Shopify-Access-Token": auth.token,

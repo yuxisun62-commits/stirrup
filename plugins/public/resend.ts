@@ -7,6 +7,7 @@
  * must be on a verified domain or @resend.dev in test mode.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.resend.com";
 
@@ -15,7 +16,7 @@ function headers(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     ...init,
     headers: { ...headers(token), ...(init.headers ?? {}) },
   });

@@ -9,6 +9,7 @@
  * API and dedicated Inference Endpoints (pass `endpointUrl`).
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const PUBLIC_API = "https://api-inference.huggingface.co/models";
 
@@ -23,7 +24,7 @@ async function infer<T>(
   endpointUrl?: string,
 ): Promise<T> {
   const url = endpointUrl ?? `${PUBLIC_API}/${modelOrUrl}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     method: "POST",
     headers: {
       ...authHeader(token),

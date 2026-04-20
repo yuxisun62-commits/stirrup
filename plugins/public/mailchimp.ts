@@ -11,6 +11,7 @@
  * admin.mailchimp.com/account/api/.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 import { createHash } from "node:crypto";
 
 function dcFromKey(apiKey: string): string {
@@ -35,7 +36,7 @@ async function call<T>(
 ): Promise<T | null> {
   const dc = dcFromKey(apiKey);
   const url = `https://${dc}.api.mailchimp.com/3.0${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { ...headers(apiKey), ...(init.headers ?? {}) },
   });

@@ -41,6 +41,7 @@
  * - There is NO scheduling endpoint — use the typefully or buffer plugin for that
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API_BASE = "https://api.linkedin.com/v2";
 
@@ -67,7 +68,7 @@ function liApi(token: string) {
     path: string,
     body?: unknown
   ): Promise<Record<string, unknown>> => {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await safeFetch(`${API_BASE}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,

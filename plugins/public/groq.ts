@@ -10,6 +10,7 @@
  * Auth: API key (service "groq"). Get one at console.groq.com/keys.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.groq.com/openai/v1";
 
@@ -18,7 +19,7 @@ function headers(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify(body),
@@ -70,9 +71,9 @@ export default function register(ctx: PluginContext) {
     if (audioBase64) {
       buf = Buffer.from(audioBase64, "base64");
     } else if (audioUrl) {
-      const r = await fetch(audioUrl);
+      const r = await safeFetch(audioUrl);
       if (!r.ok) throw new Error(`Failed to fetch audio: ${r.status}`);
-      buf = Buffer.from(await r.arrayBuffer());
+      buf = Buffer.from(await safeArrayBuffer(r));
       mime = r.headers.get("content-type") ?? mime;
     } else {
       throw new Error("groq-transcribe requires audioBase64 or audioUrl");
@@ -85,7 +86,7 @@ export default function register(ctx: PluginContext) {
     if (prompt) form.append("prompt", prompt);
     if (responseFormat) form.append("response_format", responseFormat);
 
-    const res = await fetch(`${API}/audio/transcriptions`, {
+    const res = await safeFetch(`${API}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,
@@ -110,9 +111,9 @@ export default function register(ctx: PluginContext) {
     let mime = "audio/mpeg";
     if (audioBase64) buf = Buffer.from(audioBase64, "base64");
     else if (audioUrl) {
-      const r = await fetch(audioUrl);
+      const r = await safeFetch(audioUrl);
       if (!r.ok) throw new Error(`Failed to fetch audio: ${r.status}`);
-      buf = Buffer.from(await r.arrayBuffer());
+      buf = Buffer.from(await safeArrayBuffer(r));
       mime = r.headers.get("content-type") ?? mime;
     } else throw new Error("groq-translate requires audioBase64 or audioUrl");
 
@@ -120,7 +121,7 @@ export default function register(ctx: PluginContext) {
     form.append("file", new Blob([new Uint8Array(buf)], { type: mime }), filename ?? "audio.mp3");
     form.append("model", model ?? "whisper-large-v3");
 
-    const res = await fetch(`${API}/audio/translations`, {
+    const res = await safeFetch(`${API}/audio/translations`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,

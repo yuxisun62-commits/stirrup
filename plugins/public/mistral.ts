@@ -9,6 +9,7 @@
  * Auth: API key (service "mistral"). Get one at console.mistral.ai.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.mistral.ai/v1";
 
@@ -17,7 +18,7 @@ function headers(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify(body),

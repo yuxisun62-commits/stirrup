@@ -30,6 +30,7 @@
  *   - Use the buffer plugin alongside this one for those channels
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API_BASE = "https://api.typefully.com/v1";
 
@@ -46,7 +47,7 @@ function tfApi(apiKey: string) {
     path: string,
     body?: unknown
   ): Promise<Record<string, unknown>> => {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await safeFetch(`${API_BASE}${path}`, {
       method,
       headers: {
         // Typefully uses an X-API-KEY header, NOT Authorization. Verified by

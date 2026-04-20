@@ -4,6 +4,7 @@
  * Tools: github-search-code, github-get-repo
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const ghHeaders = (token?: string) => ({
   Accept: "application/vnd.github.v3+json",
@@ -12,14 +13,14 @@ const ghHeaders = (token?: string) => ({
 });
 
 async function fetchAuthUserLogin(token: string): Promise<string> {
-  const res = await fetch("https://api.github.com/user", { headers: ghHeaders(token) });
+  const res = await safeFetch("https://api.github.com/user", { headers: ghHeaders(token) });
   if (!res.ok) throw new Error(`GitHub /user ${res.status}: ${await res.text()}`);
   const user = await res.json() as Record<string, unknown>;
   return user.login as string;
 }
 
 async function fetchRepo(token: string, owner: string, name: string): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`https://api.github.com/repos/${owner}/${name}`, { headers: ghHeaders(token) });
+  const res = await safeFetch(`https://api.github.com/repos/${owner}/${name}`, { headers: ghHeaders(token) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub /repos/${owner}/${name} ${res.status}: ${await res.text()}`);
   return await res.json() as Record<string, unknown>;
@@ -36,14 +37,14 @@ export default function register(ctx: PluginContext) {
     const { repo, prNumber, token } = { ...execCtx.inputs, ...config } as {
       repo: string; prNumber: number; token?: string;
     };
-    const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, {
+    const res = await safeFetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, {
       headers: headers(token),
     });
     if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
     const pr = await res.json() as Record<string, unknown>;
 
     // Also fetch the diff
-    const diffRes = await fetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, {
+    const diffRes = await safeFetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, {
       headers: { ...headers(token), Accept: "application/vnd.github.v3.diff" },
     });
     const diff = diffRes.ok ? await diffRes.text() : "";
@@ -68,7 +69,7 @@ export default function register(ctx: PluginContext) {
       repo: string; token: string; title: string; body?: string;
       labels?: string[]; assignees?: string[];
     };
-    const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
+    const res = await safeFetch(`https://api.github.com/repos/${repo}/issues`, {
       method: "POST",
       headers: { ...headers(token), "Content-Type": "application/json" },
       body: JSON.stringify({ title, body, labels, assignees }),
@@ -82,7 +83,7 @@ export default function register(ctx: PluginContext) {
     const { repo, token, issueNumber, body } = { ...execCtx.inputs, ...config } as {
       repo: string; token: string; issueNumber: number; body: string;
     };
-    const res = await fetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
+    const res = await safeFetch(`https://api.github.com/repos/${repo}/issues/${issueNumber}/comments`, {
       method: "POST",
       headers: { ...headers(token), "Content-Type": "application/json" },
       body: JSON.stringify({ body }),
@@ -96,7 +97,7 @@ export default function register(ctx: PluginContext) {
     const { repo, token, prNumber } = { ...execCtx.inputs, ...config } as {
       repo: string; token: string; prNumber: number;
     };
-    const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}/files`, {
+    const res = await safeFetch(`https://api.github.com/repos/${repo}/pulls/${prNumber}/files`, {
       headers: headers(token),
     });
     if (!res.ok) throw new Error(`GitHub API ${res.status}: ${await res.text()}`);
@@ -126,7 +127,7 @@ export default function register(ctx: PluginContext) {
       ? `https://api.github.com/orgs/${org}/repos`
       : "https://api.github.com/user/repos";
 
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "POST",
       headers: { ...headers(token), "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -183,7 +184,7 @@ export default function register(ctx: PluginContext) {
     if (!title) throw new Error("PR title is required");
     if (!head) throw new Error("head branch required");
 
-    const res = await fetch(`https://api.github.com/repos/${repo}/pulls`, {
+    const res = await safeFetch(`https://api.github.com/repos/${repo}/pulls`, {
       method: "POST",
       headers: { ...headers(token), "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -217,7 +218,7 @@ export default function register(ctx: PluginContext) {
     },
     handler: async (input) => {
       const q = input.repo ? `${input.query} repo:${input.repo}` : input.query as string;
-      const res = await fetch(`https://api.github.com/search/code?q=${encodeURIComponent(q)}`, {
+      const res = await safeFetch(`https://api.github.com/search/code?q=${encodeURIComponent(q)}`, {
         headers: headers(process.env.GITHUB_TOKEN),
       });
       const data = await res.json() as Record<string, unknown>;

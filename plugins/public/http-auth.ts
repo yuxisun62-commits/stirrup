@@ -3,6 +3,7 @@
  * Node types: oauth-token, api-key-request, jwt-decode, basic-auth-request
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("oauth-token", async (config, execCtx) => {
@@ -24,7 +25,7 @@ export default function register(ctx: PluginContext) {
     if (password) params.set("password", password);
     if (refreshToken) params.set("refresh_token", refreshToken);
 
-    const res = await fetch(tokenUrl, {
+    const res = await safeFetch(tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: params.toString(),
@@ -61,7 +62,7 @@ export default function register(ctx: PluginContext) {
       hdrs[keyHeader ?? "X-API-Key"] = apiKey;
     }
 
-    const res = await fetch(finalUrl, {
+    const res = await safeFetch(finalUrl, {
       method: method ?? "GET",
       headers: hdrs,
       body: body && method !== "GET" ? JSON.stringify(body) : undefined,
@@ -99,7 +100,7 @@ export default function register(ctx: PluginContext) {
     };
 
     const auth = Buffer.from(`${username}:${password}`).toString("base64");
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: method ?? "GET",
       headers: {
         Authorization: `Basic ${auth}`,

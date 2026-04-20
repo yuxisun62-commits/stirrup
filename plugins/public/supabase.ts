@@ -14,6 +14,7 @@
  * the user prefers per-workflow creds.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 interface SupabaseAuth {
   projectUrl: string;
@@ -54,7 +55,7 @@ async function postgrest<T>(
   init: RequestInit = {},
 ): Promise<T> {
   const url = `${auth.projectUrl.replace(/\/$/, "")}/rest/v1${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { ...restHeaders(auth.apiKey), ...(init.headers ?? {}) },
   });
@@ -203,7 +204,7 @@ export default function register(ctx: PluginContext) {
     const { email, password, data } = { ...execCtx.inputs, ...config } as {
       email: string; password: string; data?: Record<string, unknown>;
     };
-    const res = await fetch(`${auth.projectUrl.replace(/\/$/, "")}/auth/v1/signup`, {
+    const res = await safeFetch(`${auth.projectUrl.replace(/\/$/, "")}/auth/v1/signup`, {
       method: "POST",
       headers: restHeaders(auth.apiKey),
       body: JSON.stringify({ email, password, data }),
@@ -222,7 +223,7 @@ export default function register(ctx: PluginContext) {
     const { email, password } = { ...execCtx.inputs, ...config } as {
       email: string; password: string;
     };
-    const res = await fetch(
+    const res = await safeFetch(
       `${auth.projectUrl.replace(/\/$/, "")}/auth/v1/token?grant_type=password`,
       {
         method: "POST",

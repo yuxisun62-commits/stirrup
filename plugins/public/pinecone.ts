@@ -10,6 +10,7 @@
  * (service "pinecone") as a plain `pcsk_...` key.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 function apiHeaders(token: string): Record<string, string> {
   return {
@@ -26,7 +27,7 @@ async function call<T>(
   init: RequestInit = {},
 ): Promise<T | null> {
   const url = `https://${host.replace(/^https?:\/\//, "")}${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { ...apiHeaders(token), ...(init.headers ?? {}) },
   });

@@ -28,6 +28,7 @@
  *     and LinkedIn, and use this plugin only for the channels Typefully lacks.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API_BASE = "https://api.bufferapp.com/1";
 
@@ -86,7 +87,7 @@ function bufferApi(token: string) {
       };
     }
 
-    const res = await fetch(url.toString(), init);
+    const res = await safeFetch(url.toString(), init);
     if (!res.ok) {
       const errBody = await res.text().catch(() => "");
       // Scrub the access_token out of the error body before surfacing it.

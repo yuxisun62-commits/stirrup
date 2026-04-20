@@ -4,10 +4,11 @@
  * Tools: slack-post-message, slack-list-channels
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   const slackApi = async (method: string, token: string, body: Record<string, unknown>) => {
-    const res = await fetch(`https://slack.com/api/${method}`, {
+    const res = await safeFetch(`https://slack.com/api/${method}`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),

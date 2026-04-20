@@ -8,6 +8,7 @@
  * splits that combined string back out before making requests.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 function authHeader(credentials: string): Record<string, string> {
   // credentials format: "<sid>:<token>"
@@ -27,7 +28,7 @@ async function callMessages(
   for (const [k, v] of Object.entries(payload)) {
     if (v !== undefined) body.set(k, String(v));
   }
-  const res = await fetch(
+  const res = await safeFetch(
     `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`,
     {
       method: "POST",
@@ -85,7 +86,7 @@ export default function register(ctx: PluginContext) {
     if (url) body.set("Url", url);
     if (twiml) body.set("Twiml", twiml);
     if (timeout) body.set("Timeout", String(timeout));
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
+    const res = await safeFetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json`, {
       method: "POST",
       headers: {
         ...authHeader(token),
@@ -105,7 +106,7 @@ export default function register(ctx: PluginContext) {
       token: string; serviceSid: string; to: string; channel?: "sms" | "call" | "email";
     };
     const body = new URLSearchParams({ To: to, Channel: channel ?? "sms" });
-    const res = await fetch(
+    const res = await safeFetch(
       `https://verify.twilio.com/v2/Services/${serviceSid}/Verifications`,
       {
         method: "POST",

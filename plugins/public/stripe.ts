@@ -12,6 +12,7 @@
  * evolution, not the transport format).
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.stripe.com/v1";
 
@@ -55,7 +56,7 @@ async function call<T>(
   body?: Record<string, unknown>,
   method: "GET" | "POST" | "DELETE" = "POST",
 ): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     method,
     headers: authHeaders(key),
     body: body ? encodeForm(body) : undefined,
@@ -90,7 +91,7 @@ export default function register(ctx: PluginContext) {
     const params = new URLSearchParams();
     if (email) params.set("email", email);
     if (limit) params.set("limit", String(limit));
-    const res = await fetch(`${API}/customers?${params.toString()}`, {
+    const res = await safeFetch(`${API}/customers?${params.toString()}`, {
       headers: authHeaders(token),
     });
     const data = (await res.json()) as { data: Array<Record<string, unknown>>; has_more: boolean };
@@ -212,7 +213,7 @@ export default function register(ctx: PluginContext) {
     const { token, resource, id } = { ...execCtx.inputs, ...config } as {
       token: string; resource: string; id: string;
     };
-    const res = await fetch(`${API}/${encodeURIComponent(resource)}/${encodeURIComponent(id)}`, {
+    const res = await safeFetch(`${API}/${encodeURIComponent(resource)}/${encodeURIComponent(id)}`, {
       headers: authHeaders(token),
     });
     const data = (await res.json()) as Record<string, unknown>;
@@ -226,7 +227,7 @@ export default function register(ctx: PluginContext) {
     };
     const params = new URLSearchParams({ limit: String(limit ?? 10) });
     if (startingAfter) params.set("starting_after", startingAfter);
-    const res = await fetch(`${API}/${encodeURIComponent(resource)}?${params.toString()}`, {
+    const res = await safeFetch(`${API}/${encodeURIComponent(resource)}?${params.toString()}`, {
       headers: authHeaders(token),
     });
     const data = (await res.json()) as { data: Array<Record<string, unknown>>; has_more: boolean };

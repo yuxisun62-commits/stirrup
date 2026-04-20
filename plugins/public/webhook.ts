@@ -3,6 +3,7 @@
  * Node types: webhook-send, webhook-batch
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("webhook-send", async (config, execCtx) => {
@@ -34,7 +35,7 @@ export default function register(ctx: PluginContext) {
       try {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs ?? 30000);
-        const res = await fetch(url, {
+        const res = await safeFetch(url, {
           method: method ?? "POST",
           headers: hdrs,
           body,
@@ -76,7 +77,7 @@ export default function register(ctx: PluginContext) {
       const batch = urls.slice(i, i + limit);
       const batchResults = await Promise.allSettled(
         batch.map(async (url) => {
-          const res = await fetch(url, {
+          const res = await safeFetch(url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body,

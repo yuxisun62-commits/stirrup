@@ -9,6 +9,7 @@
  * pollers and senders use).
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 function tgApi(token: string, method: string) {
   return `https://api.telegram.org/bot${token}/${method}`;
@@ -19,7 +20,7 @@ async function call<T>(
   method: string,
   payload: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(tgApi(token, method), {
+  const res = await safeFetch(tgApi(token, method), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

@@ -10,6 +10,7 @@
  * and the token authorizes. Basic auth sends `email/token:token`.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 interface ZendeskAuth {
   subdomain: string;
@@ -38,7 +39,7 @@ async function call<T>(
   init: RequestInit = {},
 ): Promise<T | null> {
   const url = `https://${auth.subdomain}.zendesk.com/api/v2${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { ...authHeader(auth), ...(init.headers ?? {}) },
   });

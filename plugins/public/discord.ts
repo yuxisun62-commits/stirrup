@@ -13,6 +13,7 @@
  * (no bot, just a webhook URL) use the existing webhook-send node.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://discord.com/api/v10";
 
@@ -25,7 +26,7 @@ function botHeaders(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     ...init,
     headers: { ...botHeaders(token), ...(init.headers ?? {}) },
   });

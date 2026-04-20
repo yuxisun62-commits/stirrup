@@ -23,6 +23,7 @@
  * API Base: https://api.launchmatic.io/api
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API_BASE = process.env.LAUNCHMATIC_API_BASE ?? "https://api.launchmatic.io/api";
 
@@ -30,7 +31,7 @@ type LmApiError = Error & { status: number; body: unknown };
 
 function lmApi(token: string) {
   return async (method: string, path: string, body?: unknown): Promise<any> => {
-    const res = await fetch(`${API_BASE}${path}`, {
+    const res = await safeFetch(`${API_BASE}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -496,7 +497,7 @@ export default function register(ctx: PluginContext) {
       const broken: string[] = [];
       for (const link of links.slice(0, 20)) {
         try {
-          const r = await fetch(link, { method: "HEAD", signal: AbortSignal.timeout(5000) });
+          const r = await safeFetch(link, { method: "HEAD", signal: AbortSignal.timeout(5000) });
           if (r.status >= 400) broken.push(`${link} (${r.status})`);
         } catch { broken.push(`${link} (unreachable)`); }
       }

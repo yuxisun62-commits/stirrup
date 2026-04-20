@@ -11,6 +11,7 @@
  * Auth: OpenAI API key under service "openai".
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.openai.com/v1";
 
@@ -21,7 +22,7 @@ function headers(key: string, isJson = true): Record<string, string> {
 }
 
 async function jsonCall<T>(key: string, path: string, body: Record<string, unknown>): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     method: "POST",
     headers: headers(key),
     body: JSON.stringify(body),
@@ -88,7 +89,7 @@ export default function register(ctx: PluginContext) {
       voice?: "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
       model?: string; speed?: number; format?: "mp3" | "opus" | "aac" | "flac";
     };
-    const res = await fetch(`${API}/audio/speech`, {
+    const res = await safeFetch(`${API}/audio/speech`, {
       method: "POST",
       headers: headers(token),
       body: JSON.stringify({
@@ -100,7 +101,7 @@ export default function register(ctx: PluginContext) {
       }),
     });
     if (!res.ok) throw new Error(`OpenAI TTS ${res.status}: ${await res.text()}`);
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = Buffer.from(await safeArrayBuffer(res));
     return {
       audioBase64: buf.toString("base64"),
       format: format ?? "mp3",
@@ -125,9 +126,9 @@ export default function register(ctx: PluginContext) {
     let resolvedFilename = filename ?? "audio.mp3";
 
     if (audioUrl) {
-      const r = await fetch(audioUrl);
+      const r = await safeFetch(audioUrl);
       if (!r.ok) throw new Error(`Failed to fetch audio from ${audioUrl}: ${r.status}`);
-      audioBuffer = Buffer.from(await r.arrayBuffer());
+      audioBuffer = Buffer.from(await safeArrayBuffer(r));
       mimeType = r.headers.get("content-type") ?? mimeType;
     } else if (audioBase64) {
       audioBuffer = Buffer.from(audioBase64, "base64");
@@ -149,7 +150,7 @@ export default function register(ctx: PluginContext) {
     if (prompt) form.append("prompt", prompt);
     if (responseFormat) form.append("response_format", responseFormat);
 
-    const res = await fetch(`${API}/audio/transcriptions`, {
+    const res = await safeFetch(`${API}/audio/transcriptions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
       body: form,

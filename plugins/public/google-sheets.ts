@@ -11,6 +11,7 @@
  * cell is a string. Use a downstream transform if you need typed values.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -19,7 +20,7 @@ function authHeaders(token: string): Record<string, string> {
 }
 
 async function call<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
+  const res = await safeFetch(`${API}${path}`, {
     ...init,
     headers: { ...authHeaders(token), ...(init.headers ?? {}) },
   });

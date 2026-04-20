@@ -9,6 +9,7 @@
  * per-node `baseUrl` config because token alone doesn't identify the site.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 function authHeaders(credentials: string): Record<string, string> {
   // credentials format: "<email>:<apiToken>"
@@ -26,7 +27,7 @@ async function call<T>(
   init: RequestInit = {},
 ): Promise<T | null> {
   const url = `${baseUrl.replace(/\/$/, "")}/rest/api/3${path}`;
-  const res = await fetch(url, {
+  const res = await safeFetch(url, {
     ...init,
     headers: { ...authHeaders(credentials), ...(init.headers ?? {}) },
   });

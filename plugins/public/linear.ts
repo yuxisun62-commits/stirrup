@@ -9,6 +9,7 @@
  * wrapper.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
+import { safeFetch } from "../../src/plugins/safeFetch.js";
 
 const API = "https://api.linear.app/graphql";
 
@@ -23,7 +24,7 @@ async function gql<T>(
   query: string,
   variables?: Record<string, unknown>,
 ): Promise<T> {
-  const res = await fetch(API, {
+  const res = await safeFetch(API, {
     method: "POST",
     headers: headers(token),
     body: JSON.stringify({ query, variables }),
