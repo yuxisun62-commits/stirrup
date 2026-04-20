@@ -1,28 +1,58 @@
-import { useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import { tokens } from './ui/styles';
+import { listNodeTypes } from '../api/client';
+import { getNodeMetadata, ALL_CATEGORIES, type NodeCategory, type NodeMetadata } from './nodeMetadata';
 
-interface NodeTypeInfo {
-  type: string;
-  label: string;
-  description: string;
-  color: string;
-  icon: string;
-  category: 'deterministic' | 'ai';
-}
-
-const NODE_TYPES: NodeTypeInfo[] = [
-  { type: 'transform', label: 'Transform', description: 'Evaluate a JS expression on inputs', color: '#6366f1', icon: 'f(x)', category: 'deterministic' },
-  { type: 'condition', label: 'Condition', description: 'Branch based on an expression', color: '#f59e0b', icon: '?:', category: 'deterministic' },
-  { type: 'http', label: 'HTTP Request', description: 'Make HTTP calls to external APIs', color: '#06b6d4', icon: 'GET', category: 'deterministic' },
-  { type: 'script', label: 'Script', description: 'Run arbitrary JS in a sandbox', color: '#8b5cf6', icon: '{ }', category: 'deterministic' },
-  { type: 'llm-prompt', label: 'LLM Prompt', description: 'Send a templated prompt to Claude', color: '#f97316', icon: 'AI', category: 'ai' },
-  { type: 'agent-tool-use', label: 'Agent', description: 'Autonomous AI with tool access', color: '#14b8a6', icon: 'BOT', category: 'ai' },
-  { type: 'decision-routing', label: 'AI Decision', description: 'AI picks the next branch', color: '#a855f7', icon: 'RTE', category: 'ai' },
-  { type: 'code-generation', label: 'Code Gen', description: 'AI generates & runs code', color: '#84cc16', icon: '</>',  category: 'ai' },
-];
+/**
+ * Dynamic node palette.
+ *
+ * Hits /api/node-types on mount to discover every type the server has
+ * registered — built-ins plus whatever the loaded plugins contribute.
+ * Each type is decorated with metadata from the catalog (label, icon,
+ * color, category); unknown types fall back to a generic entry so we
+ * still render every available type with something draggable.
+ *
+ * Search filters across label, description, type id, and service name
+ * so users can find a node by whatever they remember. Categories
+ * collapse to keep the list manageable when all 100+ nodes are loaded.
+ */
 
 export function NodePalette() {
   const [collapsed, setCollapsed] = useState(false);
+  const [query, setQuery] = useState('');
+  const [types, setTypes] = useState<NodeMetadata[] | null>(null);
+  const [openCats, setOpenCats] = useState<Set<NodeCategory>>(() => new Set(['Core', 'AI']));
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    listNodeTypes()
+      .then((list) => setTypes(list.map((t) => getNodeMetadata(t.type))))
+      .catch((err) => setLoadError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!types) return null;
+    const q = query.trim().toLowerCase();
+    if (!q) return types;
+    return types.filter(
+      (m) =>
+        m.type.toLowerCase().includes(q) ||
+        m.label.toLowerCase().includes(q) ||
+        m.description.toLowerCase().includes(q) ||
+        (m.service?.toLowerCase().includes(q) ?? false),
+    );
+  }, [types, query]);
+
+  const grouped = useMemo(() => {
+    if (!filtered) return null;
+    const map = new Map<NodeCategory, NodeMetadata[]>();
+    for (const m of filtered) {
+      const list = map.get(m.category) ?? [];
+      list.push(m);
+      map.set(m.category, list);
+    }
+    return map;
+  }, [filtered]);
 
   const onDragStart = (e: DragEvent, type: string) => {
     e.dataTransfer.setData('application/workflow-node-type', type);
@@ -46,14 +76,19 @@ export function NodePalette() {
     );
   }
 
+  // When the user types a query, auto-expand every category that still has
+  // hits so they can see all matches without a second click. When the query
+  // clears, fall back to whatever categories were open before.
+  const isSearching = query.trim().length > 0;
+
   return (
     <div data-tutorial="node-palette" style={{ padding: '10px 12px', flex: 1, overflow: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{
           fontSize: 10, fontWeight: 700, color: tokens.text.muted,
           textTransform: 'uppercase', letterSpacing: '1px',
         }}>
-          Nodes
+          Nodes {types && <span style={{ color: tokens.text.secondary, fontWeight: 500 }}>({types.length})</span>}
         </span>
         <button
           onClick={() => setCollapsed(true)}
@@ -63,73 +98,148 @@ export function NodePalette() {
         </button>
       </div>
 
-      <CategoryGroup title="Deterministic" nodes={NODE_TYPES.filter((n) => n.category === 'deterministic')} onDragStart={onDragStart} />
-      <CategoryGroup title="AI-Powered" nodes={NODE_TYPES.filter((n) => n.category === 'ai')} onDragStart={onDragStart} />
+      <input
+        type="text"
+        placeholder="Search nodes…"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{
+          width: '100%',
+          padding: '6px 8px',
+          fontSize: 11,
+          backgroundColor: tokens.bg.input,
+          border: `1px solid ${tokens.border.subtle}`,
+          borderRadius: 5,
+          color: tokens.text.primary,
+          outline: 'none',
+          marginBottom: 10,
+          boxSizing: 'border-box',
+        }}
+      />
 
-      <div style={{ marginTop: 12, padding: 8, borderRadius: 6, backgroundColor: `${tokens.border.subtle}50`, fontSize: 10, color: tokens.text.muted, lineHeight: 1.5 }}>
-        Drag a node onto the canvas to add it to your workflow. Connect nodes by dragging from one handle to another.
-      </div>
-    </div>
-  );
-}
+      {loadError && (
+        <div style={{
+          padding: 8, borderRadius: 5, fontSize: 10,
+          background: '#7f1d1d40', border: '1px solid #b91c1c',
+          color: '#fecaca', marginBottom: 8,
+        }}>{loadError}</div>
+      )}
 
-function CategoryGroup({ title, nodes, onDragStart }: {
-  title: string; nodes: NodeTypeInfo[]; onDragStart: (e: DragEvent, type: string) => void;
-}) {
-  return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{
-        fontSize: 9, fontWeight: 700, color: tokens.text.muted, textTransform: 'uppercase',
-        letterSpacing: '1.5px', marginBottom: 6, paddingBottom: 3,
-        borderBottom: `1px solid ${tokens.border.subtle}`,
-      }}>
-        {title}
-      </div>
-      {nodes.map((node) => (
-        <div
-          key={node.type}
-          draggable
-          onDragStart={(e) => onDragStart(e, node.type)}
-          style={{
-            padding: '7px 10px',
-            marginBottom: 3,
-            borderRadius: 6,
-            border: `1px solid ${node.color}30`,
-            backgroundColor: `${node.color}08`,
-            cursor: 'grab',
-            transition: 'background-color 0.15s, border-color 0.15s',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = `${node.color}18`;
-            (e.currentTarget as HTMLElement).style.borderColor = `${node.color}50`;
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.backgroundColor = `${node.color}08`;
-            (e.currentTarget as HTMLElement).style.borderColor = `${node.color}30`;
-          }}
-        >
-          <div style={{
-            width: 28, height: 28, borderRadius: 5,
-            backgroundColor: `${node.color}20`, border: `1px solid ${node.color}40`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 9, fontWeight: 800, color: node.color,
-            fontFamily: tokens.font.mono, flexShrink: 0,
-          }}>
-            {node.icon}
-          </div>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: tokens.text.primary, lineHeight: 1.2 }}>
-              {node.label}
-            </div>
-            <div style={{ fontSize: 10, color: tokens.text.muted, lineHeight: 1.3 }}>
-              {node.description}
-            </div>
-          </div>
+      {!types && !loadError && (
+        <div style={{ color: tokens.text.muted, fontSize: 11 }}>Loading node types…</div>
+      )}
+
+      {grouped && grouped.size === 0 && (
+        <div style={{ color: tokens.text.muted, fontSize: 11, padding: '10px 0' }}>
+          No nodes match "{query}".
         </div>
-      ))}
+      )}
+
+      {grouped &&
+        ALL_CATEGORIES.map((category) => {
+          const nodes = grouped.get(category);
+          if (!nodes || nodes.length === 0) return null;
+          const isOpen = isSearching || openCats.has(category);
+          return (
+            <div key={category} style={{ marginBottom: 10 }}>
+              <button
+                onClick={() => {
+                  if (isSearching) return; // collapsing disabled while searching
+                  setOpenCats((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(category)) next.delete(category);
+                    else next.add(category);
+                    return next;
+                  });
+                }}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '4px 2px',
+                  background: 'none',
+                  border: 'none',
+                  borderBottom: `1px solid ${tokens.border.subtle}`,
+                  cursor: isSearching ? 'default' : 'pointer',
+                  marginBottom: 5,
+                }}
+              >
+                <span style={{
+                  fontSize: 9, fontWeight: 700, color: tokens.text.muted,
+                  textTransform: 'uppercase', letterSpacing: '1.5px',
+                }}>
+                  {category}
+                </span>
+                <span style={{ fontSize: 10, color: tokens.text.muted, display: 'flex', gap: 6 }}>
+                  <span style={{ opacity: 0.7 }}>{nodes.length}</span>
+                  {!isSearching && <span>{isOpen ? '▾' : '▸'}</span>}
+                </span>
+              </button>
+              {isOpen && nodes.map((node) => (
+                <div
+                  key={node.type}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, node.type)}
+                  style={{
+                    padding: '6px 8px',
+                    marginBottom: 3,
+                    borderRadius: 5,
+                    border: `1px solid ${node.color}30`,
+                    backgroundColor: `${node.color}08`,
+                    cursor: 'grab',
+                    transition: 'background-color 0.15s, border-color 0.15s',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 7,
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLElement).style.backgroundColor = `${node.color}18`;
+                    (e.currentTarget as HTMLElement).style.borderColor = `${node.color}50`;
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLElement).style.backgroundColor = `${node.color}08`;
+                    (e.currentTarget as HTMLElement).style.borderColor = `${node.color}30`;
+                  }}
+                  title={node.description}
+                >
+                  <div style={{
+                    width: 26, height: 26, borderRadius: 4,
+                    backgroundColor: `${node.color}20`, border: `1px solid ${node.color}40`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 8, fontWeight: 800, color: node.color,
+                    fontFamily: tokens.font.mono, flexShrink: 0,
+                    whiteSpace: 'nowrap', overflow: 'hidden',
+                  }}>
+                    {node.icon}
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{
+                      fontSize: 11, fontWeight: 600, color: tokens.text.primary, lineHeight: 1.2,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {node.label}
+                    </div>
+                    <div style={{
+                      fontSize: 9, color: tokens.text.muted, lineHeight: 1.3,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    }}>
+                      {node.description}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+
+      <div style={{
+        marginTop: 8, padding: 8, borderRadius: 5,
+        backgroundColor: `${tokens.border.subtle}50`,
+        fontSize: 9, color: tokens.text.muted, lineHeight: 1.5,
+      }}>
+        Drag any node onto the canvas to add it. Connect nodes by dragging from one handle to another.
+      </div>
     </div>
   );
 }

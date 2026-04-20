@@ -80,11 +80,15 @@ export function pluginRoutes(pluginLoader: PluginLoader, registry: NodeRegistry,
     }
   });
 
-  // List all registered node types
+  // List all registered node types. The server is the source of truth:
+  // the UI palette calls this and renders whatever comes back, so any
+  // type registered by a plugin (or added to the core set below) shows
+  // up in the palette without needing a UI code change.
   router.get("/node-types", (_req, res) => {
     const builtIn = [
       "transform", "condition", "http", "script",
       "llm-prompt", "agent-tool-use", "decision-routing", "code-generation",
+      "iterate", "passthrough", "fail", "sub-workflow", "merge",
     ];
 
     const pluginTypes = pluginLoader.getLoadedPlugins().flatMap((p) => p.nodeTypes);

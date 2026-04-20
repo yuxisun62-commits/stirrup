@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   getAuthStatus, startAuthFlow, pollAuthFlow, saveServiceToken, logoutService,
-  detectCli, connectViaCli, cliLogin,
+  detectCli, connectViaCli, cliLogin, listServices,
   type AuthStatus, type CliDetection,
 } from '../api/client';
+import { getServiceCatalogEntry, SERVICE_CATALOG } from './serviceCatalog';
+import type { NodeCategory } from './nodeMetadata';
+import { ALL_CATEGORIES } from './nodeMetadata';
 
 /** Services whose CLI ships an interactive `<cli> login` command we can spawn */
 const CLI_LOGIN_CAPABLE = new Set(['launchmatic', 'github']);
@@ -23,6 +26,7 @@ interface ServiceCard {
   service: string;
   label: string;
   description: string;
+  category: NodeCategory;
   oauthSupported: boolean;
   tokenDocsUrl?: string;
   tokenInstructions?: string;
@@ -30,130 +34,31 @@ interface ServiceCard {
   setupGuide?: SetupStep[];
 }
 
-const KNOWN_SERVICES: ServiceCard[] = [
-  {
-    service: 'github',
-    label: 'GitHub',
-    description: 'PRs, issues, comments, file listing, code search',
-    oauthSupported: true,
-  },
-  {
-    service: 'launchmatic',
-    label: 'Launchmatic',
-    description: 'Deploy services, manage databases, run browser tests',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://app.launchmatic.io/settings/api-keys',
-    tokenInstructions: 'Install the Launchmatic CLI (`npm i -g @launchmatic/cli`), run `lm login`, then create an API key with `lm api-key create stirrup` and paste it here.',
-  },
-  {
-    service: 'stripe',
-    label: 'Stripe',
-    description: 'Charges, customers, payments, invoices',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://dashboard.stripe.com/apikeys',
-    tokenInstructions: 'Get a secret API key from your Stripe dashboard, or run `stripe login` and Stirrup will detect it.',
-  },
-  {
-    service: 'aws',
-    label: 'AWS',
-    description: 'S3, Lambda, DynamoDB, and all AWS services',
-    oauthSupported: false,
-    tokenInstructions: 'Run `aws configure` to set up credentials — Stirrup will detect them automatically.',
-  },
-  {
-    service: 'gcloud',
-    label: 'Google Cloud',
-    description: 'GCS, BigQuery, Cloud Run, Pub/Sub',
-    oauthSupported: false,
-    tokenInstructions: 'Run `gcloud auth login` and Stirrup will grab a fresh access token.',
-  },
-  {
-    service: 'slack',
-    label: 'Slack',
-    description: 'Send messages, upload files, list channels',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://api.slack.com/apps',
-    tokenInstructions: 'Paste your Bot User OAuth Token (starts with xoxb-). See the setup guide below if you don\'t have one yet.',
-    setupGuide: [
-      { text: 'Go to api.slack.com/apps and click "Create New App" → "From Scratch"', url: 'https://api.slack.com/apps?new_app=1' },
-      { text: 'Name it "Stirrup" (or anything), pick your workspace, click Create' },
-      { text: 'In the left sidebar click "OAuth & Permissions"' },
-      { text: 'Scroll to "Bot Token Scopes" and add: chat:write, channels:read, files:write' },
-      { text: 'Scroll up and click "Install to Workspace" → Authorize' },
-      { text: 'Copy the "Bot User OAuth Token" (starts with xoxb-) and paste it above' },
-    ],
-  },
-  {
-    service: 'jira',
-    label: 'Jira',
-    description: 'Create issues, transitions, search',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://id.atlassian.com/manage-profile/security/api-tokens',
-    tokenInstructions: 'Create an API token from your Atlassian account settings.',
-  },
-  {
-    service: 'hubspot',
-    label: 'HubSpot',
-    description: 'Contacts, deals, search, engagements',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://app.hubspot.com/private-apps',
-    tokenInstructions: 'Create a private app in HubSpot to generate an access token.',
-  },
-  {
-    service: 'typefully',
-    label: 'Typefully',
-    description: 'Schedule X/Twitter threads and LinkedIn posts with an AI-friendly draft API',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://typefully.com/settings/integrations',
-    tokenInstructions: 'Open Typefully → Settings → Integrations → API Keys, create a key, and paste it here.',
-  },
-  {
-    service: 'buffer',
-    label: 'Buffer',
-    description: 'Schedule posts to LinkedIn, Facebook, Instagram, and Threads',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://publish.buffer.com/account/apps',
-    tokenInstructions: 'Open Buffer → Account → Apps & Extras → API Access. Create an access token and paste it here.',
-  },
-  {
-    service: 'replicate',
-    label: 'Replicate',
-    description: 'Run any hosted model — Flux/SDXL for images, Whisper for audio, Llama for text',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://replicate.com/account/api-tokens',
-    tokenInstructions: 'Open Replicate → Account → API Tokens, create a token, and paste it here.',
-  },
-  {
-    service: 'linkedin',
-    label: 'LinkedIn',
-    description: 'Post to personal or org feed, fetch post stats, list recent shares',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://www.linkedin.com/developers/apps',
-    tokenInstructions: 'Create a LinkedIn Developer App at linkedin.com/developers/apps, run the OAuth flow with scopes `w_member_social r_liteprofile`, and paste the resulting access token here. Tokens are long-lived (~60 days).',
-  },
-  {
-    service: 'anthropic',
-    label: 'Anthropic',
-    description: 'API key for every AI node — Claude prompts, agentic tool use, decision routing, code generation',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://console.anthropic.com/settings/keys',
-    tokenInstructions: 'Open the Anthropic Console → API Keys → Create Key. Paste the resulting `sk-ant-...` key here.',
-  },
-  {
-    service: 'gemini',
-    label: 'Google Gemini',
-    description: 'Use Gemini models in AI nodes — set model to gemini-2.5-flash or any gemini-* model in node config',
-    oauthSupported: false,
-    tokenDocsUrl: 'https://aistudio.google.com/apikey',
-    tokenInstructions: 'Open Google AI Studio → Get API Key → Create API Key. Paste it here. Use `model: gemini-2.5-flash` in node config.',
-  },
-];
+/**
+ * Build a fallback list from the client-side catalog — rendered while the
+ * server's /auth/services response is in flight, and as a complete stand-
+ * in if that request fails. Since the catalog has every service the app
+ * knows about, users still see the full list in offline / bootstrap-error
+ * cases; what they lose is `oauthSupported` accuracy and server-provided
+ * token instructions.
+ */
+const FALLBACK_SERVICES: ServiceCard[] = Object.values(SERVICE_CATALOG).map((entry) => ({
+  service: entry.service,
+  label: entry.label,
+  description: entry.description,
+  category: entry.category,
+  oauthSupported: entry.service === 'github',
+  setupGuide: entry.setupGuide,
+}));
 
 export function AuthPanel({ onClose }: Props) {
   const [authStatus, setAuthStatus] = useState<Record<string, AuthStatus>>({});
   const [storeLocation, setStoreLocation] = useState<string>('');
   const [cliDetection, setCliDetection] = useState<Record<string, CliDetection>>({});
   const [authingService, setAuthingService] = useState<string | null>(null);
+  const [services, setServices] = useState<ServiceCard[]>(FALLBACK_SERVICES);
+  const [query, setQuery] = useState('');
+  const [openCats, setOpenCats] = useState<Set<NodeCategory>>(() => new Set(ALL_CATEGORIES));
   const [authPrompt, setAuthPrompt] = useState<{
     service: string;
     userCode: string;
@@ -171,9 +76,9 @@ export function AuthPanel({ onClose }: Props) {
       setAuthStatus(res.services);
       if (res.storeLocation) setStoreLocation(res.storeLocation);
     }).catch(() => {});
-    // Detect CLI sessions for all known services in parallel
+    // Detect CLI sessions for every service the server reports having CLI support.
     Promise.all(
-      KNOWN_SERVICES.map((svc) =>
+      services.map((svc) =>
         detectCli(svc.service).then((d) => [svc.service, d] as const).catch(() => null)
       )
     ).then((results) => {
@@ -185,7 +90,62 @@ export function AuthPanel({ onClose }: Props) {
     });
   };
 
-  useEffect(refresh, []);
+  // Fetch the server's service list on mount and merge with the client
+  // catalog (for labels/descriptions/categories/setup guides). Server data
+  // wins for auth capability fields (oauthSupported, tokenDocsUrl, etc).
+  useEffect(() => {
+    listServices()
+      .then(({ services: remote }) => {
+        const merged: ServiceCard[] = remote.map((s) => {
+          const cat = getServiceCatalogEntry(s.service);
+          return {
+            service: s.service,
+            label: cat.label,
+            description: cat.description,
+            category: cat.category,
+            oauthSupported: s.oauthSupported,
+            tokenDocsUrl: s.tokenDocsUrl,
+            tokenInstructions: s.tokenInstructions,
+            setupGuide: cat.setupGuide,
+          };
+        });
+        // Sort alphabetically within categories so the list is stable across
+        // refreshes regardless of server iteration order.
+        merged.sort((a, b) => a.label.localeCompare(b.label));
+        setServices(merged);
+      })
+      .catch(() => {
+        // Fall through to FALLBACK_SERVICES already in state.
+      });
+  }, []);
+
+  // Refresh auth status + CLI detection whenever the service list changes.
+  useEffect(refresh, [services]);
+
+  // Filter + group for render. Empty query shows everything, otherwise
+  // match across label, description, and service id — covers both "slack"
+  // and "send messages" style searches.
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return services;
+    return services.filter((s) =>
+      s.label.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.service.toLowerCase().includes(q),
+    );
+  }, [services, query]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<NodeCategory, ServiceCard[]>();
+    for (const svc of filtered) {
+      const list = map.get(svc.category) ?? [];
+      list.push(svc);
+      map.set(svc.category, list);
+    }
+    return map;
+  }, [filtered]);
+
+  const isSearching = query.trim().length > 0;
 
   const handleCliConnect = async (service: string) => {
     setAuthingService(service);
@@ -329,7 +289,7 @@ export function AuthPanel({ onClose }: Props) {
             <div>
               <div style={{ fontSize: 16, fontWeight: 700, color: tokens.text.primary }}>Connected Services</div>
               <div style={{ fontSize: 11, color: tokens.text.muted, marginTop: 2 }}>
-                {connectedCount} of {KNOWN_SERVICES.length} services authenticated
+                {connectedCount} of {services.length} services authenticated
               </div>
             </div>
             <button onClick={onClose} style={{
@@ -399,9 +359,67 @@ export function AuthPanel({ onClose }: Props) {
           </div>
         )}
 
-        {/* Service list */}
+        {/* Search */}
+        <div style={{ padding: '10px 20px 0 20px' }}>
+          <input
+            type="text"
+            placeholder="Search services…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            style={{
+              width: '100%', padding: '8px 10px', fontSize: 12,
+              backgroundColor: tokens.bg.input,
+              border: `1px solid ${tokens.border.subtle}`,
+              borderRadius: 6, color: tokens.text.primary,
+              outline: 'none', boxSizing: 'border-box',
+            }}
+          />
+        </div>
+
+        {/* Service list — grouped by category */}
         <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-          {KNOWN_SERVICES.map((svc) => {
+          {grouped.size === 0 && (
+            <div style={{ textAlign: 'center', padding: 20, fontSize: 12, color: tokens.text.muted }}>
+              No services match "{query}".
+            </div>
+          )}
+          {ALL_CATEGORIES.map((category) => {
+            const catServices = grouped.get(category);
+            if (!catServices || catServices.length === 0) return null;
+            const isOpen = isSearching || openCats.has(category);
+            return (
+              <div key={category} style={{ marginBottom: 12 }}>
+                <button
+                  onClick={() => {
+                    if (isSearching) return;
+                    setOpenCats((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(category)) next.delete(category);
+                      else next.add(category);
+                      return next;
+                    });
+                  }}
+                  style={{
+                    width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '6px 4px', background: 'none', border: 'none',
+                    borderBottom: `1px solid ${tokens.border.subtle}`,
+                    cursor: isSearching ? 'default' : 'pointer', marginBottom: 8,
+                  }}
+                >
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: tokens.text.muted,
+                    textTransform: 'uppercase', letterSpacing: '1.5px',
+                  }}>
+                    {category}
+                  </span>
+                  <span style={{ fontSize: 10, color: tokens.text.muted, display: 'flex', gap: 6 }}>
+                    <span style={{ opacity: 0.7 }}>
+                      {catServices.filter((s) => authStatus[s.service]?.authenticated).length}/{catServices.length}
+                    </span>
+                    {!isSearching && <span>{isOpen ? '▾' : '▸'}</span>}
+                  </span>
+                </button>
+                {isOpen && catServices.map((svc) => {
             const status = authStatus[svc.service];
             const isConnected = status?.authenticated;
             const isPasting = pasteFor === svc.service;
@@ -662,6 +680,9 @@ export function AuthPanel({ onClose }: Props) {
                     </div>
                   </div>
                 )}
+              </div>
+            );
+                })}
               </div>
             );
           })}
