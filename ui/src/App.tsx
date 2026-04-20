@@ -344,6 +344,7 @@ function App() {
             <WorkflowCanvas
               workflow={workflow}
               stepStatuses={stepStatuses}
+              stepResults={execution?.steps}
               onAddNode={addNode}
               onAddEdge={addEdge}
               onRemoveNode={removeNode}

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { StatusBadge } from './StatusBadge';
+import { ExecutionTimeline } from './ExecutionTimeline';
 import { tokens } from './ui/styles';
 import type { ExecutionEvent } from '../hooks/useExecution';
 import type { ExecutionState } from '../api/client';
@@ -30,6 +31,7 @@ export function ExecutionPanel({
   onRun, onResume, onClear, onDeploy, onSelectNode,
 }: Props) {
   const [expanded, setExpanded] = useState(true);
+  const [tab, setTab] = useState<'status' | 'timeline' | 'events'>('status');
 
   // Progress calculations
   const steps = execution?.steps ?? {};
@@ -179,18 +181,47 @@ export function ExecutionPanel({
       {/* Expandable content */}
       {expanded && execution && (
         <div style={{
-          maxHeight: 260, overflow: 'auto', padding: '6px 14px 8px',
           borderTop: `1px solid ${tokens.border.subtle}`,
         }}>
-          {/* Step summary — live view of every node's status */}
-          {Object.keys(steps).length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{
-                fontSize: 9, fontWeight: 700, color: tokens.text.muted,
-                textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4,
-              }}>
-                Step Status
-              </div>
+          {/* View switcher */}
+          <div style={{
+            display: 'flex', gap: 2, padding: '4px 14px 0',
+          }}>
+            {(['status', 'timeline', 'events'] as const).map((t) => {
+              const count =
+                t === 'status' ? Object.keys(steps).length :
+                t === 'events' ? events.length :
+                Object.values(steps).filter((s) => s.startedAt).length;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    padding: '4px 10px', fontSize: 10, fontWeight: 600,
+                    border: 'none', background: 'none',
+                    color: tab === t ? tokens.text.primary : tokens.text.muted,
+                    borderBottom: tab === t ? `2px solid ${tokens.border.focus}` : '2px solid transparent',
+                    textTransform: 'uppercase', letterSpacing: '0.5px',
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {t}
+                  {count > 0 && (
+                    <span style={{
+                      fontSize: 9, color: tokens.text.muted, fontFamily: tokens.font.mono,
+                      opacity: 0.6,
+                    }}>
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ maxHeight: 260, overflow: 'auto', padding: '6px 14px 8px' }}>
+            {tab === 'status' && Object.keys(steps).length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 {Object.values(steps).map((step) => {
                   const color = step.status === 'completed' ? tokens.status.completed
@@ -224,18 +255,13 @@ export function ExecutionPanel({
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Event log */}
-          {events.length > 0 && (
-            <>
-              <div style={{
-                fontSize: 9, fontWeight: 700, color: tokens.text.muted,
-                textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4,
-              }}>
-                Event Log
-              </div>
+            {tab === 'timeline' && (
+              <ExecutionTimeline steps={steps} onSelect={onSelectNode} />
+            )}
+
+            {tab === 'events' && events.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                 {events.map((evt, i) => (
                   <div
@@ -261,8 +287,14 @@ export function ExecutionPanel({
                   </div>
                 ))}
               </div>
-            </>
-          )}
+            )}
+
+            {tab === 'events' && events.length === 0 && (
+              <div style={{ fontSize: 11, color: tokens.text.muted, fontStyle: 'italic' }}>
+                No events yet.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

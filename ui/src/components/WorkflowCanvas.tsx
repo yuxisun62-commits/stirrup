@@ -15,19 +15,9 @@ import {
   Position,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import type { WorkflowDefinition, WorkflowNode as WfNode } from '../api/client';
+import type { WorkflowDefinition, WorkflowNode as WfNode, StepResult } from '../api/client';
 import { tokens } from './ui/styles';
-
-const TYPE_ICONS: Record<string, string> = {
-  transform: 'f(x)',
-  condition: '?:',
-  http: 'GET',
-  script: '{ }',
-  'llm-prompt': 'AI',
-  'agent-tool-use': 'BOT',
-  'decision-routing': 'RTE',
-  'code-generation': '</>',
-};
+import { getNodeMetadata } from './nodeMetadata';
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; pulse: boolean }> = {
   running: { color: tokens.status.running, label: 'RUNNING', pulse: true },
@@ -37,10 +27,53 @@ const STATUS_CONFIG: Record<string, { color: string; label: string; pulse: boole
   pending: { color: tokens.status.pending, label: 'WAIT', pulse: false },
 };
 
-function CustomNode({ data, selected }: { data: { label: string; type: string; status?: string; outputCount: number; inputCount: number }; selected?: boolean }) {
-  const color = tokens.nodeColors[data.type] ?? '#475569';
+interface NodeData {
+  label: string;
+  type: string;
+  status?: string;
+  outputCount: number;
+  inputCount: number;
+  step?: StepResult;
+}
+
+/**
+ * Canvas node renderer. Pulls icon/color from the shared nodeMetadata
+ * catalog so built-ins and plugin nodes both get their branded styling,
+ * then layers execution feedback on top: status label, iteration count
+ * (for per-item nodes whose output is `{items: [...]}`), selected branch
+ * (for condition nodes), duration (ms) once completed, and a retry
+ * counter when attempts > 1.
+ */
+function CustomNode({ data, selected }: { data: NodeData; selected?: boolean }) {
+  const meta = getNodeMetadata(data.type);
+  const color = tokens.nodeColors[data.type] ?? meta.color;
   const statusCfg = data.status ? STATUS_CONFIG[data.status] : null;
   const borderColor = statusCfg ? statusCfg.color : selected ? '#60a5fa' : `${color}60`;
+
+  const step = data.step;
+  const duration = step?.startedAt && step?.completedAt
+    ? new Date(step.completedAt).getTime() - new Date(step.startedAt).getTime()
+    : null;
+
+  // Iteration badge: per-item nodes emit `{items: [...], count: N}` when
+  // the upstream was array-shaped. Show count + a "per-item" cue so users
+  // can tell at a glance how many iterations ran.
+  const iterCount =
+    step?.status === 'completed' &&
+    step.outputs &&
+    typeof step.outputs === 'object' &&
+    Array.isArray((step.outputs as Record<string, unknown>).items)
+      ? ((step.outputs as Record<string, unknown>).items as unknown[]).length
+      : null;
+
+  const selectedBranch = step?.selectedBranch;
+  const retries = step && step.attempts > 1 ? step.attempts : null;
+
+  // Sub-workflow gets a special indicator showing the child execution ran.
+  const subExecutionId =
+    data.type === 'sub-workflow' && step?.status === 'completed'
+      ? (step.outputs as Record<string, unknown>)?.executionId as string | undefined
+      : undefined;
 
   return (
     <div
@@ -49,7 +82,7 @@ function CustomNode({ data, selected }: { data: { label: string; type: string; s
         borderRadius: 10,
         border: `2px solid ${borderColor}`,
         backgroundColor: tokens.bg.surface,
-        minWidth: 150,
+        minWidth: 160,
         overflow: 'hidden',
         boxShadow: statusCfg?.pulse
           ? `0 0 16px ${statusCfg.color}40, 0 0 4px ${statusCfg.color}20`
@@ -69,11 +102,17 @@ function CustomNode({ data, selected }: { data: { label: string; type: string; s
         <span style={{
           fontSize: 9, fontWeight: 800, color, fontFamily: tokens.font.mono,
           backgroundColor: `${color}20`, padding: '1px 4px', borderRadius: 3,
+          whiteSpace: 'nowrap', maxWidth: 48, overflow: 'hidden', textOverflow: 'ellipsis',
         }}>
-          {TYPE_ICONS[data.type] ?? data.type}
+          {meta.icon}
         </span>
-        <span style={{ fontSize: 9, color: tokens.text.muted, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-          {data.type}
+        <span style={{
+          fontSize: 9, color: tokens.text.muted, fontWeight: 600,
+          textTransform: 'uppercase', letterSpacing: '0.5px',
+          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          maxWidth: 110,
+        }}>
+          {meta.label}
         </span>
 
         {statusCfg && (
@@ -95,17 +134,83 @@ function CustomNode({ data, selected }: { data: { label: string; type: string; s
         {data.label}
       </div>
 
-      {/* I/O counts */}
-      <div style={{
-        padding: '0 10px 6px',
-        display: 'flex', gap: 8, fontSize: 9, color: tokens.text.muted,
-      }}>
-        {data.inputCount > 0 && <span>{data.inputCount} input{data.inputCount > 1 ? 's' : ''}</span>}
-        {data.outputCount > 0 && <span>{data.outputCount} output{data.outputCount > 1 ? 's' : ''}</span>}
-      </div>
+      {/* Execution feedback row — visible once the node has run */}
+      {(duration !== null || iterCount !== null || selectedBranch || retries || subExecutionId) && (
+        <div style={{
+          padding: '0 10px 6px',
+          display: 'flex', flexWrap: 'wrap', gap: 4,
+          alignItems: 'center',
+        }}>
+          {duration !== null && (
+            <Badge
+              color={tokens.text.muted}
+              label={duration < 1000 ? `${duration}ms` : `${(duration / 1000).toFixed(1)}s`}
+              hint="Execution duration"
+            />
+          )}
+          {iterCount !== null && (
+            <Badge
+              color={tokens.status.running}
+              label={`${iterCount}×`}
+              hint={`Iterated ${iterCount} items`}
+            />
+          )}
+          {selectedBranch && (
+            <Badge
+              color="#f59e0b"
+              label={`→ ${selectedBranch}`}
+              hint="Selected branch"
+            />
+          )}
+          {retries && (
+            <Badge
+              color={tokens.status.paused}
+              label={`${retries}× retry`}
+              hint={`Succeeded after ${retries} attempts`}
+            />
+          )}
+          {subExecutionId && (
+            <Badge
+              color="#8b5cf6"
+              label="⤴ child"
+              hint={`Sub-workflow execution ${subExecutionId.slice(0, 8)}…`}
+            />
+          )}
+        </div>
+      )}
+
+      {/* I/O counts shown only when no execution feedback occupies this row */}
+      {duration === null && iterCount === null && !selectedBranch && !retries && !subExecutionId && (
+        <div style={{
+          padding: '0 10px 6px',
+          display: 'flex', gap: 8, fontSize: 9, color: tokens.text.muted,
+        }}>
+          {data.inputCount > 0 && <span>{data.inputCount} input{data.inputCount > 1 ? 's' : ''}</span>}
+          {data.outputCount > 0 && <span>{data.outputCount} output{data.outputCount > 1 ? 's' : ''}</span>}
+        </div>
+      )}
 
       <Handle type="source" position={Position.Bottom} style={{ backgroundColor: color, width: 8, height: 8, border: `2px solid ${tokens.bg.surface}` }} />
     </div>
+  );
+}
+
+function Badge({ color, label, hint }: { color: string; label: string; hint?: string }) {
+  return (
+    <span
+      title={hint}
+      style={{
+        fontSize: 9, fontWeight: 700,
+        padding: '1px 5px', borderRadius: 3,
+        backgroundColor: `${color}20`,
+        color,
+        fontFamily: tokens.font.mono,
+        letterSpacing: 0.3,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -114,6 +219,13 @@ const nodeTypes: NodeTypes = { custom: CustomNode };
 interface Props {
   workflow: WorkflowDefinition;
   stepStatuses: Record<string, string>;
+  /**
+   * Optional full step-result map. When provided, nodes render rich
+   * execution feedback on the canvas (duration, iteration count, branch,
+   * retry count, sub-workflow link). When absent we fall back to just
+   * the status pill from stepStatuses.
+   */
+  stepResults?: Record<string, StepResult>;
   onAddNode: (type: string, position: { x: number; y: number }) => string;
   onAddEdge: (from: string, to: string) => void;
   onRemoveNode: (nodeId: string) => void;
@@ -122,7 +234,7 @@ interface Props {
   onSelectNode: (nodeId: string | null) => void;
 }
 
-export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, onRemoveNode, onRemoveEdge, onUpdateEdgeCondition, onSelectNode }: Props) {
+export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode, onAddEdge, onRemoveNode, onRemoveEdge, onUpdateEdgeCondition, onSelectNode }: Props) {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   const initialNodes: Node[] = useMemo(
@@ -137,9 +249,10 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
           status: stepStatuses[n.id],
           outputCount: n.outputs.length,
           inputCount: n.inputs.length,
+          step: stepResults?.[n.id],
         },
       })),
-    [workflow.nodes, stepStatuses]
+    [workflow.nodes, stepStatuses, stepResults]
   );
 
   const initialEdges: Edge[] = useMemo(
@@ -169,15 +282,19 @@ export function WorkflowCanvas({ workflow, stepStatuses, onAddNode, onAddEdge, o
     setEdges(initialEdges);
   }, [workflowKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Update node status badges during execution
+  // Update node status + step result during execution.
   useEffect(() => {
     setNodes((nds) =>
       nds.map((n) => ({
         ...n,
-        data: { ...n.data, status: stepStatuses[n.id] },
+        data: {
+          ...n.data,
+          status: stepStatuses[n.id],
+          step: stepResults?.[n.id],
+        },
       }))
     );
-  }, [stepStatuses, setNodes]);
+  }, [stepStatuses, stepResults, setNodes]);
 
   const onConnect: OnConnect = useCallback(
     (params) => {
