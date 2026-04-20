@@ -4,6 +4,7 @@ import { ConfigEditor } from './config/ConfigEditor';
 import { StatusBadge } from './StatusBadge';
 import { tokens, inputBase, btnSecondary, btnDanger } from './ui/styles';
 import { BugIcon } from './ui/icons';
+import { getNodeMetadata } from './nodeMetadata';
 
 interface Props {
   node: WorkflowNode;
@@ -13,22 +14,15 @@ interface Props {
   onDebug?: () => void;
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  transform: 'Transform',
-  condition: 'Condition',
-  http: 'HTTP Request',
-  script: 'Script',
-  'llm-prompt': 'LLM Prompt',
-  'agent-tool-use': 'Agent (Tool Use)',
-  'decision-routing': 'AI Decision Router',
-  'code-generation': 'Code Generation',
-};
-
 export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }: Props) {
   const [activeTab, setActiveTab] = useState<'config' | 'io' | 'results' | 'advanced'>(
     stepResult?.status === 'completed' || stepResult?.status === 'failed' ? 'results' : 'config'
   );
-  const nodeColor = tokens.nodeColors[node.type] ?? '#475569';
+  // Label + color come from the same catalog the palette uses, so built-ins
+  // AND the 140+ plugin types render with their branded service color
+  // instead of the dim fallback grey the old `tokens.nodeColors` map gave.
+  const meta = getNodeMetadata(node.type);
+  const nodeColor = tokens.nodeColors[node.type] ?? meta.color;
   const hasResults = !!stepResult;
 
   return (
@@ -44,7 +38,7 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
           <div style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: nodeColor }} />
           <span style={{ fontSize: 10, fontWeight: 700, color: nodeColor, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {TYPE_LABELS[node.type] ?? node.type}
+            {meta.label}
           </span>
         </div>
         <input
