@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorkflow } from './hooks/useWorkflow';
 import { useExecution } from './hooks/useExecution';
@@ -57,6 +57,9 @@ const CommandPalette = lazy(() =>
 const TriggerConfigEditor = lazy(() =>
   import('./components/TriggerConfigEditor').then((m) => ({ default: m.TriggerConfigEditor })),
 );
+const ContextEditor = lazy(() =>
+  import('./components/ContextEditor').then((m) => ({ default: m.ContextEditor })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -72,7 +75,7 @@ function App() {
   const {
     workflow, selectedNode, dirty, loadWorkflow, addNode, updateNode,
     removeNode, addEdge, removeEdge, updateEdgeCondition, updateParams,
-    updateTriggers, setSelectedNodeId, setDirty,
+    updateTriggers, updateContext, setSelectedNodeId, setDirty,
   } = useWorkflow();
   const [showParams, setShowParams] = useState(false);
   const tutorial = useTutorial();
@@ -89,22 +92,54 @@ function App() {
   const [showTriggers, setShowTriggers] = useState(false);
   const [showPalette, setShowPalette] = useState(false);
   const [showTriggerConfig, setShowTriggerConfig] = useState(false);
+  const [showContext, setShowContext] = useState(false);
+  const [zenMode, setZenMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // ⌘K / Ctrl-K opens the command palette. Esc-to-close is handled
-  // inside the palette component; any key we want to claim globally
-  // goes here. We skip the shortcut when the user is typing in an
-  // input so normal editing isn't disrupted.
+  // Global keyboard shortcuts. All of them are gated so that typing
+  // inside a text input or textarea falls through to normal editing —
+  // otherwise ⌘S on a prompt textarea would jump to save-workflow
+  // mid-sentence, which is maddening.
+  //
+  // Shortcut map:
+  //   ⌘K / Ctrl-K    — command palette
+  //   ⌘S / Ctrl-S    — save workflow
+  //   ⌘⏎ / Ctrl-⏎    — run workflow
+  //   ⌘. / Ctrl-.    — toggle zen mode (hide sidebar + inspector for
+  //                     maximum canvas real estate)
+  // Refs hold the latest handler references so the useEffect's keydown
+  // listener (installed once) always calls current closures. Without
+  // refs we'd either re-install the listener on every render or chase
+  // a stale handleSave that predates subsequent edits.
+  const handlersRef = useRef<{ save: () => void; run: () => void } | null>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const k = e.key.toLowerCase();
-      if ((e.metaKey || e.ctrlKey) && k === 'k') {
-        const t = e.target as HTMLElement | null;
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
-          return;
-        }
+      const t = e.target as HTMLElement | null;
+      const inInput = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if (!(e.metaKey || e.ctrlKey)) return;
+
+      if (e.key.toLowerCase() === 'k') {
+        if (inInput) return;
         e.preventDefault();
         setShowPalette(true);
+        return;
+      }
+      if (e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        handlersRef.current?.save();
+        return;
+      }
+      if (e.key === 'Enter') {
+        if (inInput) return;
+        e.preventDefault();
+        handlersRef.current?.run();
+        return;
+      }
+      if (e.key === '.') {
+        if (inInput) return;
+        e.preventDefault();
+        setZenMode((z) => !z);
+        return;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -192,6 +227,10 @@ function App() {
     } catch (err) { alert(`Run failed: ${err instanceof Error ? err.message : String(err)}`); }
   };
 
+  // Keep the ref pointing at the current handler every render so the
+  // global keydown listener calls the latest closures.
+  handlersRef.current = { save: handleSave, run: handleRunClick };
+
   // ─── Sidebar content (shared between desktop and mobile drawer) ───
   const sidebarContent = (
     <>
@@ -245,8 +284,8 @@ function App() {
         backgroundColor: tokens.bg.base, color: tokens.text.primary,
         fontFamily: tokens.font.sans,
       }}>
-        {/* ── Desktop sidebar ── */}
-        {!isMobile && (
+        {/* ── Desktop sidebar (hidden in zen mode for focused canvas work) ── */}
+        {!isMobile && !zenMode && (
           <div data-tutorial="sidebar" style={{
             width: 230, borderRight: `1px solid ${tokens.border.subtle}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -315,6 +354,17 @@ function App() {
                 backgroundColor: `${tokens.status.paused}15`, padding: '1px 6px', borderRadius: 3,
               }}>UNSAVED</span>
             )}
+            {zenMode && (
+              <button
+                onClick={() => setZenMode(false)}
+                title="Exit zen mode (⌘.)"
+                style={{
+                  fontSize: 9, fontWeight: 700, color: tokens.text.accent,
+                  backgroundColor: `${tokens.text.accent}15`, padding: '1px 6px', borderRadius: 3,
+                  border: 'none', cursor: 'pointer', letterSpacing: 0.5,
+                }}
+              >ZEN · ⌘.</button>
+            )}
             {!isMobile && (
               <span style={{ fontSize: 10, color: tokens.text.muted }}>
                 {workflow.nodes.length} nodes / {workflow.edges.length} edges
@@ -327,6 +377,21 @@ function App() {
               color: (workflow.params?.length ?? 0) > 0 ? tokens.text.accent : tokens.text.muted,
               cursor: 'pointer',
             }}>Params {(workflow.params?.length ?? 0) > 0 ? `(${workflow.params!.length})` : ''}</button>
+            <button
+              onClick={() => setShowContext(true)}
+              title="Declare default context values every node can read"
+              style={{
+                padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: workflow.context && Object.keys(workflow.context).length > 0
+                  ? tokens.text.accent
+                  : tokens.text.muted,
+                cursor: 'pointer',
+              }}
+            >
+              Context{workflow.context && Object.keys(workflow.context).length > 0
+                ? ` (${Object.keys(workflow.context).length})` : ''}
+            </button>
             <button data-tutorial="connections-button" onClick={() => setShowAuth(true)} style={{
               padding: '5px 10px', fontSize: 10, fontWeight: 600, borderRadius: 5,
               border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
@@ -420,8 +485,11 @@ function App() {
           />
         </div>
 
-        {/* ── Right inspector (desktop: side panel, mobile: bottom sheet) ── */}
-        {selectedNode && !isMobile && (
+        {/* ── Right inspector (desktop: side panel, mobile: bottom sheet) ──
+            Hidden in zen mode unless the user has an explicit selection
+            — selecting a node still swings the inspector in so quick
+            edits don't require a full zen-toggle round-trip. */}
+        {selectedNode && !isMobile && !zenMode && (
           <div style={{ width: 300, overflow: 'hidden' }}>
             <NodeInspector
               node={selectedNode}
@@ -505,6 +573,13 @@ function App() {
               onClose={() => setShowTriggerConfig(false)}
             />
           )}
+          {showContext && (
+            <ContextEditor
+              context={workflow.context}
+              onChange={updateContext}
+              onClose={() => setShowContext(false)}
+            />
+          )}
           {showPalette && (
             <CommandPalette
               open={showPalette}
@@ -532,6 +607,10 @@ function App() {
                   run: () => setShowPlugins(true) },
                 { id: 'params', label: 'Workflow params', hint: 'Declare runtime parameters', keywords: ['inputs'],
                   run: () => setShowParams(true) },
+                { id: 'context', label: 'Workflow context', hint: 'Default shared state values every node can read', keywords: ['defaults', 'state'],
+                  run: () => setShowContext(true) },
+                { id: 'zen', label: zenMode ? 'Exit zen mode' : 'Enter zen mode', hint: 'Hide sidebar + inspector to maximize the canvas (⌘.)', keywords: ['fullscreen', 'focus'],
+                  run: () => setZenMode((z) => !z) },
                 { id: 'export', label: 'Export workflow', hint: 'Build a deployable package', keywords: ['deploy', 'bundle'],
                   run: () => setShowExport(true) },
               ]}

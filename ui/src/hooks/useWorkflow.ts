@@ -101,6 +101,16 @@ export function useWorkflow() {
     setDirty(true);
   }, []);
 
+  const updateContext = useCallback((context: WorkflowDefinition['context']) => {
+    setWorkflow((prev) => {
+      const next = { ...prev } as WorkflowDefinition;
+      if (context) next.context = context;
+      else delete (next as { context?: unknown }).context;
+      return next;
+    });
+    setDirty(true);
+  }, []);
+
   return {
     workflow,
     selectedNode,
@@ -116,6 +126,7 @@ export function useWorkflow() {
     updateEdgeCondition,
     updateParams,
     updateTriggers,
+    updateContext,
     setSelectedNodeId,
     setDirty,
   };

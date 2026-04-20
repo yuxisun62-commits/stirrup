@@ -459,7 +459,25 @@ export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode,
         </Controls>
         <MiniMap
           style={{ backgroundColor: tokens.bg.surface, borderRadius: 8 }}
-          nodeColor={(n) => tokens.nodeColors[n.data?.type as string] ?? '#475569'}
+          /**
+           * MiniMap doubles as an execution overview after a run. We
+           * prefer the step status color when we have one (green for
+           * completed, red for failed, etc.) and fall back to the
+           * type-based color from the catalog for pre-run or
+           * non-executed nodes. This lets a user glance at the map and
+           * instantly see which sections of a large workflow have
+           * already finished and which haven't.
+           */
+          nodeColor={(n) => {
+            const d = n.data as unknown as NodeData | undefined;
+            const status = d?.status;
+            if (status === 'completed') return tokens.status.completed;
+            if (status === 'failed') return tokens.status.failed;
+            if (status === 'running') return tokens.status.running;
+            if (status === 'skipped') return tokens.status.skipped;
+            const type = d?.type ?? '';
+            return tokens.nodeColors[type] ?? getNodeMetadata(type).color;
+          }}
           maskColor="rgba(10, 15, 30, 0.8)"
         />
       </ReactFlow>
