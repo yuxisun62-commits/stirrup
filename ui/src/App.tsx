@@ -51,6 +51,9 @@ const TutorialWizard = lazy(() =>
 const TriggersPanel = lazy(() =>
   import('./components/TriggersPanel').then((m) => ({ default: m.TriggersPanel })),
 );
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((m) => ({ default: m.CommandPalette })),
+);
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -81,7 +84,28 @@ function App() {
   const [showAuth, setShowAuth] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [showTriggers, setShowTriggers] = useState(false);
+  const [showPalette, setShowPalette] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ⌘K / Ctrl-K opens the command palette. Esc-to-close is handled
+  // inside the palette component; any key we want to claim globally
+  // goes here. We skip the shortcut when the user is typing in an
+  // input so normal editing isn't disrupted.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const k = e.key.toLowerCase();
+      if ((e.metaKey || e.ctrlKey) && k === 'k') {
+        const t = e.target as HTMLElement | null;
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        setShowPalette(true);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const isMobile = useIsMobile();
 
   // Restore the most recent execution when the workflow changes (e.g. after
@@ -450,6 +474,36 @@ function App() {
           )}
           {showAuth && <AuthPanel onClose={() => setShowAuth(false)} />}
           {showTriggers && <TriggersPanel onClose={() => setShowTriggers(false)} />}
+          {showPalette && (
+            <CommandPalette
+              open={showPalette}
+              onClose={() => setShowPalette(false)}
+              onSelectWorkflow={(wf) => handleSelectWorkflow(wf)}
+              onAddNode={(type) => addNode(type, { x: 400, y: 200 })}
+              actions={[
+                { id: 'run', label: 'Run workflow', hint: 'Execute this workflow now', keywords: ['execute', 'start'],
+                  run: () => handleRunClick() },
+                { id: 'save', label: 'Save workflow', hint: 'Persist current edits to disk', keywords: ['persist'],
+                  run: () => handleSave() },
+                { id: 'new', label: 'New workflow', hint: 'Create a blank workflow', keywords: ['create'],
+                  run: () => handleNew() },
+                { id: 'templates', label: 'Browse templates', hint: 'Open the template / import browser', keywords: ['import', 'n8n', 'make'],
+                  run: () => setShowTemplates(true) },
+                { id: 'generate', label: 'AI Generate workflow', hint: 'Describe a workflow and let Claude build it', keywords: ['ai', 'describe'],
+                  run: () => setShowGenerate(true) },
+                { id: 'connections', label: 'Connections', hint: 'Manage service credentials', keywords: ['auth', 'tokens', 'services'],
+                  run: () => setShowAuth(true) },
+                { id: 'triggers', label: 'Triggers', hint: 'Inspect live HTTP / cron / Telegram triggers', keywords: ['http', 'webhook', 'cron', 'telegram'],
+                  run: () => setShowTriggers(true) },
+                { id: 'plugins', label: 'Plugins', hint: 'Available integrations + load state', keywords: ['integrations'],
+                  run: () => setShowPlugins(true) },
+                { id: 'params', label: 'Workflow params', hint: 'Declare runtime parameters', keywords: ['inputs'],
+                  run: () => setShowParams(true) },
+                { id: 'export', label: 'Export workflow', hint: 'Build a deployable package', keywords: ['deploy', 'bundle'],
+                  run: () => setShowExport(true) },
+              ]}
+            />
+          )}
           {showParams && (
             <WorkflowParamsEditor
               params={(workflow.params ?? []) as any[]}

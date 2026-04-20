@@ -3,6 +3,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  ControlButton,
   MiniMap,
   type Node,
   type Edge,
@@ -18,6 +19,7 @@ import '@xyflow/react/dist/style.css';
 import type { WorkflowDefinition, WorkflowNode as WfNode, StepResult } from '../api/client';
 import { tokens } from './ui/styles';
 import { getNodeMetadata } from './nodeMetadata';
+import { computeLayout } from './autoLayout';
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; pulse: boolean }> = {
   running: { color: tokens.status.running, label: 'RUNNING', pulse: true },
@@ -435,7 +437,26 @@ export function WorkflowCanvas({ workflow, stepStatuses, stepResults, onAddNode,
         <Controls
           style={{ backgroundColor: tokens.bg.surface, borderColor: tokens.border.subtle, borderRadius: 8 }}
           showInteractive={false}
-        />
+        >
+          {/* Auto-layout button — arranges nodes into a topological
+              hierarchy. Operates on the local React Flow state so the
+              rearrangement is visible immediately and the workflow def
+              on disk isn't touched until the user saves. */}
+          <ControlButton
+            title="Arrange nodes in a hierarchical layout"
+            onClick={() => {
+              const positions = computeLayout(workflow);
+              setNodes((nds) =>
+                nds.map((n) => ({
+                  ...n,
+                  position: positions[n.id] ?? n.position,
+                })),
+              );
+            }}
+          >
+            <span style={{ fontSize: 12, fontWeight: 800, fontFamily: tokens.font.mono }}>⇲</span>
+          </ControlButton>
+        </Controls>
         <MiniMap
           style={{ backgroundColor: tokens.bg.surface, borderRadius: 8 }}
           nodeColor={(n) => tokens.nodeColors[n.data?.type as string] ?? '#475569'}
