@@ -75,10 +75,13 @@ export function enrichError(error: string, knownNodeIds: Set<string>): EnrichedE
     }
 
     if (message.includes("must be equal to one of the allowed values") || message.includes("enum")) {
+      // Path-aware hint — the schema has several enums and each takes
+      // different values. Dispatching by path means users see the right
+      // fix instead of the generic "try a node type" red herring.
       return {
         message: error,
         severity: "error",
-        suggestion: `The value at ${path} is not valid. Check the allowed values — for node types, use one of: ${[...KNOWN_NODE_TYPES].join(", ")}.`,
+        suggestion: `The value at ${path} is not valid. ${enumHintFor(path)}`,
       };
     }
 
@@ -121,10 +124,47 @@ export function enrichError(error: string, knownNodeIds: Set<string>): EnrichedE
   return { message: error, severity: "error" };
 }
 
+/**
+ * Given an Ajv error path, return the correct allowed-values hint.
+ * The schema has several independent enums (param types, param picker,
+ * trigger.http.method, trigger.watch.events) that need distinct
+ * suggestions — a generic "valid node types" list was actively
+ * misleading when the violation was on a different field.
+ *
+ * We deliberately DON'T enumerate node types: the schema lets any
+ * string through on node.type since plugins register their own types
+ * at runtime. The server accepts whatever's registered.
+ */
+function enumHintFor(path: string): string {
+  // /params/<i>/type — string | number | boolean | json
+  if (/\/params\/\d+\/type$/.test(path)) {
+    return `Workflow param types are: string, number, boolean, json.`;
+  }
+  // /params/<i>/picker — github-repo (current single option)
+  if (/\/params\/\d+\/picker$/.test(path)) {
+    return `Allowed picker: github-repo. Leave picker unset for plain text entry.`;
+  }
+  // /triggers/http/method
+  if (/\/triggers\/http\/method$/.test(path)) {
+    return `Allowed HTTP trigger methods: POST, GET.`;
+  }
+  // /triggers/watch/events/<i>
+  if (/\/triggers\/watch\/events\/\d+$/.test(path)) {
+    return `Allowed file-watch events: create, change, delete.`;
+  }
+  // Fallback — the error message already tells the user it's an enum
+  // violation; without path context we shouldn't invent allowed values.
+  return `Check the allowed values for this field in the workflow schema.`;
+}
+
 function getFieldHint(field: string): string {
   const hints: Record<string, string> = {
     id: "Use a unique kebab-case identifier, e.g. 'my-node'.",
-    type: "Choose a node type: transform, condition, http, script, llm-prompt, agent-tool-use, decision-routing, or code-generation.",
+    // `type` appears in multiple contexts (node.type, param.type, etc.)
+    // so keep the hint general — the enum-specific hint above covers
+    // param types separately. Node types are open-ended: built-ins plus
+    // whatever the loaded plugins register.
+    type: "Node types: any of the built-ins (transform, condition, http, script, llm-prompt, agent-tool-use, decision-routing, code-generation, iterate, passthrough, fail, sub-workflow, merge) or a registered plugin type. Param types: string, number, boolean, json.",
     name: "A human-readable label for the node.",
     inputs: "An array of input mappings: [{ from: 'nodes.X.outputs.Y', to: 'fieldName' }].",
     outputs: "An array of output field names produced by this node.",

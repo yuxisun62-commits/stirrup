@@ -12,6 +12,7 @@ import { saveWorkflow, createWorkflow, type WorkflowDefinition } from './api/cli
 import { tokens } from './components/ui/styles';
 import { MenuIcon } from './components/ui/icons';
 import { useTutorial } from './components/tutorial/useTutorial';
+import { useTheme } from './theme/ThemeProvider';
 
 // Lazy-load every modal/dialog panel. Each lands in its own vite chunk and
 // is only fetched when the user actually opens it. This drops the initial
@@ -96,6 +97,7 @@ function App() {
   const [zenMode, setZenMode] = useState(false);
   const [invalidNodeIds, setInvalidNodeIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   // Global keyboard shortcuts. All of them are gated so that typing
   // inside a text input or textarea falls through to normal editing —
@@ -399,6 +401,17 @@ function App() {
               color: tokens.text.muted, cursor: 'pointer',
             }}>Connections</button>
             <button
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}
+              style={{
+                padding: '5px 8px', fontSize: 11, borderRadius: 5,
+                border: `1px solid ${tokens.border.default}`, backgroundColor: 'transparent',
+                color: tokens.text.muted, cursor: 'pointer', lineHeight: 1,
+              }}
+            >
+              {theme === 'dark' ? '☀' : '☾'}
+            </button>
+            <button
               onClick={() => setShowTriggerConfig(true)}
               title="Configure how this workflow fires (HTTP, webhook, cron, Telegram)"
               style={{
@@ -619,6 +632,8 @@ function App() {
                   run: () => setShowContext(true) },
                 { id: 'zen', label: zenMode ? 'Exit zen mode' : 'Enter zen mode', hint: 'Hide sidebar + inspector to maximize the canvas (⌘.)', keywords: ['fullscreen', 'focus'],
                   run: () => setZenMode((z) => !z) },
+                { id: 'theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, hint: 'Toggle dark / light color palette', keywords: ['theme', 'color', 'appearance'],
+                  run: () => toggleTheme() },
                 { id: 'export', label: 'Export workflow', hint: 'Build a deployable package', keywords: ['deploy', 'bundle'],
                   run: () => setShowExport(true) },
               ]}
