@@ -1,8 +1,28 @@
 import type { CommandModule } from "yargs";
-import { resolve, basename } from "node:path";
-import { existsSync, mkdirSync, writeFileSync, copyFileSync } from "node:fs";
+import { resolve, basename, dirname } from "node:path";
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { loadWorkflowFile } from "../../loader/WorkflowLoader.js";
 import { success, error, info } from "../output.js";
+
+/**
+ * Read the host stirrup-ai version so the exported project pins against
+ * the one that generated it. Falls back to "latest" when we can't find
+ * our own package.json (tests / dev builds under unusual layouts).
+ */
+function currentStirrupVersion(): string {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    // Walk up looking for package.json with name "stirrup-ai".
+    for (let dir = here, prev = ""; dir !== prev; prev = dir, dir = dirname(dir)) {
+      const candidate = resolve(dir, "package.json");
+      if (!existsSync(candidate)) continue;
+      const pkg = JSON.parse(readFileSync(candidate, "utf-8")) as { name?: string; version?: string };
+      if (pkg.name === "stirrup-ai" && pkg.version) return `^${pkg.version}`;
+    }
+  } catch { /* fall through */ }
+  return "latest";
+}
 
 interface ExportArgs {
   workflow: string;
@@ -67,7 +87,16 @@ export const exportCommand: CommandModule<{}, ExportArgs> = {
             dev: "node --watch server.js",
           },
           dependencies: {
-            "stirrup": "^0.1.0",
+            // The npm package name is `stirrup-ai` — the generated server
+            // imports from it below. Pinning to the CURRENT stirrup-ai
+            // version prevents drift between the generator and the
+            // deployed runtime, and rules out the old "ReferenceError:
+            // require is not defined" failure caused by accidentally
+            // installing an unrelated `stirrup` package.
+            "stirrup-ai": currentStirrupVersion(),
+            // server.js uses Express directly; it's a peer of stirrup-ai
+            // for the exported project so we must list it ourselves.
+            "express": "^5.2.1",
           },
         },
         null,
@@ -80,8 +109,8 @@ export const exportCommand: CommandModule<{}, ExportArgs> = {
       .map((p) => `//   ${p.name} (${p.type}${p.required ? ", required" : ""})${p.description ? ` — ${p.description}` : ""}`)
       .join("\n");
 
-    const serverCode = `import { WorkflowEngine, SqliteStateStore, NodeRegistry } from "stirrup";
-import { transformHandler, conditionHandler, httpHandler, scriptHandler } from "stirrup";
+    const serverCode = `import { WorkflowEngine, SqliteStateStore, NodeRegistry } from "stirrup-ai";
+import { transformHandler, conditionHandler, httpHandler, scriptHandler } from "stirrup-ai";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -103,7 +132,7 @@ registry.register("http", httpHandler);
 registry.register("script", scriptHandler);
 
 // NOTE: For AI nodes, add:
-// import { AnthropicProvider, createLlmPromptHandler, ... } from "stirrup";
+// import { AnthropicProvider, createLlmPromptHandler, ... } from "stirrup-ai";
 // const provider = new AnthropicProvider(process.env.ANTHROPIC_API_KEY);
 // registry.register("llm-prompt", createLlmPromptHandler(provider));
 

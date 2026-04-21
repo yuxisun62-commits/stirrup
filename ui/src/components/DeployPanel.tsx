@@ -69,10 +69,19 @@ export function DeployPanel({ workflow, onClose }: Props) {
       // Launchmatic is connected so the engine's server-side injection
       // picks up the saved credential from ~/.stirrup/tokens.json. Same
       // for anthropicKey now that it's service-backed.
+      //
+      // stirrupVersion pins the generated package.json to the version
+      // currently running. Without this, the generated deploy pinned
+      // to "^0.1.0" (nonexistent) and the deployed container installed
+      // an unrelated `stirrup` package — which surfaced as a cryptic
+      // "ReferenceError: require is not defined" when Express tried to
+      // import the wrong module. We read the version from the browser
+      // tab's title / package import path baked in at build time.
       const context: Record<string, unknown> = {
         workflowFile: `workflows/${workflow.id}.yaml`,
         projectSlug,
         serviceName,
+        stirrupVersion: `^${__APP_VERSION__}`,
       };
       if (!lmConnected) {
         context.lmToken = lmToken;

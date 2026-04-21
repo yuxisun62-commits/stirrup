@@ -26,6 +26,10 @@ params:
     required: true
     description: "Anthropic API key for AI nodes in the deployed workflow"
     service: anthropic
+  - name: stirrupVersion
+    type: string
+    description: "Version of stirrup-ai to pin in the generated package.json. The UI injects the host version; CLI users can set `^0.7.0` or similar."
+    default: "latest"
   - name: slackToken
     type: string
     description: "Optional: Slack token to notify on deploy"
@@ -55,25 +59,49 @@ nodes:
         to: name
     outputs: [response]
     config:
+      # The prompt is pinned to ES module syntax because the generated
+      # file runs in a package.json with "type": "module". Any CJS
+      # (`require`, `module.exports`) would throw "require is not
+      # defined" at runtime — this used to happen when the LLM's
+      # default bias toward CJS leaked through.
       promptTemplate: |
-        Generate a complete Node.js server (ES module) that runs this Stirrup workflow as an HTTP service.
+        Generate a complete Node.js server (ES module — NO `require`) that runs this Stirrup workflow as an HTTP service.
 
         Workflow YAML:
         {{workflowYaml}}
 
         Requirements:
-        - Use Express on port from PORT env var (default 3000)
-        - Import and configure stirrup-ai engine
-        - Register all node handlers (transform, condition, http, script + AI nodes if ANTHROPIC_API_KEY is set)
-        - Load the workflow from a ./workflow.yaml file
-        - POST /run — execute with request body as context params
-        - GET /health — health check
-        - GET /status/:id — execution status
-        - Use proper error handling
+        - ES MODULE SYNTAX ONLY. Use `import ... from "..."`. Never use `require()`, `module.exports`, or `__dirname` directly (derive via `fileURLToPath(import.meta.url)` if needed).
+        - Import the engine via `import { WorkflowEngine, ... } from "stirrup-ai"`. The package name is stirrup-ai, NOT stirrup.
+        - Use Express (`import express from "express"`) on port from PORT env var (default 3000).
+        - Register the built-in node handlers plus AI handlers when ANTHROPIC_API_KEY is set.
+        - Load the workflow from `./workflow.yaml` via engine.loadWorkflow().
+        - POST /run — execute with request body as context params.
+        - GET /health — health check.
+        - GET /status/:id — execution status via engine.getState().
+        - Wrap handlers in try/catch and return HTTP 400 with the error message on failure.
 
-        Return ONLY the JavaScript code, no markdown fencing.
-      systemPrompt: "Generate production-ready Node.js server code. Use ES module syntax. Be thorough with error handling."
+        Return ONLY the JavaScript source, no markdown fencing, no explanations.
+      systemPrompt: "Generate production-ready Node.js ES module server code. Never emit CommonJS. Never use require(). The package name is stirrup-ai."
       maxTokens: 4096
+
+  - id: compose-paths
+    type: transform
+    name: Compose Output Paths
+    inputs:
+      - from: context.serviceName
+        to: name
+    outputs: [dir, serverPath, packagePath, dockerPath, envPath, workflowPath]
+    config:
+      expression: |
+        ({
+          dir:          '.deploy-' + inputs.name,
+          serverPath:   '.deploy-' + inputs.name + '/server.js',
+          packagePath:  '.deploy-' + inputs.name + '/package.json',
+          dockerPath:   '.deploy-' + inputs.name + '/Dockerfile',
+          envPath:      '.deploy-' + inputs.name + '/.env',
+          workflowPath: '.deploy-' + inputs.name + '/workflow.yaml'
+        })
 
   - id: generate-package
     type: transform
@@ -81,8 +109,16 @@ nodes:
     inputs:
       - from: context.serviceName
         to: name
+      - from: context.stirrupVersion
+        to: stirrupVersion
     outputs: [packageJson]
     config:
+      # stirrupVersion comes from the DeployPanel (current host version)
+      # or falls through to "latest" for CLI usage. Pinning to a
+      # nonexistent version like "^0.1.0" was the root cause of the
+      # earlier "require is not defined" failures — the install landed
+      # an unrelated package, then the ESM/CJS bridge surfaced as that
+      # error.
       expression: |
         ({
           packageJson: JSON.stringify({
@@ -91,8 +127,8 @@ nodes:
             type: 'module',
             scripts: { start: 'node server.js' },
             dependencies: {
-              'stirrup-ai': '^0.1.0',
-              'express': '^5.0.0'
+              'stirrup-ai': inputs.stirrupVersion || 'latest',
+              'express': '^5.2.1'
             }
           }, null, 2)
         })
@@ -108,34 +144,80 @@ nodes:
           dockerfile: 'FROM node:20-slim\nWORKDIR /app\nCOPY package.json ./\nRUN npm install --production\nCOPY . .\nEXPOSE 3000\nCMD ["node", "server.js"]'
         })
 
-  - id: write-files
-    type: script
-    name: Write Project Files
+  - id: generate-env
+    type: transform
+    name: Generate .env
     inputs:
-      - from: nodes.generate-server.outputs.response
-        to: serverCode
-      - from: nodes.generate-package.outputs.packageJson
-        to: packageJson
-      - from: nodes.generate-dockerfile.outputs.dockerfile
-        to: dockerfile
-      - from: nodes.read-workflow.outputs.content
-        to: workflowYaml
-      - from: context.serviceName
-        to: name
-    outputs: [result]
+      - from: context.anthropicKey
+        to: anthropicKey
+    outputs: [envContents]
     config:
-      code: |
-        const fs = require('fs');
-        const path = require('path');
-        const dir = path.resolve('.deploy-' + inputs.name);
-        fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, 'server.js'), inputs.serverCode);
-        fs.writeFileSync(path.join(dir, 'package.json'), inputs.packageJson);
-        fs.writeFileSync(path.join(dir, 'Dockerfile'), inputs.dockerfile);
-        fs.writeFileSync(path.join(dir, 'workflow.yaml'), inputs.workflowYaml);
-        fs.writeFileSync(path.join(dir, '.env'), 'ANTHROPIC_API_KEY=' + (context.anthropicKey || '') + '\nPORT=3000\n');
-        result = { dir, files: ['server.js', 'package.json', 'Dockerfile', 'workflow.yaml', '.env'] };
-      timeoutMs: 5000
+      expression: |
+        ({
+          envContents: 'ANTHROPIC_API_KEY=' + (inputs.anthropicKey || '') + '\nPORT=3000\n'
+        })
+
+  # The previous revision did all five writes in a single `script` node
+  # via `const fs = require('fs')`. Our ScriptNode sandbox intentionally
+  # doesn't expose `require`, so the node threw "ReferenceError: require
+  # is not defined" on every deploy. Five `fs-write` plugin nodes use
+  # the real filesystem API and each auto-creates its parent directory
+  # (createDirs defaults on).
+
+  - id: write-server-file
+    type: fs-write
+    name: Write server.js
+    inputs:
+      - from: nodes.compose-paths.outputs.serverPath
+        to: path
+      - from: nodes.generate-server.outputs.response
+        to: content
+    outputs: [path, size, written]
+    config: {}
+
+  - id: write-package-file
+    type: fs-write
+    name: Write package.json
+    inputs:
+      - from: nodes.compose-paths.outputs.packagePath
+        to: path
+      - from: nodes.generate-package.outputs.packageJson
+        to: content
+    outputs: [path, size, written]
+    config: {}
+
+  - id: write-docker-file
+    type: fs-write
+    name: Write Dockerfile
+    inputs:
+      - from: nodes.compose-paths.outputs.dockerPath
+        to: path
+      - from: nodes.generate-dockerfile.outputs.dockerfile
+        to: content
+    outputs: [path, size, written]
+    config: {}
+
+  - id: write-env-file
+    type: fs-write
+    name: Write .env
+    inputs:
+      - from: nodes.compose-paths.outputs.envPath
+        to: path
+      - from: nodes.generate-env.outputs.envContents
+        to: content
+    outputs: [path, size, written]
+    config: {}
+
+  - id: write-workflow-file
+    type: fs-write
+    name: Write workflow.yaml
+    inputs:
+      - from: nodes.compose-paths.outputs.workflowPath
+        to: path
+      - from: nodes.read-workflow.outputs.content
+        to: content
+    outputs: [path, size, written]
+    config: {}
 
   - id: create-service
     type: lm-create-service
@@ -150,20 +232,6 @@ nodes:
     outputs: [serviceId, name, status]
     config:
       runtime: "docker"
-
-  - id: set-env-vars
-    type: lm-env-set
-    name: Set Environment Variables
-    inputs:
-      - from: nodes.create-service.outputs.serviceId
-        to: serviceId
-      - from: context.lmToken
-        to: token
-      - from: context.anthropicKey
-        to: anthropicKey
-    outputs: [set, count]
-    config:
-      variables: {}
 
   - id: format-env
     type: transform
@@ -181,6 +249,19 @@ nodes:
             NODE_ENV: 'production'
           }
         })
+
+  - id: set-env-vars
+    type: lm-env-set
+    name: Set Environment Variables
+    inputs:
+      - from: nodes.create-service.outputs.serviceId
+        to: serviceId
+      - from: context.lmToken
+        to: token
+      - from: nodes.format-env.outputs.variables
+        to: variables
+    outputs: [set, count]
+    config: {}
 
   - id: deploy
     type: lm-deploy
@@ -252,24 +333,8 @@ nodes:
     config:
       expression: "inputs.token ? 'yes' : 'no'"
     branches:
-      yes: [notify-slack]
+      yes: [format-slack]
       no: []
-
-  - id: notify-slack
-    type: slack-send
-    name: Notify Deployment
-    inputs:
-      - from: context.slackToken
-        to: token
-      - from: context.slackChannel
-        to: channel
-      - from: nodes.build-result.outputs.result
-        to: result
-    outputs: [messageTs]
-    config:
-      text: ""
-      channel: ""
-      token: ""
 
   - id: format-slack
     type: transform
@@ -290,18 +355,53 @@ nodes:
             '```' + inputs.result.usage + '```'
         })
 
+  - id: notify-slack
+    type: slack-send
+    name: Notify Deployment
+    inputs:
+      - from: context.slackToken
+        to: token
+      - from: context.slackChannel
+        to: channel
+      - from: nodes.format-slack.outputs.text
+        to: text
+    outputs: [messageTs]
+    config: {}
+
 edges:
   - from: read-workflow
     to: generate-server
-  - from: generate-server
-    to: write-files
-  - from: generate-package
-    to: write-files
-  - from: generate-dockerfile
-    to: write-files
   - from: read-workflow
-    to: write-files
-  - from: write-files
+    to: compose-paths
+  - from: compose-paths
+    to: write-server-file
+  - from: generate-server
+    to: write-server-file
+  - from: compose-paths
+    to: write-package-file
+  - from: generate-package
+    to: write-package-file
+  - from: compose-paths
+    to: write-docker-file
+  - from: generate-dockerfile
+    to: write-docker-file
+  - from: compose-paths
+    to: write-env-file
+  - from: generate-env
+    to: write-env-file
+  - from: compose-paths
+    to: write-workflow-file
+  - from: read-workflow
+    to: write-workflow-file
+  - from: write-server-file
+    to: create-service
+  - from: write-package-file
+    to: create-service
+  - from: write-docker-file
+    to: create-service
+  - from: write-env-file
+    to: create-service
+  - from: write-workflow-file
     to: create-service
   - from: create-service
     to: format-env
