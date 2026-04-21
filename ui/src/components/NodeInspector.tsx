@@ -1,20 +1,22 @@
 import { useState } from 'react';
-import type { WorkflowNode, StepResult } from '../api/client';
+import type { WorkflowNode, WorkflowDefinition, StepResult } from '../api/client';
 import { ConfigEditor } from './config/ConfigEditor';
 import { StatusBadge } from './StatusBadge';
+import { InputMappingEditor } from './InputMappingEditor';
 import { tokens, inputBase, btnSecondary, btnDanger } from './ui/styles';
 import { BugIcon } from './ui/icons';
 import { getNodeMetadata } from './nodeMetadata';
 
 interface Props {
   node: WorkflowNode;
+  workflow: WorkflowDefinition;
   stepResult?: StepResult;
   onUpdate: (nodeId: string, updates: Partial<WorkflowNode>) => void;
   onDelete: (nodeId: string) => void;
   onDebug?: () => void;
 }
 
-export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }: Props) {
+export function NodeInspector({ node, workflow, stepResult, onUpdate, onDelete, onDebug }: Props) {
   const [activeTab, setActiveTab] = useState<'config' | 'io' | 'results' | 'advanced'>(
     stepResult?.status === 'completed' || stepResult?.status === 'failed' ? 'results' : 'config'
   );
@@ -108,7 +110,7 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
         )}
 
         {activeTab === 'io' && (
-          <InputOutputEditor node={node} onUpdate={onUpdate} />
+          <InputOutputEditor node={node} workflow={workflow} onUpdate={onUpdate} />
         )}
 
         {activeTab === 'results' && (
@@ -123,63 +125,24 @@ export function NodeInspector({ node, stepResult, onUpdate, onDelete, onDebug }:
   );
 }
 
-function InputOutputEditor({ node, onUpdate }: { node: WorkflowNode; onUpdate: (id: string, u: Partial<WorkflowNode>) => void }) {
+function InputOutputEditor({
+  node,
+  workflow,
+  onUpdate,
+}: {
+  node: WorkflowNode;
+  workflow: WorkflowDefinition;
+  onUpdate: (id: string, u: Partial<WorkflowNode>) => void;
+}) {
   return (
     <>
       {/* Inputs */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: tokens.text.muted, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 6 }}>
-          Input Mappings
-        </div>
-        <div style={{ fontSize: 10, color: tokens.text.muted, marginBottom: 8 }}>
-          Map data from upstream nodes or context into this node's inputs.
-        </div>
-        {node.inputs.map((inp, i) => (
-          <div key={i} style={{
-            display: 'flex', flexDirection: 'column', gap: 3, padding: 8, marginBottom: 6,
-            borderRadius: 6, backgroundColor: tokens.bg.raised, border: `1px solid ${tokens.border.subtle}`,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 10, color: tokens.text.muted, fontWeight: 600 }}>MAPPING {i + 1}</span>
-              <button
-                style={{ background: 'none', border: 'none', color: tokens.text.muted, cursor: 'pointer', fontSize: 10 }}
-                onClick={() => onUpdate(node.id, { inputs: node.inputs.filter((_, j) => j !== i) })}
-              >remove</button>
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: tokens.text.muted, marginBottom: 1 }}>Source</div>
-              <input
-                style={{ ...inputBase, fontSize: 11, fontFamily: tokens.font.mono }}
-                placeholder="nodes.upstream.outputs.field  or  context.path"
-                value={inp.from}
-                onChange={(e) => {
-                  const newInputs = [...node.inputs];
-                  newInputs[i] = { ...newInputs[i], from: e.target.value };
-                  onUpdate(node.id, { inputs: newInputs });
-                }}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 10, color: tokens.text.muted, marginBottom: 1 }}>Maps to input name</div>
-              <input
-                style={{ ...inputBase, fontSize: 11, fontFamily: tokens.font.mono }}
-                placeholder="variableName"
-                value={inp.to}
-                onChange={(e) => {
-                  const newInputs = [...node.inputs];
-                  newInputs[i] = { ...newInputs[i], to: e.target.value };
-                  onUpdate(node.id, { inputs: newInputs });
-                }}
-              />
-            </div>
-          </div>
-        ))}
-        <button
-          style={btnSecondary}
-          onClick={() => onUpdate(node.id, { inputs: [...node.inputs, { from: '', to: '' }] })}
-        >
-          + Add Input Mapping
-        </button>
+        <InputMappingEditor
+          node={node}
+          workflow={workflow}
+          onChange={(inputs) => onUpdate(node.id, { inputs })}
+        />
       </div>
 
       {/* Outputs */}

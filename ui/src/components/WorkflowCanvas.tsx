@@ -21,6 +21,7 @@ import type { WorkflowDefinition, WorkflowNode as WfNode, StepResult } from '../
 import { tokens } from './ui/styles';
 import { getNodeMetadata } from './nodeMetadata';
 import { computeLayout } from './autoLayout';
+import { EdgeConditionPopover } from './EdgeConditionPopover';
 
 const STATUS_CONFIG: Record<string, { color: string; label: string; pulse: boolean }> = {
   running: { color: tokens.status.running, label: 'RUNNING', pulse: true },
@@ -454,25 +455,31 @@ export function WorkflowCanvas({
     [workflow.edges]
   );
 
+  const applyEdgeCondition = useCallback(
+    (cond: string | undefined) => {
+      if (!editingEdge) return;
+      onUpdateEdgeCondition(editingEdge.source, editingEdge.target, cond);
+      setEdges((eds) =>
+        eds.map((e) =>
+          e.id === editingEdge.id
+            ? {
+                ...e,
+                label: cond ?? undefined,
+                animated: !!cond,
+                style: { stroke: cond ? '#f59e0b80' : '#334155', strokeWidth: 2 },
+              }
+            : e
+        )
+      );
+      setEditingEdge(null);
+    },
+    [editingEdge, onUpdateEdgeCondition, setEdges]
+  );
+
   const saveEdgeCondition = useCallback(() => {
     if (!editingEdge) return;
-    const cond = editingEdge.condition.trim() || undefined;
-    onUpdateEdgeCondition(editingEdge.source, editingEdge.target, cond);
-    // Update the local edge state to show the label immediately
-    setEdges((eds) =>
-      eds.map((e) =>
-        e.id === editingEdge.id
-          ? {
-              ...e,
-              label: cond ?? undefined,
-              animated: !!cond,
-              style: { stroke: cond ? '#f59e0b80' : '#334155', strokeWidth: 2 },
-            }
-          : e
-      )
-    );
-    setEditingEdge(null);
-  }, [editingEdge, onUpdateEdgeCondition, setEdges]);
+    applyEdgeCondition(editingEdge.condition.trim() || undefined);
+  }, [editingEdge, applyEdgeCondition]);
 
   return (
     <div ref={reactFlowWrapper} data-tutorial="canvas" style={{ width: '100%', height: '100%' }}>
@@ -550,89 +557,21 @@ export function WorkflowCanvas({
         />
       </ReactFlow>
 
-      {/* Edge condition editor popover — appears near where the user clicked */}
       {editingEdge && (
-        <div
-          style={{
-            position: 'absolute',
-            top: editingEdge.y - 10,
-            left: editingEdge.x - 100,
-            zIndex: 50,
-            padding: 10,
-            borderRadius: 8,
-            backgroundColor: tokens.bg.surface,
-            border: `1px solid ${tokens.border.default}`,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-            display: 'flex', flexDirection: 'column', gap: 6,
-            width: 240,
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div style={{ fontSize: 10, fontWeight: 700, color: tokens.text.muted, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Edge Condition
-          </div>
-          <div style={{ fontSize: 9, color: tokens.text.muted }}>
-            {editingEdge.source} → {editingEdge.target}
-          </div>
-          <input
-            autoFocus
-            style={{
-              width: '100%', padding: '6px 8px', fontSize: 11,
-              borderRadius: 4, border: `1px solid ${tokens.border.subtle}`,
-              backgroundColor: tokens.bg.input, color: tokens.text.primary,
-              fontFamily: tokens.font.mono, outline: 'none', boxSizing: 'border-box',
-            }}
-            value={editingEdge.condition}
-            onChange={(e) =>
-              setEditingEdge((prev) => prev ? { ...prev, condition: e.target.value } : null)
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') saveEdgeCondition();
-              if (e.key === 'Escape') setEditingEdge(null);
-            }}
-            placeholder="Branch name (e.g. success, failure, even, odd)"
-          />
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              onClick={saveEdgeCondition}
-              style={{
-                flex: 1, padding: '5px 10px', fontSize: 10, fontWeight: 600,
-                borderRadius: 4, border: 'none',
-                backgroundColor: tokens.border.focus, color: '#fff', cursor: 'pointer',
-              }}
-            >Save</button>
-            {editingEdge.condition && (
-              <button
-                onClick={() => {
-                  setEditingEdge((prev) => prev ? { ...prev, condition: '' } : null);
-                  // Immediately save empty = remove condition
-                  onUpdateEdgeCondition(editingEdge.source, editingEdge.target, undefined);
-                  setEdges((eds) =>
-                    eds.map((e) =>
-                      e.id === editingEdge.id
-                        ? { ...e, label: undefined, animated: false, style: { stroke: '#334155', strokeWidth: 2 } }
-                        : e
-                    )
-                  );
-                  setEditingEdge(null);
-                }}
-                style={{
-                  padding: '5px 10px', fontSize: 10, fontWeight: 600,
-                  borderRadius: 4, border: `1px solid ${tokens.border.default}`,
-                  backgroundColor: 'transparent', color: tokens.text.muted, cursor: 'pointer',
-                }}
-              >Clear</button>
-            )}
-            <button
-              onClick={() => setEditingEdge(null)}
-              style={{
-                padding: '5px 10px', fontSize: 10,
-                borderRadius: 4, border: `1px solid ${tokens.border.default}`,
-                backgroundColor: 'transparent', color: tokens.text.muted, cursor: 'pointer',
-              }}
-            >Cancel</button>
-          </div>
-        </div>
+        <EdgeConditionPopover
+          source={editingEdge.source}
+          target={editingEdge.target}
+          value={editingEdge.condition}
+          workflow={workflow}
+          x={editingEdge.x}
+          y={editingEdge.y}
+          onChange={(v) =>
+            setEditingEdge((prev) => prev ? { ...prev, condition: v } : null)
+          }
+          onSave={saveEdgeCondition}
+          onClear={() => applyEdgeCondition(undefined)}
+          onCancel={() => setEditingEdge(null)}
+        />
       )}
     </div>
   );

@@ -97,6 +97,16 @@ function App() {
   const [zenMode, setZenMode] = useState(false);
   const [invalidNodeIds, setInvalidNodeIds] = useState<Set<string>>(new Set());
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Desktop sidebar collapse — narrow rail vs full panel. Persisted so the
+  // user's preference survives reloads. Ignored on mobile (drawer pattern).
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('stirrup:sidebarCollapsed') === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('stirrup:sidebarCollapsed', sidebarCollapsed ? '1' : '0'); }
+    catch { /* storage disabled; in-memory state still works */ }
+  }, [sidebarCollapsed]);
   const { theme, toggle: toggleTheme } = useTheme();
 
   // Global keyboard shortcuts. All of them are gated so that typing
@@ -252,6 +262,18 @@ function App() {
             background: 'none', border: 'none', color: tokens.text.muted, fontSize: 20, cursor: 'pointer',
           }}>x</button>
         )}
+        {!isMobile && (
+          <button
+            onClick={() => setSidebarCollapsed(true)}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            style={{
+              background: 'none', border: 'none', color: tokens.text.muted,
+              fontSize: 14, cursor: 'pointer', padding: '2px 4px',
+              lineHeight: 1, fontFamily: tokens.font.mono,
+            }}
+          >&lt;</button>
+        )}
       </div>
 
       {/* Create buttons */}
@@ -287,14 +309,32 @@ function App() {
         backgroundColor: tokens.bg.base, color: tokens.text.primary,
         fontFamily: tokens.font.sans,
       }}>
-        {/* ── Desktop sidebar (hidden in zen mode for focused canvas work) ── */}
+        {/* ── Desktop sidebar (hidden in zen mode for focused canvas work) ──
+            Collapsed state renders a narrow rail with just an expand chevron
+            so users who want max canvas room still have one-click access
+            back to the full palette. Width change is animated for continuity. */}
         {!isMobile && !zenMode && (
           <div data-tutorial="sidebar" style={{
-            width: 230, borderRight: `1px solid ${tokens.border.subtle}`,
+            width: sidebarCollapsed ? 44 : 230,
+            borderRight: `1px solid ${tokens.border.subtle}`,
             display: 'flex', flexDirection: 'column', overflow: 'hidden',
             backgroundColor: tokens.bg.surface,
+            transition: 'width 0.18s ease',
           }}>
-            {sidebarContent}
+            {sidebarCollapsed ? (
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="Expand sidebar"
+                aria-label="Expand sidebar"
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '10px 0', color: tokens.text.muted,
+                  fontSize: 14, fontFamily: tokens.font.mono,
+                  borderBottom: `1px solid ${tokens.border.subtle}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >&gt;</button>
+            ) : sidebarContent}
           </div>
         )}
 
@@ -514,6 +554,7 @@ function App() {
           <div style={{ width: 300, overflow: 'hidden' }}>
             <NodeInspector
               node={selectedNode}
+              workflow={workflow}
               stepResult={execution?.steps[selectedNode.id]}
               onUpdate={updateNode}
               onDelete={removeNode}
@@ -543,6 +584,7 @@ function App() {
               <div style={{ maxHeight: 'calc(70vh - 20px)', overflow: 'auto' }}>
                 <NodeInspector
                   node={selectedNode}
+                  workflow={workflow}
                   stepResult={execution?.steps[selectedNode.id]}
                   onUpdate={updateNode}
                   onDelete={removeNode}
@@ -632,6 +674,8 @@ function App() {
                   run: () => setShowContext(true) },
                 { id: 'zen', label: zenMode ? 'Exit zen mode' : 'Enter zen mode', hint: 'Hide sidebar + inspector to maximize the canvas (⌘.)', keywords: ['fullscreen', 'focus'],
                   run: () => setZenMode((z) => !z) },
+                { id: 'sidebar', label: sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar', hint: 'Toggle the left sidebar rail', keywords: ['panel', 'hide', 'show'],
+                  run: () => setSidebarCollapsed((c) => !c) },
                 { id: 'theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, hint: 'Toggle dark / light color palette', keywords: ['theme', 'color', 'appearance'],
                   run: () => toggleTheme() },
                 { id: 'export', label: 'Export workflow', hint: 'Build a deployable package', keywords: ['deploy', 'bundle'],
