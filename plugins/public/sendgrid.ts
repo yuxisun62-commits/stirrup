@@ -8,7 +8,7 @@
  * verified sender or identity in your SendGrid account.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://api.sendgrid.com/v3";
 

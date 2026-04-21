@@ -19,6 +19,12 @@
  * 30-second timeout covers even slow LLM endpoints with large context
  * windows, and a 50 MB body cap covers normal audio / PDF / image files
  * but rejects nothing-is-this-big adversarial responses.
+ *
+ * Lives under plugins/ (not src/) so the compiled .js sits next to the
+ * plugin .js files that import it. Earlier versions lived at
+ * src/plugins/safeFetch.ts and were imported via "../../src/plugins/..."
+ * — the cross-tree path broke at runtime because the plugin build step
+ * wipes stray src/ artifacts, leaving the imported .js missing.
  */
 
 export const DEFAULT_TIMEOUT_MS = 30_000;

@@ -8,7 +8,7 @@
  * splits that combined string back out before making requests.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 function authHeader(credentials: string): Record<string, string> {
   // credentials format: "<sid>:<token>"

@@ -12,7 +12,7 @@
  * unversioned calls can break silently.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2022-06-28";

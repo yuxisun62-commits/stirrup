@@ -23,7 +23,7 @@
  * API Base: https://api.launchmatic.io/api
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API_BASE = process.env.LAUNCHMATIC_API_BASE ?? "https://api.launchmatic.io/api";
 

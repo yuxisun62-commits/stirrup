@@ -10,7 +10,7 @@
  * and the token authorizes. Basic auth sends `email/token:token`.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 interface ZendeskAuth {
   subdomain: string;

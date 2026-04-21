@@ -11,7 +11,7 @@
  * admin.mailchimp.com/account/api/.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 import { createHash } from "node:crypto";
 
 function dcFromKey(apiKey: string): string {

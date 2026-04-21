@@ -9,7 +9,7 @@
  * our handlers always use the API so the token is required.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
+import { safeFetch, safeArrayBuffer } from "../safeFetch.js";
 
 const API = "https://www.googleapis.com/drive/v3";
 const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";

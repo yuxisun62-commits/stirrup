@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
+import { safeFetch, safeArrayBuffer } from "../../plugins/safeFetch.js";
 
 const originalFetch = globalThis.fetch;
 

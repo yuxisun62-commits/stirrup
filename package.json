@@ -1,6 +1,6 @@
 {
   "name": "stirrup-ai",
-  "version": "0.7.23",
+  "version": "0.7.24",
   "description": "DAG workflow engine with AI-powered nodes — design, run, and deploy workflows from CLI, UI, or code",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,6 +11,7 @@
     "schemas/",
     "templates/",
     "plugins/public/",
+    "plugins/safeFetch.js",
     "src/ui/dist/",
     "LICENSE",
     "README.md",

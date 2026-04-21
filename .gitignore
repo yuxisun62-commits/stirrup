@@ -17,3 +17,6 @@ idea-to-launch-output/
 deploy-smoke-output/
 plugins/public/*.js
 plugins/public/*.d.ts
+plugins/safeFetch.js
+plugins/safeFetch.d.ts
+.deploy-*/

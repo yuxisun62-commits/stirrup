@@ -4,7 +4,7 @@
  * Tools: slack-post-message, slack-list-channels
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   const slackApi = async (method: string, token: string, body: Record<string, unknown>) => {

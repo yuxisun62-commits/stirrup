@@ -13,7 +13,7 @@
  * (no bot, just a webhook URL) use the existing webhook-send node.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://discord.com/api/v10";
 

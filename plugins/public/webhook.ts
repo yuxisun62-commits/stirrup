@@ -3,7 +3,7 @@
  * Node types: webhook-send, webhook-batch
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("webhook-send", async (config, execCtx) => {

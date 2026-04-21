@@ -9,7 +9,7 @@
  * pollers and senders use).
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 function tgApi(token: string, method: string) {
   return `https://api.telegram.org/bot${token}/${method}`;

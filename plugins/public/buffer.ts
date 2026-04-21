@@ -28,7 +28,7 @@
  *     and LinkedIn, and use this plugin only for the channels Typefully lacks.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API_BASE = "https://api.bufferapp.com/1";
 

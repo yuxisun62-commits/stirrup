@@ -3,7 +3,7 @@
  * Node types: oauth-token, api-key-request, jwt-decode, basic-auth-request
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 export default function register(ctx: PluginContext) {
   ctx.registerNodeType("oauth-token", async (config, execCtx) => {

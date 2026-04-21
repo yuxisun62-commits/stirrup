@@ -7,7 +7,7 @@
  * must be on a verified domain or @resend.dev in test mode.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://api.resend.com";
 

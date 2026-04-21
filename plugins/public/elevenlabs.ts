@@ -12,7 +12,7 @@
  * elevenlabs.io/app/settings/api-keys.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
+import { safeFetch, safeArrayBuffer } from "../safeFetch.js";
 
 const API = "https://api.elevenlabs.io/v1";
 

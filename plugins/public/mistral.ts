@@ -9,7 +9,7 @@
  * Auth: API key (service "mistral"). Get one at console.mistral.ai.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://api.mistral.ai/v1";
 

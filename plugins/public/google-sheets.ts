@@ -11,7 +11,7 @@
  * cell is a string. Use a downstream transform if you need typed values.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const API = "https://sheets.googleapis.com/v4/spreadsheets";
 

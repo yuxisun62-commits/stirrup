@@ -9,7 +9,7 @@
  * per-node `baseUrl` config because token alone doesn't identify the site.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 function authHeaders(credentials: string): Record<string, string> {
   // credentials format: "<email>:<apiToken>"

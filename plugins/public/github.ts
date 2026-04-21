@@ -4,7 +4,7 @@
  * Tools: github-search-code, github-get-repo
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 const ghHeaders = (token?: string) => ({
   Accept: "application/vnd.github.v3+json",

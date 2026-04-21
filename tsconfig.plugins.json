@@ -14,7 +14,7 @@
     "noEmit": false,
     "isolatedModules": true
   },
-  "include": ["plugins/public/*.ts"],
+  "include": ["plugins/safeFetch.ts", "plugins/public/*.ts"],
   "exclude": [
     "node_modules",
     "dist",

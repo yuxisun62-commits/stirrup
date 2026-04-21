@@ -10,7 +10,7 @@
  * Auth: API key (service "groq"). Get one at console.groq.com/keys.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch, safeArrayBuffer } from "../../src/plugins/safeFetch.js";
+import { safeFetch, safeArrayBuffer } from "../safeFetch.js";
 
 const API = "https://api.groq.com/openai/v1";
 

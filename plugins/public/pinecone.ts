@@ -10,7 +10,7 @@
  * (service "pinecone") as a plain `pcsk_...` key.
  */
 import type { PluginContext } from "../../src/plugins/PluginManifest.js";
-import { safeFetch } from "../../src/plugins/safeFetch.js";
+import { safeFetch } from "../safeFetch.js";
 
 function apiHeaders(token: string): Record<string, string> {
   return {
