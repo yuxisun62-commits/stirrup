@@ -219,12 +219,25 @@ nodes:
     outputs: [path, size, written]
     config: {}
 
+  - id: ensure-project
+    type: lm-create-project
+    name: Ensure Launchmatic Project Exists
+    inputs:
+      - from: context.projectSlug
+        to: slug
+      - from: context.projectSlug
+        to: name
+      - from: context.lmToken
+        to: token
+    outputs: [projectId, slug, name, teamId, reused]
+    config: {}
+
   - id: create-service
     type: lm-create-service
     name: Create Launchmatic Service
     inputs:
-      - from: context.projectSlug
-        to: projectSlug
+      - from: nodes.ensure-project.outputs.projectId
+        to: projectId
       - from: context.serviceName
         to: name
       - from: context.lmToken
@@ -393,6 +406,8 @@ edges:
     to: write-workflow-file
   - from: read-workflow
     to: write-workflow-file
+  - from: ensure-project
+    to: create-service
   - from: write-server-file
     to: create-service
   - from: write-package-file

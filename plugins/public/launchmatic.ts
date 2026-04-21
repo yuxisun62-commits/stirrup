@@ -280,14 +280,40 @@ export default function register(ctx: PluginContext) {
   // ─────────────────────── Services ───────────────────────
 
   ctx.registerNodeType("lm-create-service", async (config, execCtx) => {
-    const { projectId, name, repo, branch, framework, port } = {
+    const {
+      projectId: projectIdIn, projectSlug, teamId: teamIdIn,
+      name, repo, branch, framework, port,
+    } = {
       ...execCtx.inputs, ...config,
     } as {
-      projectId: string; name: string; repo?: string;
+      projectId?: string; projectSlug?: string; teamId?: string;
+      name: string; repo?: string;
       branch?: string; framework?: string; port?: number;
     };
-    if (!projectId) throw new Error("lm-create-service: projectId is required");
+    if (!projectIdIn && !projectSlug) {
+      throw new Error("lm-create-service: projectId or projectSlug is required");
+    }
     const api = lmApi(getToken(config, execCtx.inputs));
+
+    // Resolve projectSlug → projectId when the caller only has the slug.
+    // self-deploy-launchmatic drives the whole flow off the slug (users see
+    // slugs in the Launchmatic UI; IDs are internal UUIDs), so this is the
+    // hot path for template-driven deploys. Direct projectId still wins
+    // when supplied, so lm-create-project→lm-create-service chains keep
+    // working without an extra round-trip.
+    let projectId = projectIdIn;
+    if (!projectId) {
+      const teamId = await resolveTeamId(api, teamIdIn);
+      const found = await findProjectBySlug(api, teamId, projectSlug!);
+      if (!found) {
+        throw new Error(
+          `lm-create-service: no project with slug "${projectSlug}" in team ${teamId}. ` +
+          `Create it first via lm-create-project, or pass projectId directly.`
+        );
+      }
+      projectId = String((found as { id: unknown }).id);
+    }
+
     const { owner: repoOwner, name: repoName } = parseRepo(repo);
     const service = await api("POST", "/services", {
       name,
