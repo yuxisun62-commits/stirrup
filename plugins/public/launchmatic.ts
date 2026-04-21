@@ -141,11 +141,15 @@ export default function register(ctx: PluginContext) {
   // ─────────────────────── Deployment ───────────────────────
 
   ctx.registerNodeType("lm-deploy", async (config, execCtx) => {
-    const { serviceId, branch, commitSha } = { ...execCtx.inputs, ...config } as {
-      serviceId: string; branch?: string; commitSha?: string;
+    // autoCreateRepo defaults true so first-time deploys can provision the
+    // git repo on Launchmatic's side instead of failing with "repo not
+    // found". Callers that already manage their repo can opt out by
+    // passing autoCreateRepo: false from config or inputs.
+    const { serviceId, branch, commitSha, autoCreateRepo = true } = { ...execCtx.inputs, ...config } as {
+      serviceId: string; branch?: string; commitSha?: string; autoCreateRepo?: boolean;
     };
     const api = lmApi(getToken(config, execCtx.inputs));
-    const deployment = await api("POST", "/deployments", { serviceId, branch, commitSha });
+    const deployment = await api("POST", "/deployments", { serviceId, branch, commitSha, autoCreateRepo });
     return {
       deploymentId: deployment.id,
       status: deployment.status,
